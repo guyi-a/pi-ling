@@ -13,7 +13,6 @@ import type {
   TimelineItem,
   ToolTimelineItem,
 } from "../../timeline/reducer";
-import { ApprovalCard } from "./ApprovalCard";
 import { ApprovalModePicker } from "./ApprovalModePicker";
 import { ExecutionTimeline } from "./ExecutionTimeline";
 import { MessageItem } from "./MessageItem";
@@ -89,6 +88,13 @@ export function ChatView(props: {
     }
   }
 
+  const approvalsByTool = new Map(
+    items
+      .filter(
+        (item): item is ApprovalTimelineItem => item.kind === "approval",
+      )
+      .map((item) => [item.toolItemId, item]),
+  );
   const rendered: ReactNode[] = [];
   for (let index = 0; index < items.length; index += 1) {
     const item = items[index]!;
@@ -98,15 +104,6 @@ export function ChatView(props: {
       continue;
     }
     if (item.kind === "approval") {
-      rendered.push(
-        <ApprovalCard
-          item={item}
-          key={item.id}
-          onDecision={(approval, approved) => {
-            void onApproval(approval, approved);
-          }}
-        />,
-      );
       continue;
     }
     if (item.kind === "assistant" && item.stopReason === "toolUse") {
@@ -116,7 +113,15 @@ export function ChatView(props: {
         index += 1;
       }
       rendered.push(
-        <ExecutionTimeline assistant={item} tools={tools} key={item.id} />,
+        <ExecutionTimeline
+          assistant={item}
+          tools={tools}
+          approvals={approvalsByTool}
+          key={item.id}
+          onApproval={(approval, approved) => {
+            void onApproval(approval, approved);
+          }}
+        />,
       );
       continue;
     }
@@ -125,7 +130,18 @@ export function ChatView(props: {
       continue;
     }
     if (item.kind === "tool") {
-      rendered.push(<ToolCard item={item} key={item.id} />);
+      rendered.push(
+        <ToolCard
+          item={item}
+          key={item.id}
+          {...(approvalsByTool.get(item.id)
+            ? { approval: approvalsByTool.get(item.id)! }
+            : {})}
+          onApproval={(approval, approved) => {
+            void onApproval(approval, approved);
+          }}
+        />,
+      );
     }
   }
 

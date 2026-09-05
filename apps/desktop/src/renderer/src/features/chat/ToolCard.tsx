@@ -12,7 +12,11 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import type { ToolTimelineItem } from "../../timeline/reducer";
+import type {
+  ApprovalTimelineItem,
+  ToolTimelineItem,
+} from "../../timeline/reducer";
+import { ApprovalCard } from "./ApprovalCard";
 
 const metadata: Record<
   string,
@@ -63,7 +67,15 @@ const statusLabel: Record<ToolTimelineItem["status"], string> = {
   denied: "已拒绝",
 };
 
-export function ToolCard({ item }: { item: ToolTimelineItem }) {
+export function ToolCard(props: {
+  item: ToolTimelineItem;
+  approval?: ApprovalTimelineItem;
+  onApproval?: (
+    item: ApprovalTimelineItem,
+    approved: boolean,
+  ) => void;
+}) {
+  const { item, approval, onApproval } = props;
   const meta = metadata[item.tool] ?? {
     label: item.tool,
     icon: Wrench,
@@ -98,6 +110,9 @@ export function ToolCard({ item }: { item: ToolTimelineItem }) {
           <summary>输出</summary>
           <pre>{item.output}</pre>
         </details>
+      ) : null}
+      {approval && onApproval ? (
+        <ApprovalCard item={approval} onDecision={onApproval} />
       ) : null}
     </div>
   );

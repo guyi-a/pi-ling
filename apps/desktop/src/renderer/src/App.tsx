@@ -14,20 +14,36 @@ import {
   createTimelineState,
   timelineReducer,
 } from "./timeline/reducer";
+import {
+  createUiFixture,
+  type UiFixtureName,
+} from "./ui-fixtures";
+
+const fixtureName = new URLSearchParams(window.location.search).get("fixture");
+const fixture =
+  fixtureName &&
+  ["empty", "markdown", "tool", "approval", "long"].includes(fixtureName)
+    ? createUiFixture(fixtureName as UiFixtureName)
+    : undefined;
 
 export function App() {
   const [timeline, dispatch] = useReducer(
     timelineReducer,
     undefined,
-    createTimelineState,
+    () => fixture?.timeline ?? createTimelineState(),
   );
-  const [status, setStatus] = useState<AgentStatus | null>(null);
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [status, setStatus] = useState<AgentStatus | null>(
+    fixture?.status ?? null,
+  );
+  const [sessions, setSessions] = useState<SessionSummary[]>(
+    fixture?.sessions ?? [],
+  );
   const [pendingRunId, setPendingRunId] = useState<string | null>(null);
   const queueRef = useRef<TimelineEnvelope[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    if (fixture) return;
     const flush = () => {
       timerRef.current = null;
       const queued = queueRef.current;
@@ -151,19 +167,29 @@ export function App() {
   const modelLabel = !status?.configured
     ? "缺少 DEEPSEEK_API_KEY"
     : status.workspace
-      ? `${status.provider}/${status.model} · ${status.workspace.root}`
+      ? `${status.provider}/${status.model}`
       : "请选择工作区";
+  const activeSessionTitle = sessions.find(
+    (session) => session.id === status?.sessionId,
+  )?.title;
 
   return (
     <main className="shell">
       <header className="topbar">
-        <div className="brand">
-          <span className="brand-mark">π</span>
-          <span>pi-ling</span>
+        <div className="title-context">
+          <div className="brand">
+            <span className="brand-mark">π</span>
+            <span>pi-ling</span>
+          </div>
+          {activeSessionTitle ? (
+            <>
+              <span className="title-divider" />
+              <span className="workspace-context">
+                {activeSessionTitle}
+              </span>
+            </>
+          ) : null}
         </div>
-        <span className="workspace-context">
-          {status?.workspace?.name ?? "未选择工作区"}
-        </span>
       </header>
 
       <section className="workspace">

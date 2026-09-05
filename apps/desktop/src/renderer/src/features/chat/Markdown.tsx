@@ -18,7 +18,7 @@ export const Markdown = memo(function Markdown(props: {
       className={`markdown ${props.streaming ? "is-streaming" : ""}`}
       onClickCapture={blockNavigation}
     >
-      <Streamdown>{props.children}</Streamdown>
+      <Streamdown controls={{ table: false }}>{props.children}</Streamdown>
     </div>
   );
 });

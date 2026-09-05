@@ -2,6 +2,7 @@ import { ChevronRight, LoaderCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import type {
+  ApprovalTimelineItem,
   AssistantTimelineItem,
   ToolTimelineItem,
 } from "../../timeline/reducer";
@@ -10,8 +11,13 @@ import { ToolCard } from "./ToolCard";
 export function ExecutionTimeline(props: {
   assistant: AssistantTimelineItem;
   tools: ToolTimelineItem[];
+  approvals: ReadonlyMap<string, ApprovalTimelineItem>;
+  onApproval: (
+    item: ApprovalTimelineItem,
+    approved: boolean,
+  ) => void;
 }) {
-  const { assistant, tools } = props;
+  const { assistant, tools, approvals, onApproval } = props;
   const active =
     assistant.status === "streaming" ||
     tools.some((tool) =>
@@ -46,7 +52,14 @@ export function ExecutionTimeline(props: {
           <div className="execution-text">{assistant.text}</div>
         ) : null}
         {tools.map((tool) => (
-          <ToolCard item={tool} key={tool.id} />
+          <ToolCard
+            item={tool}
+            key={tool.id}
+            {...(approvals.get(tool.id)
+              ? { approval: approvals.get(tool.id)! }
+              : {})}
+            onApproval={onApproval}
+          />
         ))}
       </div>
     </details>

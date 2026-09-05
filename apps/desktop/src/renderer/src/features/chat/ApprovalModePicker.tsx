@@ -50,7 +50,13 @@ export function ApprovalModePicker(props: {
       open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
-      <summary aria-label="审批模式">
+      <summary
+        aria-label="审批模式"
+        aria-disabled={props.disabled}
+        onClick={(event) => {
+          if (props.disabled) event.preventDefault();
+        }}
+      >
         <SelectedIcon />
         {selected.label}
         <ChevronDown className="approval-mode-chevron" />

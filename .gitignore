@@ -3,6 +3,7 @@ out/
 dist/
 release/
 .vite/
+.artifacts/
 *.log
 .env
 .env.*

@@ -2,10 +2,10 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  padding: 14px 10px;
+  padding: 14px 9px 10px;
   overflow: hidden;
   border-right: 1px solid var(--border);
-  background: #0e1014;
+  background: #15161a;
 }
 
 .sidebar-header {
@@ -18,9 +18,8 @@
 .section-label {
   margin: 0;
   color: var(--muted-2);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
+  font-size: 11px;
+  font-weight: 580;
 }
 
 .new-session {
@@ -29,21 +28,21 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 10px;
+  padding: 0 9px;
   color: var(--text-soft);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface-2);
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: #1d1e23;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 12.5px;
   transition:
     border-color 120ms ease,
     background 120ms ease;
 }
 
 .new-session:hover {
-  border-color: var(--border-strong);
-  background: var(--surface-3);
+  border-color: var(--border);
+  background: #222329;
 }
 
 .new-session svg {
@@ -67,9 +66,10 @@
   grid-template-columns: 14px minmax(0, 1fr) 22px;
   align-items: center;
   gap: 6px;
-  padding: 0 5px;
+  padding: 0 7px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 11.5px;
+  font-weight: 560;
 }
 
 .project-header > svg {
@@ -112,18 +112,19 @@
 }
 
 .session-item {
+  position: relative;
   width: 100%;
   display: grid;
   grid-template-columns: 8px minmax(0, 1fr) auto;
   align-items: center;
   column-gap: 8px;
   row-gap: 3px;
-  margin: 2px 0;
-  padding: 8px 9px;
+  margin: 1px 0;
+  padding: 7px 8px 7px 14px;
   overflow: hidden;
   color: var(--muted);
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
+  border: 0;
+  border-radius: 6px;
   background: transparent;
   cursor: pointer;
   text-align: left;
@@ -140,8 +141,18 @@
 
 .session-item.active {
   color: var(--text);
-  border-color: var(--border);
-  background: var(--surface-3);
+  background: #222329;
+}
+
+.session-item.active::before {
+  position: absolute;
+  top: 7px;
+  bottom: 7px;
+  left: 3px;
+  width: 2px;
+  content: "";
+  border-radius: 2px;
+  background: var(--accent);
 }
 
 .session-status {
@@ -166,7 +177,7 @@
 
 .session-title {
   overflow: hidden;
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 520;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -174,7 +185,7 @@
 
 .session-time {
   color: var(--muted-2);
-  font-size: 10px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -191,7 +202,7 @@
   border-radius: var(--radius-sm);
   background: transparent;
   cursor: pointer;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .add-workspace:hover {

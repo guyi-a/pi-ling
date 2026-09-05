@@ -1,3 +1,4 @@
+import { promises as fs } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -20,6 +21,7 @@ import {
   BrowserWindow,
   dialog,
   ipcMain,
+  Menu,
   shell,
   type WebContents,
 } from "electron";
@@ -151,8 +153,18 @@ function createWindow(): BrowserWindow {
     minWidth: 900,
     minHeight: 620,
     show: false,
-    backgroundColor: "#0b0d12",
+    backgroundColor: "#121317",
     title: "pi-ling",
+    ...(process.platform === "win32"
+      ? {
+          titleBarStyle: "hidden" as const,
+          titleBarOverlay: {
+            color: "#121317",
+            symbolColor: "#8B8F9A",
+            height: 44,
+          },
+        }
+      : { titleBarStyle: "hiddenInset" as const }),
     webPreferences: {
       preload: join(__dirname, "../preload/index.cjs"),
       contextIsolation: true,
@@ -161,7 +173,19 @@ function createWindow(): BrowserWindow {
     },
   });
 
-  window.once("ready-to-show", () => window.show());
+  window.once("ready-to-show", () => {
+    window.show();
+    const capturePath = process.env["PI_LING_CAPTURE_PATH"];
+    if (capturePath) {
+      setTimeout(() => {
+        void window.webContents.capturePage().then(async (image) => {
+          await fs.mkdir(dirname(capturePath), { recursive: true });
+          await fs.writeFile(capturePath, image.toPNG());
+          app.quit();
+        });
+      }, 800);
+    }
+  });
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith("https://")) {
       void shell.openExternal(url);
@@ -170,10 +194,15 @@ function createWindow(): BrowserWindow {
   });
   window.webContents.on("will-navigate", (event) => event.preventDefault());
 
+  const fixture = process.env["PI_LING_UI_FIXTURE"];
   if (process.env["ELECTRON_RENDERER_URL"]) {
-    void window.loadURL(process.env["ELECTRON_RENDERER_URL"]);
+    const url = new URL(process.env["ELECTRON_RENDERER_URL"]);
+    if (fixture) url.searchParams.set("fixture", fixture);
+    void window.loadURL(url.toString());
   } else {
-    void window.loadFile(join(__dirname, "../renderer/index.html"));
+    void window.loadFile(join(__dirname, "../renderer/index.html"), {
+      ...(fixture ? { query: { fixture } } : {}),
+    });
   }
   return window;
 }
@@ -313,6 +342,7 @@ ipcMain.handle(
 );
 
 void app.whenReady().then(() => {
+  Menu.setApplicationMenu(null);
   sessionStore = new SessionStore(
     join(app.getPath("userData"), "pi-ling.db"),
   );

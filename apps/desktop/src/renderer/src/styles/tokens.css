@@ -17,7 +17,7 @@
   --warning: #e3bd6b;
   --danger: #ef8794;
   --focus: rgb(168 180 224 / 38%);
-  --sidebar-width: 248px;
+  --sidebar-width: 252px;
   --content-width: 780px;
   --radius-sm: 6px;
   --radius-md: 9px;
@@ -85,4 +85,15 @@ summary:focus-visible {
   border-radius: 999px;
   background: #353b46;
   background-clip: padding-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

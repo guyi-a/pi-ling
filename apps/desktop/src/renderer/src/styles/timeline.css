@@ -130,7 +130,7 @@
 
 .tool-state {
   color: var(--muted-2);
-  font-size: 9px;
+  font-size: 11px;
   text-transform: uppercase;
 }
 
@@ -144,7 +144,7 @@
 .tool-output summary {
   width: fit-content;
   cursor: pointer;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .tool-arguments pre,
@@ -159,7 +159,7 @@
   border-radius: var(--radius-sm);
   background: #0a0c0f;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.55;
   white-space: pre-wrap;
 }
@@ -170,6 +170,18 @@
   border: 1px solid rgb(227 189 107 / 28%);
   border-radius: var(--radius-md);
   background: rgb(227 189 107 / 5%);
+}
+
+.tool-card .approval-card {
+  margin: 10px 0 1px 22px;
+  padding: 10px 0 2px;
+  border-width: 1px 0 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.tool-card .approval-card.resolved {
+  padding: 7px 0 0;
 }
 
 .approval-card.resolved {
@@ -208,7 +220,7 @@
 .approval-reason {
   margin: 0;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .approval-actions {

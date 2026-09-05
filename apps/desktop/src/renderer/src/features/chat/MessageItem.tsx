@@ -20,10 +20,6 @@ export function MessageItem(props: {
 
   return (
     <article className="message assistant">
-      <div className="message-role">
-        <span className="message-role-icon">π</span>
-        pi-ling
-      </div>
       {item.thinking ? (
         <details className="message-thinking">
           <summary>
