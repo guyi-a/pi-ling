@@ -10,7 +10,7 @@
   - 重点参考：`packages/coding-agent`、`packages/ai`、`packages/agent`、协议和 session backend。
   - Phase 1 应使用 `@earendil-works/pi-coding-agent`，不能仅用裸 `pi-agent-core` 重写 Coding Harness。
   - `packages/ai` 的源码快照已复制到本项目 `vendor/pi-ai`，版本和提交信息见其 `UPSTREAM.md`。
-  - 产品代码通过 `packages/model-adapter` 使用 vendored pi-ai，不直接修改上游快照。
+  - Pi Runtime 直接使用 vendored pi-ai，不再增加重复的模型适配包装。
 
 - LingCoWork：`E:\LingCoWork`
   - 远程仓库：`https://github.com/guyi-a/LingCoWork.git`
@@ -41,5 +41,5 @@
 1. 先建立可运行的 Electron + React + TypeScript 框架。
 2. 打通 Main、Preload、Renderer 的最小类型安全 IPC。
 3. 验证开发启动、类型检查和生产构建。
-4. 再设计模型适配层，优先接入 Pi 体系中的 `pi-ai`。
-5. 模型适配稳定后再进入 Pi Coding Runtime 和完整 Agent Harness。
+4. 在 Pi Runtime 中直接接入 vendored pi-ai。
+5. 再接入 Pi Coding Runtime 和完整 Agent Harness。
