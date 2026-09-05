@@ -27,3 +27,5 @@ Core 不访问 Electron、文件系统或凭据。具体工具及审批策略由
 `beforeToolCall` 是通用执行门控：上层可以异步允许或拒绝已经完成参数校验的调用。Core 不理解 effect 或审批 UI。
 
 每次 `prompt` 使用一个 `runId`，每次模型生成使用 `${runId}:turn:N` 形式的 `turnId`。所有生命周期事件携带这些标识，供上层建立有序 timeline。
+
+`hydrate()` 在 idle 状态恢复完整 transcript；`resumePendingTools()` 从最后一个 assistant tool call 恢复，跳过已经存在 toolResult 的 callId，再进入下一模型 turn。

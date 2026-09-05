@@ -13,6 +13,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   CodingAgent,
   type CodingAgentEvent,
+  deriveEffect,
+  effectDigest,
+  Workspace,
 } from "../src/index.js";
 
 const model: Model = {
@@ -137,5 +140,117 @@ describe("CodingAgent", () => {
       expect.objectContaining({ path: "hello.txt", status: "added" }),
     ]);
     expect((await agent.diff("hello.txt"))?.patch).toContain("+hello");
+  });
+
+  it("resumes an approved pending tool exactly once", async () => {
+    const call: ToolCall = {
+      type: "toolCall",
+      id: "resume-write",
+      name: "write_file",
+      arguments: { path: "resumed.txt", content: "resumed\n" },
+    };
+    const assistant = createAssistantMessage(model);
+    assistant.stopReason = "toolUse";
+    assistant.content.push(call);
+    const workspace = await Workspace.open(root);
+    const effect = await deriveEffect(call, workspace);
+    const approval = {
+      runId: "resume-run",
+      turnId: "resume-run:turn:1",
+      callId: call.id,
+      tool: call.name,
+      arguments: call.arguments,
+      effect,
+      effectDigest: effectDigest(effect, call),
+      reason: "write",
+    };
+    let approvalEvents = 0;
+    const agent = await CodingAgent.create({
+      workspaceRoot: root,
+      model,
+      messages: [assistant],
+      approvedApprovals: [approval],
+      streamFn: () => responseWithText("resumed"),
+      emit: (event) => {
+        if (event.type === "approval_requested") {
+          approvalEvents += 1;
+        }
+      },
+    });
+
+    await agent.resumePendingTools({
+      runId: "resume-run",
+      turnId: "resume-run:turn:1",
+      turn: 1,
+    });
+
+    expect(approvalEvents).toBe(0);
+    expect(await fs.readFile(path.join(root, "resumed.txt"), "utf8")).toBe(
+      "resumed\n",
+    );
+    expect(
+      agent.messages.filter(
+        (message) =>
+          message.role === "toolResult" &&
+          message.toolCallId === "resume-write",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("rebuilds a pending approval wait without emitting a duplicate request", async () => {
+    const call: ToolCall = {
+      type: "toolCall",
+      id: "pending-write",
+      name: "write_file",
+      arguments: { path: "pending.txt", content: "approved\n" },
+    };
+    const assistant = createAssistantMessage(model);
+    assistant.stopReason = "toolUse";
+    assistant.content.push(call);
+    const workspace = await Workspace.open(root);
+    const effect = await deriveEffect(call, workspace);
+    const approval = {
+      runId: "pending-run",
+      turnId: "pending-run:turn:1",
+      callId: call.id,
+      tool: call.name,
+      arguments: call.arguments,
+      effect,
+      effectDigest: effectDigest(effect, call),
+      reason: "write",
+    };
+    let duplicateRequests = 0;
+    const agent = await CodingAgent.create({
+      workspaceRoot: root,
+      model,
+      messages: [assistant],
+      pendingApprovals: [approval],
+      streamFn: () => responseWithText("continued"),
+      emit: (event) => {
+        if (event.type === "approval_requested") {
+          duplicateRequests += 1;
+        }
+      },
+    });
+
+    const resumed = agent.resumePendingTools({
+      runId: approval.runId,
+      turnId: approval.turnId,
+      turn: 1,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(agent.pendingApprovals()).toHaveLength(1);
+    expect(
+      await agent.resolveApproval(call.id, {
+        approved: true,
+        effectDigest: approval.effectDigest,
+      }),
+    ).toBe(true);
+    await resumed;
+
+    expect(duplicateRequests).toBe(0);
+    expect(await fs.readFile(path.join(root, "pending.txt"), "utf8")).toBe(
+      "approved\n",
+    );
   });
 });

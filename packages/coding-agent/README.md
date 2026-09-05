@@ -24,6 +24,6 @@ CodingAgent.prompt
 
 所有能力均为产品内部模块，不提供 extension API 或第三方插件加载。
 
-当前 pending approval、transcript 和 baseline 只存在内存中；磁盘持久化与 checkpoint 恢复不属于本阶段。
-
 Coding Agent 事件保留 Core 的 `runId`、`turnId`，并把 approval、tool 和 changes 绑定到同一个 `callId`。Electron Main 再为事件分配 `sessionId` 与单调 `seq`。
+
+Electron Main 通过 `node:sqlite` 持久化 transcript、pending approval、run checkpoint 和 file baseline。Coding Agent 本身不依赖具体数据库，通过构造参数 hydrate 这些状态。

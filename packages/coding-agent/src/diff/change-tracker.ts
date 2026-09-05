@@ -8,7 +8,8 @@ import type { Workspace } from "../workspace/workspace.js";
 const MAX_DIFF_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_DIFF_OUTPUT_BYTES = 1024 * 1024;
 
-interface FileSnapshot {
+export interface FileBaseline {
+  path: string;
   existed: boolean;
   content?: Buffer;
   size: number;
@@ -44,7 +45,9 @@ function isSensitive(filePath: string): boolean {
   );
 }
 
-async function snapshot(absolute: string): Promise<FileSnapshot> {
+async function snapshot(
+  absolute: string,
+): Promise<Omit<FileBaseline, "path">> {
   const sensitive = isSensitive(absolute);
   try {
     const stats = await fs.stat(absolute);
@@ -95,7 +98,10 @@ async function snapshot(absolute: string): Promise<FileSnapshot> {
   }
 }
 
-function changed(before: FileSnapshot, after: FileSnapshot): boolean {
+function changed(
+  before: Omit<FileBaseline, "path">,
+  after: Omit<FileBaseline, "path">,
+): boolean {
   if (before.existed !== after.existed) {
     return true;
   }
@@ -112,7 +118,7 @@ function changed(before: FileSnapshot, after: FileSnapshot): boolean {
 
 export class ChangeTracker {
   readonly #workspace: Workspace;
-  readonly #baselines = new Map<string, FileSnapshot>();
+  readonly #baselines = new Map<string, FileBaseline>();
 
   constructor(workspace: Workspace) {
     this.#workspace = workspace;
@@ -122,7 +128,10 @@ export class ChangeTracker {
     const absolute = await this.#workspace.resolve(userPath);
     const relative = this.#workspace.relative(absolute);
     if (!this.#baselines.has(relative)) {
-      this.#baselines.set(relative, await snapshot(absolute));
+      this.#baselines.set(relative, {
+        path: relative,
+        ...(await snapshot(absolute)),
+      });
     }
   }
 
@@ -190,5 +199,26 @@ export class ChangeTracker {
 
   reset(): void {
     this.#baselines.clear();
+  }
+
+  exportBaselines(): FileBaseline[] {
+    return [...this.#baselines.values()].map((baseline) => ({
+      ...baseline,
+      ...(baseline.content
+        ? { content: Buffer.from(baseline.content) }
+        : {}),
+    }));
+  }
+
+  hydrateBaselines(baselines: readonly FileBaseline[]): void {
+    this.#baselines.clear();
+    for (const baseline of baselines) {
+      this.#baselines.set(baseline.path, {
+        ...baseline,
+        ...(baseline.content
+          ? { content: Buffer.from(baseline.content) }
+          : {}),
+      });
+    }
   }
 }

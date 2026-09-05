@@ -4,7 +4,7 @@ import {
   type BeforeToolCallContext,
   type StreamFunction,
 } from "@pi-ling/agent-core";
-import type { Model, ToolCall } from "@pi-ling/ai";
+import type { Message, Model, ToolCall } from "@pi-ling/ai";
 
 import {
   ApprovalManager,
@@ -14,6 +14,7 @@ import {
 import {
   ChangeTracker,
   type ChangedFile,
+  type FileBaseline,
   type FileDiff,
 } from "./diff/change-tracker.js";
 import { deriveEffect } from "./effects/effects.js";
@@ -43,6 +44,10 @@ export interface CodingAgentOptions {
   model: Model;
   streamFn: StreamFunction;
   emit(event: CodingAgentEvent): void | Promise<void>;
+  messages?: Message[];
+  baselines?: FileBaseline[];
+  pendingApprovals?: ApprovalRequest[];
+  approvedApprovals?: ApprovalRequest[];
 }
 
 export class CodingAgent {
@@ -59,9 +64,18 @@ export class CodingAgent {
     this.workspace = workspace;
     this.#emit = options.emit;
     this.#changes = new ChangeTracker(workspace);
+    if (options.baselines) {
+      this.#changes.hydrateBaselines(options.baselines);
+    }
     this.#approvals = new ApprovalManager((approval) => {
-      void this.#emit({ type: "approval_requested", approval });
+      return this.#emit({ type: "approval_requested", approval });
     });
+    for (const approval of options.pendingApprovals ?? []) {
+      this.#approvals.restore(approval);
+    }
+    for (const approval of options.approvedApprovals ?? []) {
+      this.#approvals.restoreApproved(approval);
+    }
     const tools = createBuiltinTools({
       workspace,
       changes: this.#changes,
@@ -77,6 +91,7 @@ export class CodingAgent {
         model: options.model,
         thinkingLevel: "high",
         tools,
+        messages: options.messages ?? [],
       },
       streamFn: options.streamFn,
       beforeToolCall: (context, signal) =>
@@ -108,6 +123,10 @@ export class CodingAgent {
     return this.#agent.state.messages;
   }
 
+  baselines(): FileBaseline[] {
+    return this.#changes.exportBaselines();
+  }
+
   prompt(text: string, runId?: string): Promise<void> {
     return this.#agent.prompt(text, runId ? { runId } : {});
   }
@@ -117,6 +136,10 @@ export class CodingAgent {
     this.#agent.abort();
   }
 
+  waitForIdle(): Promise<void> {
+    return this.#agent.waitForIdle();
+  }
+
   async reset(): Promise<void> {
     this.cancel();
     await this.#agent.waitForIdle();
@@ -124,25 +147,36 @@ export class CodingAgent {
     this.#changes.reset();
   }
 
-  resolveApproval(callId: string, decision: ApprovalDecision): boolean {
+  async resolveApproval(
+    callId: string,
+    decision: ApprovalDecision,
+  ): Promise<boolean> {
     const approval = this.#approvals
       .list()
       .find((item) => item.callId === callId);
-    const resolved = this.#approvals.resolve(callId, decision);
-    if (resolved && approval) {
-      void this.#emit({
-        type: "approval_resolved",
-        runId: approval.runId,
-        turnId: approval.turnId,
-        callId,
-        approved: decision.approved,
-      });
+    if (!approval || approval.effectDigest !== decision.effectDigest) {
+      return false;
     }
-    return resolved;
+    await this.#emit({
+      type: "approval_resolved",
+      runId: approval.runId,
+      turnId: approval.turnId,
+      callId,
+      approved: decision.approved,
+    });
+    return this.#approvals.resolve(callId, decision);
   }
 
   pendingApprovals(): ApprovalRequest[] {
     return this.#approvals.list();
+  }
+
+  resumePendingTools(options: {
+    runId: string;
+    turnId: string;
+    turn: number;
+  }): Promise<void> {
+    return this.#agent.resumePendingTools(options);
   }
 
   changedFiles(): Promise<ChangedFile[]> {

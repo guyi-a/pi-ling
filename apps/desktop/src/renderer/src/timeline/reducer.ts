@@ -68,7 +68,7 @@ export type TimelineItem =
 
 export interface TimelineRun {
   id: string;
-  status: "running" | "completed" | "cancelled" | "error";
+  status: "running" | "completed" | "cancelled" | "error" | "crashed";
 }
 
 export interface TimelineState {

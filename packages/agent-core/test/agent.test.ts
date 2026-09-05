@@ -213,6 +213,69 @@ describe("Agent", () => {
     });
   });
 
+  it("resumes pending tool calls without repeating completed calls", async () => {
+    const executed: string[] = [];
+    const parameters = Type.Object({ value: Type.String() });
+    const assistant = createAssistantMessage(model);
+    assistant.stopReason = "toolUse";
+    assistant.content.push(
+      {
+        type: "toolCall",
+        id: "completed-call",
+        name: "echo",
+        arguments: { value: "done" },
+      },
+      {
+        type: "toolCall",
+        id: "pending-call",
+        name: "echo",
+        arguments: { value: "pending" },
+      },
+    );
+    const echoTool: AgentTool<typeof parameters> = {
+      name: "echo",
+      label: "Echo",
+      description: "Echo",
+      parameters,
+      execute: async (callId, arguments_) => {
+        executed.push(callId);
+        return {
+          content: [{ type: "text", text: arguments_.value }],
+        };
+      },
+    };
+    const agent = new Agent({
+      initialState: {
+        model,
+        messages: [
+          assistant,
+          {
+            role: "toolResult",
+            toolCallId: "completed-call",
+            toolName: "echo",
+            content: [{ type: "text", text: "done" }],
+            isError: false,
+            timestamp: 1,
+          },
+        ],
+        tools: [echoTool],
+      },
+      streamFn: () => textResponse("resumed"),
+      beforeToolCall: async () => ({ allow: true }),
+    });
+
+    await agent.resumePendingTools({
+      runId: "resume-run",
+      turnId: "resume-run:turn:1",
+      turn: 1,
+    });
+
+    expect(executed).toEqual(["pending-call"]);
+    expect(
+      agent.state.messages.filter((message) => message.role === "toolResult"),
+    ).toHaveLength(2);
+  });
+
   it("propagates cancellation through the stream signal", async () => {
     const streamFn = (
       _model: Model,

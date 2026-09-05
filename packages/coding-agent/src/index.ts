@@ -11,6 +11,7 @@ export {
 export {
   ChangeTracker,
   type ChangedFile,
+  type FileBaseline,
   type FileDiff,
 } from "./diff/change-tracker.js";
 export {

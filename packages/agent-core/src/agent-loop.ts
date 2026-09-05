@@ -24,12 +24,14 @@ export interface RunAgentLoopOptions {
   model: Model;
   reasoning: ThinkingLevel;
   tools: AgentTool[];
-  prompt: UserMessage;
+  prompt?: UserMessage;
   signal: AbortSignal;
   streamFn: StreamFunction;
   beforeToolCall?: BeforeToolCall;
   emit(event: AgentEvent): void | Promise<void>;
   maxTurns: number;
+  startTurn?: number;
+  emitAgentStart?: boolean;
 }
 
 function toolCalls(message: AssistantMessage): ToolCall[] {
@@ -149,26 +151,37 @@ async function executeTool(
 export async function runAgentLoop(
   options: RunAgentLoopOptions,
 ): Promise<Message[]> {
-  const produced: Message[] = [options.prompt];
+  const produced: Message[] = options.prompt ? [options.prompt] : [];
   const context: Context = {
     ...options.context,
-    messages: [...options.context.messages, options.prompt],
+    messages: [
+      ...options.context.messages,
+      ...(options.prompt ? [options.prompt] : []),
+    ],
     tools: options.tools,
   };
 
-  await options.emit({ type: "agent_start", runId: options.runId });
-  await options.emit({
-    type: "message_start",
-    runId: options.runId,
-    message: options.prompt,
-  });
-  await options.emit({
-    type: "message_end",
-    runId: options.runId,
-    message: options.prompt,
-  });
+  if (options.emitAgentStart !== false) {
+    await options.emit({ type: "agent_start", runId: options.runId });
+  }
+  if (options.prompt) {
+    await options.emit({
+      type: "message_start",
+      runId: options.runId,
+      message: options.prompt,
+    });
+    await options.emit({
+      type: "message_end",
+      runId: options.runId,
+      message: options.prompt,
+    });
+  }
 
-  for (let turn = 1; turn <= options.maxTurns; turn += 1) {
+  for (
+    let turn = options.startTurn ?? 1;
+    turn <= options.maxTurns;
+    turn += 1
+  ) {
     const turnId = `${options.runId}:turn:${turn}`;
     await options.emit({
       type: "turn_start",
@@ -323,4 +336,102 @@ export async function runAgentLoop(
     messages: produced,
   });
   return produced;
+}
+
+export interface ResumeAgentLoopOptions
+  extends Omit<
+    RunAgentLoopOptions,
+    "prompt" | "startTurn" | "emitAgentStart"
+  > {
+  assistant: AssistantMessage;
+  turn: number;
+  turnId: string;
+}
+
+export async function resumeAgentLoop(
+  options: ResumeAgentLoopOptions,
+): Promise<Message[]> {
+  const context: Context = {
+    ...options.context,
+    messages: [...options.context.messages],
+    tools: options.tools,
+  };
+  const produced: Message[] = [];
+  const completedCalls = new Set(
+    context.messages
+      .filter((message) => message.role === "toolResult")
+      .map((message) => message.toolCallId),
+  );
+
+  await options.emit({ type: "agent_start", runId: options.runId });
+  const results: ToolResultMessage[] = [];
+  for (const call of toolCalls(options.assistant)) {
+    if (completedCalls.has(call.id)) {
+      continue;
+    }
+    const result = await executeTool(
+      call,
+      options.tools,
+      context,
+      options.runId,
+      options.turnId,
+      options.signal,
+      options.beforeToolCall,
+      () =>
+        options.emit({
+          type: "tool_execution_start",
+          runId: options.runId,
+          turnId: options.turnId,
+          toolCall: call,
+        }),
+    );
+    await options.emit({
+      type: "tool_execution_end",
+      runId: options.runId,
+      turnId: options.turnId,
+      toolCall: call,
+      result,
+    });
+    await options.emit({
+      type: "message_start",
+      runId: options.runId,
+      turnId: options.turnId,
+      message: result,
+    });
+    await options.emit({
+      type: "message_end",
+      runId: options.runId,
+      turnId: options.turnId,
+      message: result,
+    });
+    context.messages.push(result);
+    produced.push(result);
+    results.push(result);
+  }
+  await options.emit({
+    type: "turn_end",
+    runId: options.runId,
+    turnId: options.turnId,
+    turn: options.turn,
+    message: options.assistant,
+    toolResults: results,
+  });
+
+  const continuation = await runAgentLoop({
+    runId: options.runId,
+    context,
+    model: options.model,
+    reasoning: options.reasoning,
+    tools: options.tools,
+    signal: options.signal,
+    streamFn: options.streamFn,
+    ...(options.beforeToolCall
+      ? { beforeToolCall: options.beforeToolCall }
+      : {}),
+    emit: options.emit,
+    maxTurns: options.maxTurns,
+    startTurn: options.turn + 1,
+    emitAgentStart: false,
+  });
+  return [...produced, ...continuation];
 }

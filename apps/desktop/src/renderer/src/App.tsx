@@ -1,5 +1,7 @@
 import type {
   AgentStatus,
+  SessionActivation,
+  SessionSummary,
   TimelineEnvelope,
 } from "@pi-ling/contracts";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
@@ -20,6 +22,7 @@ export function App() {
     createTimelineState,
   );
   const [status, setStatus] = useState<AgentStatus | null>(null);
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [pendingRunId, setPendingRunId] = useState<string | null>(null);
   const queueRef = useRef<TimelineEnvelope[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -36,9 +39,17 @@ export function App() {
     const unsubscribe = window.piLing.onTimelineEvent((envelope) => {
       queueRef.current.push(envelope);
       timerRef.current ??= setTimeout(flush, 16);
+      if (
+        envelope.event.type === "run_end" ||
+        envelope.event.type === "approval_requested" ||
+        envelope.event.type === "approval_resolved"
+      ) {
+        void window.piLing.listSessions().then(setSessions);
+      }
     });
 
     void window.piLing.getAgentStatus().then(setStatus);
+    void window.piLing.listSessions().then(setSessions);
     void window.piLing
       .getTimelineSnapshot()
       .then((snapshot) => dispatch({ type: "snapshot", snapshot }));
@@ -71,18 +82,20 @@ export function App() {
     return changes.at(-1)?.files ?? [];
   }, [timeline.items]);
 
+  function applyActivation(activation: SessionActivation) {
+    setStatus(activation.status);
+    setPendingRunId(null);
+    dispatch({ type: "snapshot", snapshot: activation.snapshot });
+    void window.piLing.listSessions().then(setSessions);
+  }
+
   async function chooseWorkspace() {
-    const workspace = await window.piLing.selectWorkspace();
-    if (!workspace) {
+    const activation = await window.piLing.selectWorkspace();
+    if (!activation) {
       return;
     }
-    setStatus((current) =>
-      current ? { ...current, workspace } : current,
-    );
-    setPendingRunId(null);
     dispatch({ type: "clear" });
-    const snapshot = await window.piLing.getTimelineSnapshot();
-    dispatch({ type: "snapshot", snapshot });
+    applyActivation(activation);
   }
 
   async function sendPrompt(prompt: string) {
@@ -109,10 +122,22 @@ export function App() {
   }
 
   async function newSession() {
-    await window.piLing.resetAgent();
-    setPendingRunId(null);
-    const snapshot = await window.piLing.getTimelineSnapshot();
-    dispatch({ type: "snapshot", snapshot });
+    if (!status?.workspace) {
+      await chooseWorkspace();
+      return;
+    }
+    applyActivation(
+      await window.piLing.createSession({
+        workspaceRoot: status.workspace.root,
+      }),
+    );
+  }
+
+  async function switchSession(sessionId: string) {
+    if (sessionId === status?.sessionId) {
+      return;
+    }
+    applyActivation(await window.piLing.switchSession(sessionId));
   }
 
   const modelLabel = !status?.configured
@@ -138,7 +163,14 @@ export function App() {
       </header>
 
       <section className="workspace">
-        <Sidebar onNewSession={() => void newSession()} />
+        <Sidebar
+          sessions={sessions}
+          {...(status?.sessionId
+            ? { activeSessionId: status.sessionId }
+            : {})}
+          onNewSession={() => void newSession()}
+          onSelect={(sessionId) => void switchSession(sessionId)}
+        />
         <ChatView
           items={timeline.items}
           modelLabel={modelLabel}

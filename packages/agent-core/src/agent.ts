@@ -7,7 +7,7 @@ import type {
   UserMessage,
 } from "@pi-ling/ai";
 
-import { runAgentLoop } from "./agent-loop.js";
+import { resumeAgentLoop, runAgentLoop } from "./agent-loop.js";
 import type {
   AgentEvent,
   AgentEventListener,
@@ -108,6 +108,40 @@ export class Agent {
     await promise;
   }
 
+  async resumePendingTools(options: {
+    runId: string;
+    turnId: string;
+    turn: number;
+  }): Promise<void> {
+    if (this.#active) {
+      throw new Error("Agent is already processing a run");
+    }
+    const assistant = [...this.#state.messages]
+      .reverse()
+      .find(
+        (message) =>
+          message.role === "assistant" &&
+          message.content.some((block) => block.type === "toolCall"),
+      );
+    if (!assistant || assistant.role !== "assistant") {
+      throw new Error("No assistant tool call is available to resume");
+    }
+
+    const controller = new AbortController();
+    this.#state.isStreaming = true;
+    this.#state.errorMessage = undefined;
+    const promise = this.#runResume(
+      assistant,
+      controller,
+      options,
+    ).finally(() => {
+      this.#state.isStreaming = false;
+      this.#active = undefined;
+    });
+    this.#active = { controller, promise };
+    await promise;
+  }
+
   abort(): void {
     this.#active?.controller.abort();
   }
@@ -121,6 +155,14 @@ export class Agent {
       throw new Error("Cannot reset a running agent");
     }
     this.#state.messages = [];
+    this.#state.errorMessage = undefined;
+  }
+
+  hydrate(messages: readonly Message[]): void {
+    if (this.#active) {
+      throw new Error("Cannot hydrate a running agent");
+    }
+    this.#state.messages = [...structuredClone(messages)];
     this.#state.errorMessage = undefined;
   }
 
@@ -140,6 +182,39 @@ export class Agent {
       reasoning: this.#state.thinkingLevel,
       tools: this.#state.tools,
       prompt,
+      signal: controller.signal,
+      streamFn: this.#streamFn,
+      ...(this.#beforeToolCall
+        ? { beforeToolCall: this.#beforeToolCall }
+        : {}),
+      maxTurns: this.#maxTurns,
+      emit: async (event) => {
+        this.#reduce(event);
+        for (const listener of this.#listeners) {
+          await listener(event, controller.signal);
+        }
+      },
+    });
+  }
+
+  async #runResume(
+    assistant: Extract<Message, { role: "assistant" }>,
+    controller: AbortController,
+    options: { runId: string; turnId: string; turn: number },
+  ): Promise<void> {
+    await resumeAgentLoop({
+      runId: options.runId,
+      turnId: options.turnId,
+      turn: options.turn,
+      assistant,
+      context: {
+        systemPrompt: this.#state.systemPrompt,
+        messages: this.#state.messages,
+        tools: this.#state.tools,
+      },
+      model: this.#state.model,
+      reasoning: this.#state.thinkingLevel,
+      tools: this.#state.tools,
       signal: controller.signal,
       streamFn: this.#streamFn,
       ...(this.#beforeToolCall

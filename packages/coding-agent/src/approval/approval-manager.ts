@@ -23,16 +23,25 @@ export interface ApprovalDecision {
 
 interface PendingApproval {
   request: ApprovalRequest;
+  promise: Promise<BeforeToolCallResult>;
   resolve: (result: BeforeToolCallResult) => void;
-  signal: AbortSignal;
-  abort: () => void;
+  signal?: AbortSignal;
+  abort?: () => void;
 }
 
 export class ApprovalManager {
   readonly #pending = new Map<string, PendingApproval>();
-  readonly #onRequest: (request: ApprovalRequest) => void;
+  readonly #restoredDecisions = new Map<
+    string,
+    { effectDigest: string; result: BeforeToolCallResult }
+  >();
+  readonly #onRequest: (
+    request: ApprovalRequest,
+  ) => void | Promise<void>;
 
-  constructor(onRequest: (request: ApprovalRequest) => void) {
+  constructor(
+    onRequest: (request: ApprovalRequest) => void | Promise<void>,
+  ) {
     this.#onRequest = onRequest;
   }
 
@@ -46,8 +55,22 @@ export class ApprovalManager {
     if (!reason) {
       return Promise.resolve({ allow: true });
     }
-    if (this.#pending.has(call.id)) {
-      throw new Error(`Approval already pending for ${call.id}`);
+    const restoredDecision = this.#restoredDecisions.get(call.id);
+    if (restoredDecision) {
+      this.#restoredDecisions.delete(call.id);
+      const digest = effectDigest(effect, call);
+      if (restoredDecision.effectDigest === digest) {
+        return Promise.resolve(restoredDecision.result);
+      }
+      return Promise.resolve({
+        allow: false,
+        reason: "Restored approval no longer matches this tool call",
+      });
+    }
+    const existing = this.#pending.get(call.id);
+    if (existing) {
+      this.#attachSignal(existing, signal);
+      return existing.promise;
     }
 
     const request: ApprovalRequest = {
@@ -60,25 +83,31 @@ export class ApprovalManager {
       effectDigest: effectDigest(effect, call),
       reason,
     };
-
-    return new Promise((resolve) => {
-      const abort = () => {
-        this.#settle(call.id, {
-          allow: false,
-          reason: "Tool call cancelled",
-        });
-      };
-      this.#pending.set(call.id, {
-        request,
-        resolve,
-        signal,
-        abort,
+    const pending = this.#createPending(request);
+    this.#pending.set(call.id, pending);
+    this.#attachSignal(pending, signal);
+    void Promise.resolve(this.#onRequest(request)).catch((error: unknown) => {
+      this.#settle(call.id, {
+        allow: false,
+        reason:
+          error instanceof Error
+            ? `Approval persistence failed: ${error.message}`
+            : "Approval persistence failed",
       });
-      signal.addEventListener("abort", abort, { once: true });
-      this.#onRequest(request);
-      if (signal.aborted) {
-        abort();
-      }
+    });
+    return pending.promise;
+  }
+
+  restore(request: ApprovalRequest): void {
+    if (!this.#pending.has(request.callId)) {
+      this.#pending.set(request.callId, this.#createPending(request));
+    }
+  }
+
+  restoreApproved(request: ApprovalRequest): void {
+    this.#restoredDecisions.set(request.callId, {
+      effectDigest: request.effectDigest,
+      result: { allow: true },
     });
   }
 
@@ -87,12 +116,22 @@ export class ApprovalManager {
     if (!pending || pending.request.effectDigest !== decision.effectDigest) {
       return false;
     }
-    this.#settle(callId, {
+    const result: BeforeToolCallResult = {
       allow: decision.approved,
       ...(decision.approved
         ? {}
         : { reason: decision.reason?.trim() || "Tool call denied by user" }),
-    });
+    };
+    if (!pending.signal) {
+      this.#pending.delete(callId);
+      this.#restoredDecisions.set(callId, {
+        effectDigest: pending.request.effectDigest,
+        result,
+      });
+      pending.resolve(result);
+      return true;
+    }
+    this.#settle(callId, result);
     return true;
   }
 
@@ -108,13 +147,43 @@ export class ApprovalManager {
     }
   }
 
+  #createPending(request: ApprovalRequest): PendingApproval {
+    let resolve!: (result: BeforeToolCallResult) => void;
+    const promise = new Promise<BeforeToolCallResult>((done) => {
+      resolve = done;
+    });
+    return { request, promise, resolve };
+  }
+
+  #attachSignal(pending: PendingApproval, signal: AbortSignal): void {
+    if (pending.signal === signal) {
+      return;
+    }
+    if (pending.signal && pending.abort) {
+      pending.signal.removeEventListener("abort", pending.abort);
+    }
+    const abort = () =>
+      this.#settle(pending.request.callId, {
+        allow: false,
+        reason: "Tool call cancelled",
+      });
+    pending.signal = signal;
+    pending.abort = abort;
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) {
+      abort();
+    }
+  }
+
   #settle(callId: string, result: BeforeToolCallResult): void {
     const pending = this.#pending.get(callId);
     if (!pending) {
       return;
     }
     this.#pending.delete(callId);
-    pending.signal.removeEventListener("abort", pending.abort);
+    if (pending.signal && pending.abort) {
+      pending.signal.removeEventListener("abort", pending.abort);
+    }
     pending.resolve(result);
   }
 }

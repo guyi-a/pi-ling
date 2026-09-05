@@ -2,15 +2,17 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type {
-  ApprovalDecisionRequest,
   AgentPromptAccepted,
   AgentPromptRequest,
   AgentStatus,
   AppInfo,
+  ApprovalDecisionRequest,
   ChangedFile,
+  CreateSessionRequest,
   FileDiff,
+  SessionActivation,
+  SessionSummary,
   TimelineSnapshot,
-  WorkspaceInfo,
 } from "@pi-ling/contracts";
 import {
   app,
@@ -21,20 +23,24 @@ import {
   type WebContents,
 } from "electron";
 
-import { PiAgentSession } from "./pi-agent-session.js";
+import { SessionStore } from "./session-store/session-store.js";
+import { SessionSupervisor } from "./session-supervisor.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const APP_INFO_CHANNEL = "app:get-info";
 const AGENT_STATUS_CHANNEL = "agent:get-status";
 const AGENT_SEND_CHANNEL = "agent:send";
 const AGENT_CANCEL_CHANNEL = "agent:cancel";
-const AGENT_RESET_CHANNEL = "agent:reset";
 const TIMELINE_EVENT_CHANNEL = "timeline:event";
 const TIMELINE_SNAPSHOT_CHANNEL = "timeline:snapshot";
 const WORKSPACE_SELECT_CHANNEL = "workspace:select";
 const APPROVAL_RESOLVE_CHANNEL = "approval:resolve";
 const CHANGES_GET_CHANNEL = "changes:get";
 const DIFF_GET_CHANNEL = "diff:get";
+const SESSIONS_LIST_CHANNEL = "sessions:list";
+const SESSIONS_CREATE_CHANNEL = "sessions:create";
+const SESSIONS_SWITCH_CHANNEL = "sessions:switch";
+const SESSIONS_DELETE_CHANNEL = "sessions:delete";
 
 try {
   process.loadEnvFile(join(__dirname, "../../../../.env"));
@@ -44,7 +50,11 @@ try {
   }
 }
 
-const agentSessions = new Map<number, PiAgentSession>();
+let sessionStore: SessionStore | undefined;
+const supervisors = new Map<
+  number,
+  { supervisor: SessionSupervisor; ready: Promise<void> }
+>();
 
 function parsePromptRequest(value: unknown): AgentPromptRequest {
   if (
@@ -88,23 +98,48 @@ function parseApprovalDecision(value: unknown): ApprovalDecisionRequest {
   };
 }
 
-function getAgentSession(webContents: WebContents): PiAgentSession {
-  const existing = agentSessions.get(webContents.id);
-  if (existing) {
-    return existing;
+function parseCreateSession(value: unknown): CreateSessionRequest {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("workspaceRoot" in value) ||
+    typeof value.workspaceRoot !== "string" ||
+    !value.workspaceRoot.trim()
+  ) {
+    throw new Error("Invalid session request");
   }
+  return {
+    workspaceRoot: value.workspaceRoot,
+    ...("title" in value && typeof value.title === "string"
+      ? { title: value.title }
+      : {}),
+  };
+}
 
-  const session = new PiAgentSession((envelope) => {
+async function getSupervisor(
+  webContents: WebContents,
+): Promise<SessionSupervisor> {
+  const existing = supervisors.get(webContents.id);
+  if (existing) {
+    await existing.ready;
+    return existing.supervisor;
+  }
+  if (!sessionStore) {
+    throw new Error("Session store is not ready");
+  }
+  const supervisor = new SessionSupervisor(sessionStore, (envelope) => {
     if (!webContents.isDestroyed()) {
       webContents.send(TIMELINE_EVENT_CHANNEL, envelope);
     }
   });
-  agentSessions.set(webContents.id, session);
+  const entry = { supervisor, ready: supervisor.initialize() };
+  supervisors.set(webContents.id, entry);
   webContents.once("destroyed", () => {
-    session.dispose();
-    agentSessions.delete(webContents.id);
+    void supervisor.dispose();
+    supervisors.delete(webContents.id);
   });
-  return session;
+  await entry.ready;
+  return supervisor;
 }
 
 function createWindow(): BrowserWindow {
@@ -125,24 +160,19 @@ function createWindow(): BrowserWindow {
   });
 
   window.once("ready-to-show", () => window.show());
-
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith("https://")) {
       void shell.openExternal(url);
     }
     return { action: "deny" };
   });
-
-  window.webContents.on("will-navigate", (event) => {
-    event.preventDefault();
-  });
+  window.webContents.on("will-navigate", (event) => event.preventDefault());
 
   if (process.env["ELECTRON_RENDERER_URL"]) {
     void window.loadURL(process.env["ELECTRON_RENDERER_URL"]);
   } else {
     void window.loadFile(join(__dirname, "../renderer/index.html"));
   }
-
   return window;
 }
 
@@ -154,40 +184,39 @@ ipcMain.handle(APP_INFO_CHANNEL, (): AppInfo => ({
 
 ipcMain.handle(
   AGENT_STATUS_CHANNEL,
-  (event): AgentStatus => getAgentSession(event.sender).status,
+  async (event): Promise<AgentStatus> =>
+    (await getSupervisor(event.sender)).status,
 );
 
 ipcMain.handle(
   AGENT_SEND_CHANNEL,
-  (event, input: unknown): AgentPromptAccepted => {
+  async (event, input: unknown): Promise<AgentPromptAccepted> => {
     const request = parsePromptRequest(input);
-    getAgentSession(event.sender).startPrompt(request.requestId, request.prompt);
+    (await getSupervisor(event.sender)).startPrompt(
+      request.requestId,
+      request.prompt,
+    );
     return { requestId: request.requestId };
   },
 );
 
 ipcMain.handle(
   AGENT_CANCEL_CHANNEL,
-  (event, requestId: unknown): boolean => {
-    if (typeof requestId !== "string") {
-      return false;
-    }
-    return getAgentSession(event.sender).cancel(requestId);
-  },
+  async (event, runId: unknown): Promise<boolean> =>
+    typeof runId === "string"
+      ? (await getSupervisor(event.sender)).cancel(runId)
+      : false,
 );
-
-ipcMain.handle(AGENT_RESET_CHANNEL, async (event): Promise<void> => {
-  await getAgentSession(event.sender).reset();
-});
 
 ipcMain.handle(
   TIMELINE_SNAPSHOT_CHANNEL,
-  (event): TimelineSnapshot => getAgentSession(event.sender).snapshot(),
+  async (event): Promise<TimelineSnapshot> =>
+    (await getSupervisor(event.sender)).snapshot(),
 );
 
 ipcMain.handle(
   WORKSPACE_SELECT_CHANNEL,
-  async (event): Promise<WorkspaceInfo | undefined> => {
+  async (event): Promise<SessionActivation | undefined> => {
     const parent = BrowserWindow.fromWebContents(event.sender);
     const options: Electron.OpenDialogOptions = {
       title: "Select coding workspace",
@@ -200,15 +229,17 @@ ipcMain.handle(
     if (result.canceled || !root) {
       return undefined;
     }
-    return getAgentSession(event.sender).setWorkspace(root);
+    return (await getSupervisor(event.sender)).create({
+      workspaceRoot: root,
+    });
   },
 );
 
 ipcMain.handle(
   APPROVAL_RESOLVE_CHANNEL,
-  (event, input: unknown): boolean => {
+  async (event, input: unknown): Promise<boolean> => {
     const decision = parseApprovalDecision(input);
-    return getAgentSession(event.sender).resolveApproval(
+    return (await getSupervisor(event.sender)).resolveApproval(
       decision.callId,
       decision,
     );
@@ -217,23 +248,58 @@ ipcMain.handle(
 
 ipcMain.handle(
   CHANGES_GET_CHANNEL,
-  (event): Promise<ChangedFile[]> =>
-    getAgentSession(event.sender).changedFiles(),
+  async (event): Promise<ChangedFile[]> =>
+    (await getSupervisor(event.sender)).changedFiles(),
 );
 
 ipcMain.handle(
   DIFF_GET_CHANNEL,
-  (event, userPath: unknown): Promise<FileDiff | undefined> => {
+  async (event, userPath: unknown): Promise<FileDiff | undefined> => {
     if (typeof userPath !== "string" || !userPath.trim()) {
       throw new Error("Invalid diff path");
     }
-    return getAgentSession(event.sender).diff(userPath);
+    return (await getSupervisor(event.sender)).diff(userPath);
+  },
+);
+
+ipcMain.handle(
+  SESSIONS_LIST_CHANNEL,
+  async (event): Promise<SessionSummary[]> =>
+    (await getSupervisor(event.sender)).list(),
+);
+
+ipcMain.handle(
+  SESSIONS_CREATE_CHANNEL,
+  async (event, input: unknown): Promise<SessionActivation> =>
+    (await getSupervisor(event.sender)).create(parseCreateSession(input)),
+);
+
+ipcMain.handle(
+  SESSIONS_SWITCH_CHANNEL,
+  async (event, sessionId: unknown): Promise<SessionActivation> => {
+    if (typeof sessionId !== "string" || !sessionId) {
+      throw new Error("Invalid session id");
+    }
+    return (await getSupervisor(event.sender)).activate(sessionId);
+  },
+);
+
+ipcMain.handle(
+  SESSIONS_DELETE_CHANNEL,
+  async (event, sessionId: unknown): Promise<void> => {
+    if (typeof sessionId !== "string" || !sessionId) {
+      throw new Error("Invalid session id");
+    }
+    await (await getSupervisor(event.sender)).delete(sessionId);
   },
 );
 
 void app.whenReady().then(() => {
+  sessionStore = new SessionStore(
+    join(app.getPath("userData"), "pi-ling.db"),
+  );
+  sessionStore.reconcile();
   createWindow();
-
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
@@ -242,11 +308,10 @@ void app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => {
-  for (const session of agentSessions.values()) {
-    session.dispose();
+  for (const entry of supervisors.values()) {
+    void entry.supervisor.dispose();
   }
-  agentSessions.clear();
-
+  supervisors.clear();
   if (process.platform !== "darwin") {
     app.quit();
   }

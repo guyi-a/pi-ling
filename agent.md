@@ -100,6 +100,9 @@ interface RuntimeAdapter {
 - 第一版不转换不同 Runtime 的原生历史。
 - Runtime 切换可以继续传递标准消息；私有 checkpoint、thinking 签名和执行中状态不得混用。
 - 持久化应支持应用崩溃后的会话恢复，并明确区分可恢复、已取消、失败和已完成状态。
+- Electron Main 使用 `node:sqlite` 保存 session、timeline、完整 transcript、run checkpoint、pending approval 和 file baseline。
+- 消息以稳定 event key 幂等写入；approval resolve 必须先持久化再解除工具门控。
+- 已有 `tool_end` 的 callId 不得重复执行；只有 `tool_start` 而无 durable result 的工具标记 crashed，不自动重试。
 
 ## 安全边界
 

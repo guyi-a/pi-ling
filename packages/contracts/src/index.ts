@@ -3,13 +3,16 @@ export const IPC_CHANNELS = {
   agentStatus: "agent:get-status",
   agentSend: "agent:send",
   agentCancel: "agent:cancel",
-  agentReset: "agent:reset",
   timelineEvent: "timeline:event",
   timelineSnapshot: "timeline:snapshot",
   workspaceSelect: "workspace:select",
   approvalResolve: "approval:resolve",
   changesGet: "changes:get",
   diffGet: "diff:get",
+  sessionsList: "sessions:list",
+  sessionsCreate: "sessions:create",
+  sessionsSwitch: "sessions:switch",
+  sessionsDelete: "sessions:delete",
 } as const;
 
 export interface AppInfo {
@@ -19,6 +22,7 @@ export interface AppInfo {
 }
 
 export interface AgentStatus {
+  sessionId?: string;
   provider: string;
   model: string;
   configured: boolean;
@@ -45,6 +49,32 @@ export interface AgentUsage {
 export interface WorkspaceInfo {
   root: string;
   name: string;
+}
+
+export type SessionLifecycle =
+  | "idle"
+  | "running"
+  | "awaiting_approval"
+  | "crashed";
+
+export interface SessionSummary {
+  id: string;
+  title: string;
+  workspace: WorkspaceInfo;
+  lifecycle: SessionLifecycle;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CreateSessionRequest {
+  workspaceRoot: string;
+  title?: string;
+}
+
+export interface SessionActivation {
+  session: SessionSummary;
+  status: AgentStatus;
+  snapshot: TimelineSnapshot;
 }
 
 export interface ApprovalEffect {
@@ -86,7 +116,7 @@ export type TimelineEvent =
   | { type: "run_start"; userItemId: string; prompt: string }
   | {
       type: "run_end";
-      status: "completed" | "cancelled" | "error";
+      status: "completed" | "cancelled" | "error" | "crashed";
     }
   | { type: "turn_start"; turnId: string; turn: number }
   | { type: "turn_end"; turnId: string }
@@ -178,11 +208,14 @@ export interface DesktopApi {
   getAgentStatus(): Promise<AgentStatus>;
   sendPrompt(request: AgentPromptRequest): Promise<AgentPromptAccepted>;
   cancelPrompt(requestId: string): Promise<boolean>;
-  resetAgent(): Promise<void>;
-  selectWorkspace(): Promise<WorkspaceInfo | undefined>;
+  selectWorkspace(): Promise<SessionActivation | undefined>;
   resolveApproval(decision: ApprovalDecisionRequest): Promise<boolean>;
   getChanges(): Promise<ChangedFile[]>;
   getDiff(path: string): Promise<FileDiff | undefined>;
   getTimelineSnapshot(): Promise<TimelineSnapshot>;
+  listSessions(): Promise<SessionSummary[]>;
+  createSession(request: CreateSessionRequest): Promise<SessionActivation>;
+  switchSession(sessionId: string): Promise<SessionActivation>;
+  deleteSession(sessionId: string): Promise<void>;
   onTimelineEvent(listener: (event: TimelineEnvelope) => void): () => void;
 }

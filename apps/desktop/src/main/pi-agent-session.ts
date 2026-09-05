@@ -1,92 +1,128 @@
-import { randomUUID } from "node:crypto";
-import path from "node:path";
-
 import {
   CodingAgent,
   type ApprovalDecision,
+  type ApprovalRequest as RuntimeApprovalRequest,
   type CodingAgentEvent,
+  type FileBaseline,
 } from "@pi-ling/coding-agent";
-import { createModels } from "@pi-ling/ai";
+import { createModels, type Message, type ToolCall } from "@pi-ling/ai";
 import { deepseekProvider } from "@pi-ling/ai/providers/deepseek";
 import type {
   AgentStatus,
   AgentUsage,
   ChangedFile,
   FileDiff,
+  SessionSummary,
   TimelineEnvelope,
   TimelineEvent,
   TimelineSnapshot,
-  WorkspaceInfo,
 } from "@pi-ling/contracts";
+
+import {
+  SessionStore,
+  type RunCheckpoint,
+} from "./session-store/session-store.js";
 
 const PROVIDER = "deepseek";
 const MODEL = "deepseek-v4-flash";
 const models = createModels([deepseekProvider()]);
 
+function turnNumber(turnId: string): number {
+  const value = Number(turnId.match(/:turn:(\d+)$/)?.[1]);
+  return Number.isFinite(value) && value > 0 ? value : 1;
+}
+
 export class PiAgentSession {
+  readonly #store: SessionStore;
+  readonly #session: SessionSummary;
   readonly #emit: (envelope: TimelineEnvelope) => void;
-  #agent: CodingAgent | undefined;
-  #workspace: WorkspaceInfo | undefined;
-  #sessionId = randomUUID();
-  #seq = 0;
-  #events: TimelineEnvelope[] = [];
+  readonly #agent: CodingAgent;
   #activeRunId: string | null = null;
   #runOutcome: "completed" | "cancelled" | "error" = "completed";
-  #generation = 0;
 
-  constructor(emit: (envelope: TimelineEnvelope) => void) {
+  private constructor(
+    store: SessionStore,
+    session: SessionSummary,
+    emit: (envelope: TimelineEnvelope) => void,
+    agent: CodingAgent,
+  ) {
+    this.#store = store;
+    this.#session = session;
     this.#emit = emit;
+    this.#agent = agent;
   }
 
-  get status(): AgentStatus {
-    return {
-      provider: PROVIDER,
-      model: MODEL,
-      configured: Boolean(process.env["DEEPSEEK_API_KEY"]?.trim()),
-      ...(this.#workspace ? { workspace: this.#workspace } : {}),
-    };
-  }
-
-  snapshot(): TimelineSnapshot {
-    return {
-      sessionId: this.#sessionId,
-      lastSeq: this.#seq,
-      events: structuredClone(this.#events),
-    };
-  }
-
-  async setWorkspace(root: string): Promise<WorkspaceInfo> {
-    this.dispose();
-    this.#resetTimeline();
+  static async open(options: {
+    store: SessionStore;
+    session: SessionSummary;
+    emit: (envelope: TimelineEnvelope) => void;
+  }): Promise<PiAgentSession> {
     const model = models.getModel(PROVIDER, MODEL);
     if (!model) {
       throw new Error(`Model is unavailable: ${PROVIDER}/${MODEL}`);
     }
-    this.#workspace = { root, name: path.basename(root) };
-    const generation = ++this.#generation;
-    this.#agent = await CodingAgent.create({
-      workspaceRoot: root,
+    const checkpoint = options.store.getActiveCheckpoint(options.session.id);
+    const pending = options.store.loadPendingApprovals(options.session.id);
+    const approved =
+      checkpoint?.phase === "approved_pending_exec" &&
+      checkpoint.pendingApproval
+        ? [checkpoint.pendingApproval]
+        : [];
+    let instance!: PiAgentSession;
+    const agent = await CodingAgent.create({
+      workspaceRoot: options.session.workspace.root,
       model,
       streamFn: models.stream.bind(models),
-      emit: (event) => {
-        if (generation === this.#generation) {
-          this.#handleCodingEvent(event);
-        }
-      },
+      messages: options.store.loadMessages(options.session.id),
+      baselines: options.store.loadBaselines(
+        options.session.id,
+      ) as FileBaseline[],
+      pendingApprovals:
+        checkpoint?.phase === "awaiting_approval" ? pending : [],
+      approvedApprovals: approved,
+      emit: (event) => instance.#handleCodingEvent(event),
     });
-    return this.#workspace;
+    instance = new PiAgentSession(
+      options.store,
+      options.session,
+      options.emit,
+      agent,
+    );
+    instance.#recover(checkpoint);
+    return instance;
+  }
+
+  get sessionId(): string {
+    return this.#session.id;
+  }
+
+  get status(): AgentStatus {
+    return {
+      sessionId: this.#session.id,
+      provider: PROVIDER,
+      model: MODEL,
+      configured: Boolean(process.env["DEEPSEEK_API_KEY"]?.trim()),
+      workspace: this.#session.workspace,
+    };
+  }
+
+  snapshot(): TimelineSnapshot {
+    return this.#store.loadSnapshot(this.#session.id);
   }
 
   startPrompt(runId: string, prompt: string): void {
-    if (!this.#agent) {
-      throw new Error("Select a workspace before sending a prompt");
-    }
     if (this.#activeRunId || this.#agent.isStreaming) {
       throw new Error("Agent is already processing a prompt");
     }
-
     this.#activeRunId = runId;
     this.#runOutcome = "completed";
+    this.#store.setLifecycle(this.#session.id, "running", runId);
+    this.#store.setCheckpoint({
+      sessionId: this.#session.id,
+      runId,
+      phase: "started",
+      updatedAt: Date.now(),
+    });
     this.#publish(runId, {
       type: "run_start",
       userItemId: `${runId}:user`,
@@ -94,14 +130,7 @@ export class PiAgentSession {
     });
     void this.#agent
       .prompt(prompt, runId)
-      .catch((error: unknown) => {
-        this.#runOutcome = "error";
-        this.#publish(runId, {
-          type: "run_end",
-          status: "error",
-        });
-        console.error("Coding agent run failed", error);
-      })
+      .catch((error: unknown) => this.#failRun(runId, error))
       .finally(() => {
         if (this.#activeRunId === runId) {
           this.#activeRunId = null;
@@ -110,7 +139,7 @@ export class PiAgentSession {
   }
 
   cancel(runId: string): boolean {
-    if (this.#activeRunId !== runId || !this.#agent) {
+    if (this.#activeRunId !== runId) {
       return false;
     }
     this.#runOutcome = "cancelled";
@@ -118,57 +147,86 @@ export class PiAgentSession {
     return true;
   }
 
-  async reset(): Promise<void> {
-    if (this.#agent) {
-      await this.#agent.reset();
-    }
-    this.#activeRunId = null;
-    this.#resetTimeline();
-  }
-
-  resolveApproval(
+  async resolveApproval(
     callId: string,
     decision: ApprovalDecision,
-  ): boolean {
-    return this.#agent?.resolveApproval(callId, decision) ?? false;
+  ): Promise<boolean> {
+    return this.#agent.resolveApproval(callId, decision);
   }
 
   changedFiles(): Promise<ChangedFile[]> {
-    return this.#agent?.changedFiles() ?? Promise.resolve([]);
+    return this.#agent.changedFiles();
+  }
+
+  waitForIdle(): Promise<void> {
+    return this.#agent.waitForIdle();
   }
 
   diff(userPath: string): Promise<FileDiff | undefined> {
-    return this.#agent?.diff(userPath) ?? Promise.resolve(undefined);
+    return this.#agent.diff(userPath);
   }
 
-  dispose(): void {
-    this.#generation += 1;
-    this.#agent?.cancel();
-    this.#agent = undefined;
+  async dispose(): Promise<void> {
+    this.#agent.cancel();
+    await this.#agent.waitForIdle();
     this.#activeRunId = null;
   }
 
-  #publish(runId: string, event: TimelineEvent): void {
-    const envelope: TimelineEnvelope = {
-      sessionId: this.#sessionId,
+  #publish(runId: string, event: TimelineEvent): TimelineEnvelope {
+    const envelope = this.#store.appendTimeline(
+      this.#session.id,
       runId,
-      seq: ++this.#seq,
-      emittedAt: Date.now(),
       event,
-    };
-    this.#events.push(envelope);
+    );
     this.#emit(envelope);
+    return envelope;
   }
 
-  #resetTimeline(): void {
-    this.#sessionId = randomUUID();
-    this.#seq = 0;
-    this.#events = [];
+  #persistMessage(
+    runId: string,
+    turnId: string | undefined,
+    message: Message,
+  ): void {
+    const eventKey =
+      message.role === "user"
+        ? `user:${runId}`
+        : message.role === "assistant"
+          ? `assistant:${turnId ?? runId}`
+          : `tool:${message.toolCallId}`;
+    this.#store.appendMessage({
+      sessionId: this.#session.id,
+      eventKey,
+      runId,
+      ...(turnId ? { turnId } : {}),
+      message,
+    });
   }
 
-  #handleCodingEvent(event: CodingAgentEvent): void {
+  async #handleCodingEvent(event: CodingAgentEvent): Promise<void> {
     if (event.type === "approval_requested") {
       const approval = event.approval;
+      const pendingTool: ToolCall = {
+        type: "toolCall",
+        id: approval.callId,
+        name: approval.tool,
+        arguments: approval.arguments,
+      };
+      this.#store.savePendingApproval(this.#session.id, approval);
+      this.#store.setCheckpoint({
+        sessionId: this.#session.id,
+        runId: approval.runId,
+        phase: "awaiting_approval",
+        turnId: approval.turnId,
+        pendingCallId: approval.callId,
+        pendingTool,
+        pendingApproval: approval,
+        updatedAt: Date.now(),
+      });
+      this.#store.setLifecycle(
+        this.#session.id,
+        "awaiting_approval",
+        approval.runId,
+      );
       this.#publish(approval.runId, {
         type: "approval_requested",
         turnId: approval.turnId,
@@ -186,6 +244,26 @@ export class PiAgentSession {
       return;
     }
     if (event.type === "approval_resolved") {
+      const checkpoint = this.#store.getCheckpoint(
+        this.#session.id,
+        event.runId,
+      );
+      this.#store.setCheckpoint({
+        sessionId: this.#session.id,
+        runId: event.runId,
+        phase: event.approved ? "approved_pending_exec" : "between_turns",
+        turnId: event.turnId,
+        pendingCallId: event.callId,
+        ...(checkpoint?.pendingTool
+          ? { pendingTool: checkpoint.pendingTool }
+          : {}),
+        ...(checkpoint?.pendingApproval
+          ? { pendingApproval: checkpoint.pendingApproval }
+          : {}),
+        updatedAt: Date.now(),
+      });
+      this.#store.deletePendingApproval(this.#session.id, event.callId);
+      this.#store.setLifecycle(this.#session.id, "running", event.runId);
       this.#publish(event.runId, {
         type: "approval_resolved",
         turnId: event.turnId,
@@ -197,6 +275,9 @@ export class PiAgentSession {
       return;
     }
     if (event.type === "changes") {
+      for (const baseline of this.#agent.baselines()) {
+        this.#store.saveBaseline(this.#session.id, baseline);
+      }
       this.#publish(event.runId, {
         type: "changes",
         turnId: event.turnId,
@@ -213,6 +294,13 @@ export class PiAgentSession {
       case "agent_start":
         break;
       case "turn_start":
+        this.#store.setCheckpoint({
+          sessionId: this.#session.id,
+          runId,
+          phase: "streaming",
+          turnId: agentEvent.turnId,
+          updatedAt: Date.now(),
+        });
         this.#publish(runId, {
           type: "turn_start",
           turnId: agentEvent.turnId,
@@ -220,6 +308,13 @@ export class PiAgentSession {
         });
         break;
       case "turn_end":
+        this.#store.setCheckpoint({
+          sessionId: this.#session.id,
+          runId,
+          phase: "between_turns",
+          turnId: agentEvent.turnId,
+          updatedAt: Date.now(),
+        });
         this.#publish(runId, {
           type: "turn_end",
           turnId: agentEvent.turnId,
@@ -257,6 +352,11 @@ export class PiAgentSession {
         }
         break;
       case "message_end":
+        this.#persistMessage(
+          runId,
+          agentEvent.turnId,
+          agentEvent.message,
+        );
         if (
           agentEvent.message.role === "assistant" &&
           agentEvent.turnId
@@ -300,6 +400,15 @@ export class PiAgentSession {
         }
         break;
       case "tool_execution_start":
+        this.#store.setCheckpoint({
+          sessionId: this.#session.id,
+          runId,
+          phase: "executing_tool",
+          turnId: agentEvent.turnId,
+          pendingCallId: agentEvent.toolCall.id,
+          pendingTool: agentEvent.toolCall,
+          updatedAt: Date.now(),
+        });
         this.#publish(runId, {
           type: "tool_start",
           turnId: agentEvent.turnId,
@@ -310,6 +419,11 @@ export class PiAgentSession {
         });
         break;
       case "tool_execution_end":
+        this.#persistMessage(
+          runId,
+          agentEvent.turnId,
+          agentEvent.result,
+        );
         this.#publish(runId, {
           type: "tool_end",
           turnId: agentEvent.turnId,
@@ -322,13 +436,174 @@ export class PiAgentSession {
             .map((block) => block.text)
             .join("\n"),
         });
+        this.#store.setCheckpoint({
+          sessionId: this.#session.id,
+          runId,
+          phase: "between_turns",
+          turnId: agentEvent.turnId,
+          updatedAt: Date.now(),
+        });
         break;
       case "agent_end":
         this.#publish(runId, {
           type: "run_end",
           status: this.#runOutcome,
         });
+        this.#store.setCheckpoint({
+          sessionId: this.#session.id,
+          runId,
+          phase: "terminal",
+          terminalStatus: this.#runOutcome,
+          updatedAt: Date.now(),
+        });
+        this.#store.setLifecycle(this.#session.id, "idle");
         break;
     }
+  }
+
+  #recover(checkpoint: RunCheckpoint | undefined): void {
+    if (!checkpoint || checkpoint.phase === "terminal") {
+      return;
+    }
+    if (
+      (checkpoint.phase === "awaiting_approval" ||
+        checkpoint.phase === "approved_pending_exec") &&
+      checkpoint.pendingApproval
+    ) {
+      const approval = checkpoint.pendingApproval;
+      const events = this.snapshot().events.map(({ event }) => event);
+      if (
+        !events.some(
+          (event) =>
+            event.type === "approval_requested" &&
+            event.approval.callId === approval.callId,
+        )
+      ) {
+        this.#publish(checkpoint.runId, {
+          type: "approval_requested",
+          turnId: approval.turnId,
+          itemId: `${approval.callId}:approval`,
+          toolItemId: approval.callId,
+          approval: {
+            callId: approval.callId,
+            tool: approval.tool,
+            arguments: approval.arguments,
+            effect: { ...approval.effect },
+            effectDigest: approval.effectDigest,
+            reason: approval.reason,
+          },
+        });
+      }
+      if (
+        checkpoint.phase === "approved_pending_exec" &&
+        !events.some(
+          (event) =>
+            event.type === "approval_resolved" &&
+            event.callId === approval.callId,
+        )
+      ) {
+        this.#publish(checkpoint.runId, {
+          type: "approval_resolved",
+          turnId: approval.turnId,
+          itemId: `${approval.callId}:approval`,
+          toolItemId: approval.callId,
+          callId: approval.callId,
+          approved: true,
+        });
+      }
+    }
+    if (
+      checkpoint.phase === "executing_tool" &&
+      checkpoint.pendingCallId &&
+      this.snapshot().events.some(
+        ({ event }) =>
+          event.type === "tool_end" &&
+          event.callId === checkpoint.pendingCallId,
+      )
+    ) {
+      this.#recover({ ...checkpoint, phase: "between_turns" });
+      return;
+    }
+    if (checkpoint.phase === "between_turns") {
+      const lastAssistant = [...this.#agent.messages]
+        .reverse()
+        .find((message) => message.role === "assistant");
+      if (
+        lastAssistant?.role === "assistant" &&
+        (lastAssistant.stopReason === "stop" ||
+          lastAssistant.stopReason === "length")
+      ) {
+        this.#publish(checkpoint.runId, {
+          type: "run_end",
+          status: "completed",
+        });
+        this.#store.setCheckpoint({
+          ...checkpoint,
+          phase: "terminal",
+          terminalStatus: "completed",
+          updatedAt: Date.now(),
+        });
+        this.#store.setLifecycle(this.#session.id, "idle");
+        return;
+      }
+    }
+    if (
+      checkpoint.phase === "executing_tool" ||
+      checkpoint.phase === "streaming" ||
+      checkpoint.phase === "started" ||
+      !checkpoint.turnId
+    ) {
+      this.#markCrashed(checkpoint);
+      return;
+    }
+    if (
+      checkpoint.phase === "awaiting_approval" ||
+      checkpoint.phase === "approved_pending_exec" ||
+      checkpoint.phase === "between_turns"
+    ) {
+      this.#activeRunId = checkpoint.runId;
+      void this.#agent
+        .resumePendingTools({
+          runId: checkpoint.runId,
+          turnId: checkpoint.turnId,
+          turn: turnNumber(checkpoint.turnId),
+        })
+        .catch((error: unknown) =>
+          this.#failRun(checkpoint.runId, error),
+        )
+        .finally(() => {
+          if (this.#activeRunId === checkpoint.runId) {
+            this.#activeRunId = null;
+          }
+        });
+    }
+  }
+
+  #markCrashed(checkpoint: RunCheckpoint): void {
+    this.#publish(checkpoint.runId, {
+      type: "run_end",
+      status: "crashed",
+    });
+    this.#store.setCheckpoint({
+      ...checkpoint,
+      phase: "terminal",
+      terminalStatus: "crashed",
+      updatedAt: Date.now(),
+    });
+    this.#store.setLifecycle(this.#session.id, "crashed");
+  }
+
+  #failRun(runId: string, error: unknown): void {
+    this.#runOutcome = "error";
+    this.#publish(runId, { type: "run_end", status: "error" });
+    this.#store.setCheckpoint({
+      sessionId: this.#session.id,
+      runId,
+      phase: "terminal",
+      terminalStatus: "error",
+      updatedAt: Date.now(),
+    });
+    this.#store.setLifecycle(this.#session.id, "idle");
+    console.error("Coding agent run failed", error);
   }
 }
