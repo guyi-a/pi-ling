@@ -4,10 +4,10 @@ import type {
   SessionSummary,
   TimelineEnvelope,
 } from "@pi-ling/contracts";
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { FolderOpen } from "lucide-react";
+import { useEffect, useReducer, useRef, useState } from "react";
 
 import { ChatView } from "./features/chat/ChatView";
-import { DiffPanel } from "./features/details/DiffPanel";
 import { Sidebar } from "./features/threads/Sidebar";
 import type { ApprovalTimelineItem } from "./timeline/reducer";
 import {
@@ -77,11 +77,6 @@ export function App() {
     Object.values(timeline.runs).find((run) => run.status === "running")?.id ??
     null;
 
-  const changedFiles = useMemo(() => {
-    const changes = timeline.items.filter((item) => item.kind === "changes");
-    return changes.at(-1)?.files ?? [];
-  }, [timeline.items]);
-
   function applyActivation(activation: SessionActivation) {
     setStatus(activation.status);
     setPendingRunId(null);
@@ -141,10 +136,10 @@ export function App() {
   }
 
   const modelLabel = !status?.configured
-    ? "DEEPSEEK_API_KEY missing"
+    ? "缺少 DEEPSEEK_API_KEY"
     : status.workspace
       ? `${status.provider}/${status.model} · ${status.workspace.root}`
-      : "Select a workspace to start";
+      : "请选择工作区";
 
   return (
     <main className="shell">
@@ -158,7 +153,8 @@ export function App() {
           type="button"
           onClick={chooseWorkspace}
         >
-          {status?.workspace?.name ?? "Open workspace"}
+          <FolderOpen />
+          {status?.workspace?.name ?? "打开工作区"}
         </button>
       </header>
 
@@ -181,11 +177,6 @@ export function App() {
             void window.piLing.cancelPrompt(runId);
           }}
           onApproval={decide}
-        />
-        <DiffPanel
-          key={timeline.sessionId}
-          files={changedFiles}
-          loadDiff={(path) => window.piLing.getDiff(path)}
         />
       </section>
     </main>

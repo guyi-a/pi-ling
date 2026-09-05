@@ -71,10 +71,10 @@ describe("ChatView", () => {
       />,
     );
 
-    expect(html.indexOf("Execution process")).toBeLessThan(
-      html.indexOf("Approval required"),
+    expect(html.indexOf("执行过程")).toBeLessThan(
+      html.indexOf("需要确认"),
     );
-    expect(html.indexOf("Approval required")).toBeLessThan(
+    expect(html.indexOf("需要确认")).toBeLessThan(
       html.indexOf("done"),
     );
   });

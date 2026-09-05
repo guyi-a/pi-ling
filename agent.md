@@ -96,6 +96,9 @@ interface RuntimeAdapter {
 - UI 事件统一使用 `sessionId`、`runId`、`turnId`、`itemId` 和会话内单调递增 `seq`。
 - Main 按执行顺序发布 timeline；snapshot 与实时事件必须经过同一个幂等 reducer。
 - 每个 ReAct assistant turn、tool call 和 approval 都是独立 timeline item，不得按 Prompt 合并。
+- Renderer 只从 timeline 投影 Chat；assistant 使用流式 Markdown，tool output 保持等宽纯文本。
+- thinking 与工具步骤进入可折叠执行过程，pending approval 必须保持展开可见。
+- 页面采用紧凑暗色工作台布局，不使用宣传式 Hero；用户消息气泡与 assistant 平铺内容保持清晰区分。
 - 标准投影必须可版本化，不能破坏原始事件。
 - 第一版不转换不同 Runtime 的原生历史。
 - Runtime 切换可以继续传递标准消息；私有 checkpoint、thinking 签名和执行中状态不得混用。

@@ -1,3 +1,4 @@
+import { ChevronRight, LoaderCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import type {
@@ -30,7 +31,13 @@ export function ExecutionTimeline(props: {
       open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
-      <summary>{active ? "Working…" : "Execution process"}</summary>
+      <summary>
+        <ChevronRight className="execution-chevron" />
+        {active ? (
+          <LoaderCircle className="execution-spinner" />
+        ) : null}
+        {active ? "正在执行" : "执行过程"}
+      </summary>
       <div className="execution-content">
         {assistant.thinking ? (
           <div className="execution-thinking">{assistant.thinking}</div>

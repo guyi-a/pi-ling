@@ -1,0 +1,153 @@
+.sidebar {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 10px;
+  overflow: hidden;
+  border-right: 1px solid var(--border);
+  background: #0e1014;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 3px 10px;
+}
+
+.section-label {
+  margin: 0;
+  color: var(--muted-2);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.new-session {
+  width: 100%;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  color: var(--text-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  cursor: pointer;
+  font-size: 12px;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+.new-session:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-3);
+}
+
+.new-session svg {
+  width: 14px;
+  height: 14px;
+}
+
+.session-list {
+  min-height: 0;
+  margin-top: 12px;
+  overflow-y: auto;
+}
+
+.session-item {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 3px;
+  margin: 2px 0;
+  padding: 8px 9px;
+  overflow: hidden;
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    color 120ms ease,
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+.session-item:hover {
+  color: var(--text-soft);
+  background: var(--surface-2);
+}
+
+.session-item.active {
+  color: var(--text);
+  border-color: var(--border);
+  background: var(--surface-3);
+}
+
+.session-status {
+  grid-row: 1 / span 2;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted-2);
+}
+
+.session-status.running {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgb(128 216 223 / 10%);
+}
+
+.session-status.awaiting_approval {
+  background: var(--warning);
+}
+
+.session-status.crashed {
+  background: var(--danger);
+}
+
+.session-title {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 520;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-time {
+  color: var(--muted-2);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.session-workspace {
+  grid-column: 2 / 4;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  color: var(--muted-2);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-workspace svg {
+  width: 11px;
+  height: 11px;
+  flex: 0 0 auto;
+}
+
+.sidebar-empty {
+  padding: 22px 10px;
+  color: var(--muted-2);
+  font-size: 11px;
+  line-height: 1.6;
+  text-align: center;
+}

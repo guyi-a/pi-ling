@@ -1,0 +1,240 @@
+.execution-timeline {
+  margin: 0 0 20px 3px;
+  color: var(--muted);
+}
+
+.execution-timeline > summary {
+  width: fit-content;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 2px;
+  list-style: none;
+  cursor: pointer;
+  font-size: 11px;
+  user-select: none;
+}
+
+.execution-timeline > summary::-webkit-details-marker {
+  display: none;
+}
+
+.execution-chevron {
+  width: 13px;
+  height: 13px;
+  transition: transform 140ms ease;
+}
+
+.execution-timeline[open] .execution-chevron {
+  transform: rotate(90deg);
+}
+
+.execution-spinner {
+  width: 12px;
+  height: 12px;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.execution-content {
+  position: relative;
+  margin: 5px 0 0 7px;
+  padding: 2px 0 1px 17px;
+}
+
+.execution-content::before {
+  position: absolute;
+  top: 0;
+  bottom: 6px;
+  left: 0;
+  width: 1px;
+  content: "";
+  background: var(--border);
+}
+
+.execution-thinking,
+.execution-text {
+  margin: 0 0 11px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.tool-card {
+  margin: 3px 0;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  font-size: 11px;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+.tool-card:hover,
+.tool-card:has(.tool-output[open]) {
+  border-color: var(--border);
+  background: var(--surface-1);
+}
+
+.tool-card.failed,
+.tool-card.denied {
+  border-color: rgb(239 135 148 / 18%);
+}
+
+.tool-card-header {
+  display: grid;
+  grid-template-columns: 16px minmax(0, auto) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+}
+
+.tool-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+}
+
+.tool-icon.running {
+  color: var(--accent);
+  animation: spin 0.9s linear infinite;
+}
+
+.tool-icon.completed {
+  color: var(--success);
+}
+
+.tool-icon.failed,
+.tool-icon.denied {
+  color: var(--danger);
+}
+
+.tool-label {
+  color: var(--text-soft);
+  font-weight: 540;
+}
+
+.tool-summary {
+  overflow: hidden;
+  color: var(--muted-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-state {
+  color: var(--muted-2);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.tool-arguments,
+.tool-output {
+  margin: 8px 0 0 23px;
+  color: var(--muted-2);
+}
+
+.tool-arguments summary,
+.tool-output summary {
+  width: fit-content;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.tool-arguments pre,
+.tool-output pre,
+.approval-card pre {
+  max-height: 190px;
+  margin: 7px 0 0;
+  padding: 9px 10px;
+  overflow: auto;
+  color: #9ca5b4;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #0a0c0f;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.approval-card {
+  margin: 12px 0 20px;
+  padding: 13px 14px;
+  border: 1px solid rgb(227 189 107 / 28%);
+  border-radius: var(--radius-md);
+  background: rgb(227 189 107 / 5%);
+}
+
+.approval-card.resolved {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 9px;
+  color: var(--muted);
+  border-color: transparent;
+  background: transparent;
+  font-size: 10px;
+}
+
+.approval-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.approval-title svg,
+.approval-card.resolved svg {
+  width: 14px;
+  height: 14px;
+  color: var(--warning);
+}
+
+.approval-target {
+  margin: 8px 0 3px;
+  color: var(--text-soft);
+  font-size: 12px;
+}
+
+.approval-reason {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.approval-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.approval-actions button {
+  height: 28px;
+  padding: 0 11px;
+  color: var(--text-soft);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.approval-actions button:hover {
+  background: var(--surface-hover);
+}
+
+.approval-actions .allow {
+  color: #c9f5d8;
+  border-color: rgb(112 214 154 / 30%);
+  background: rgb(112 214 154 / 10%);
+}

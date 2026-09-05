@@ -16,8 +16,10 @@
     "@pi-ling/ai": "workspace:*",
     "@pi-ling/coding-agent": "workspace:*",
     "@pi-ling/contracts": "workspace:*",
+    "lucide-react": "1.27.0",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "streamdown": "2.5.0"
   },
   "devDependencies": {
     "@types/node": "24.10.1",
