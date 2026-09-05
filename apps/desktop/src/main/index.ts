@@ -21,6 +21,14 @@ const MODEL_EVENT_CHANNEL = "model:event";
 const MODEL_PROVIDER = "deepseek";
 const MODEL_ID = "deepseek-v4-flash";
 
+try {
+  process.loadEnvFile(join(process.cwd(), ".env"));
+} catch (error) {
+  if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+    throw error;
+  }
+}
+
 const models = createModels();
 models.setProvider(deepseekProvider());
 
