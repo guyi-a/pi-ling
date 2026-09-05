@@ -14,6 +14,7 @@ import { Value } from "typebox/value";
 import type {
   AgentEvent,
   AgentTool,
+  BeforeToolCall,
   StreamFunction,
 } from "./types.js";
 
@@ -25,6 +26,7 @@ export interface RunAgentLoopOptions {
   prompt: UserMessage;
   signal: AbortSignal;
   streamFn: StreamFunction;
+  beforeToolCall?: BeforeToolCall;
   emit(event: AgentEvent): void | Promise<void>;
   maxTurns: number;
 }
@@ -49,7 +51,10 @@ function validationError(tool: AgentTool, arguments_: unknown): string {
 async function executeTool(
   call: ToolCall,
   tools: readonly AgentTool[],
+  context: Context,
   signal: AbortSignal,
+  beforeToolCall: BeforeToolCall | undefined,
+  onStart: () => void | Promise<void>,
 ): Promise<ToolResultMessage> {
   const tool = tools.find((candidate) => candidate.name === call.name);
   if (!tool) {
@@ -81,7 +86,30 @@ async function executeTool(
     };
   }
 
+  if (beforeToolCall) {
+    const decision = await beforeToolCall(
+      { toolCall: call, tool, arguments: arguments_, context },
+      signal,
+    );
+    if (!decision.allow) {
+      return {
+        role: "toolResult",
+        toolCallId: call.id,
+        toolName: call.name,
+        content: [
+          {
+            type: "text",
+            text: decision.reason ?? "Tool call denied by user",
+          },
+        ],
+        isError: true,
+        timestamp: Date.now(),
+      };
+    }
+  }
+
   try {
+    await onStart();
     const result = await tool.execute(call.id, arguments_ as never, signal);
     return {
       role: "toolResult",
@@ -176,8 +204,15 @@ export async function runAgentLoop(
 
     const results: ToolResultMessage[] = [];
     for (const call of calls) {
-      await options.emit({ type: "tool_execution_start", toolCall: call });
-      const result = await executeTool(call, options.tools, options.signal);
+      const result = await executeTool(
+        call,
+        options.tools,
+        context,
+        options.signal,
+        options.beforeToolCall,
+        () =>
+          options.emit({ type: "tool_execution_start", toolCall: call }),
+      );
       await options.emit({
         type: "tool_execution_end",
         toolCall: call,

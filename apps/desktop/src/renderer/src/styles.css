@@ -32,10 +32,26 @@ button {
   height: 54px;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   padding: 0 20px;
   border-bottom: 1px solid #242833;
   background: #0d1016;
   -webkit-app-region: drag;
+}
+
+.workspace-button {
+  max-width: 360px;
+  padding: 6px 11px;
+  overflow: hidden;
+  color: #aeb6c4;
+  border: 1px solid #303644;
+  border-radius: 7px;
+  background: #171b23;
+  cursor: pointer;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  -webkit-app-region: no-drag;
 }
 
 .brand {
@@ -62,7 +78,7 @@ button {
 
 .workspace {
   display: grid;
-  grid-template-columns: 246px 1fr;
+  grid-template-columns: 220px minmax(0, 1fr) 300px;
   height: calc(100vh - 54px);
 }
 
@@ -179,6 +195,74 @@ button {
   font-size: 10px;
 }
 
+.tool-card,
+.approval-card {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid #2a303c;
+  border-radius: 9px;
+  background: #10131a;
+  font-size: 12px;
+}
+
+.tool-card > div {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.tool-card span,
+.tool-card code {
+  color: #768094;
+}
+
+.tool-card pre,
+.approval-card pre {
+  max-height: 180px;
+  margin: 9px 0 0;
+  overflow: auto;
+  color: #9fa8b8;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
+  white-space: pre-wrap;
+}
+
+.tool-card.error {
+  border-color: #6e3541;
+}
+
+.approval-card {
+  border-color: #66552f;
+  background: #18160f;
+}
+
+.approval-card p {
+  margin: 8px 0;
+  color: #c6b783;
+}
+
+.approval-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.approval-actions button {
+  padding: 6px 11px;
+  color: #b9c1ce;
+  border: 1px solid #3a4150;
+  border-radius: 6px;
+  background: #20252e;
+  cursor: pointer;
+}
+
+.approval-actions .allow {
+  color: #dff7e7;
+  border-color: #366146;
+  background: #1d3b29;
+}
+
 .composer {
   width: min(760px, calc(100% - 44px));
   margin: 0 auto 20px;
@@ -237,4 +321,62 @@ button {
 .send-button:disabled {
   color: #626b7a;
   cursor: default;
+}
+
+.diff-panel {
+  min-width: 0;
+  padding: 20px 12px;
+  overflow: auto;
+  border-left: 1px solid #242833;
+  background: #0c0e13;
+}
+
+.empty-changes {
+  padding: 14px 4px;
+  color: #596273;
+  font-size: 12px;
+}
+
+.change-file {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px;
+  overflow: hidden;
+  color: #adb6c4;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 11px;
+  text-align: left;
+}
+
+.change-file:hover {
+  background: #171b23;
+}
+
+.change-file span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.change-file small {
+  color: #7a8495;
+}
+
+.diff-content {
+  margin-top: 14px;
+  padding: 10px;
+  overflow: auto;
+  color: #aeb8c7;
+  border: 1px solid #252a34;
+  border-radius: 7px;
+  background: #10131a;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: pre;
 }

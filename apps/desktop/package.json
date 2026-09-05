@@ -12,8 +12,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@pi-ling/agent-core": "workspace:*",
     "@pi-ling/ai": "workspace:*",
+    "@pi-ling/coding-agent": "workspace:*",
     "@pi-ling/contracts": "workspace:*",
     "react": "19.2.8",
     "react-dom": "19.2.8"

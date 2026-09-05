@@ -1,4 +1,10 @@
-import { Agent, type AgentEvent } from "@pi-ling/agent-core";
+import path from "node:path";
+
+import {
+  CodingAgent,
+  type ApprovalDecision,
+  type CodingAgentEvent,
+} from "@pi-ling/coding-agent";
 import { createModels } from "@pi-ling/ai";
 import { deepseekProvider } from "@pi-ling/ai/providers/deepseek";
 import type {
@@ -6,36 +12,23 @@ import type {
   AgentStatus,
   AgentUiEvent,
   AgentUsage,
+  ChangedFile,
+  FileDiff,
+  WorkspaceInfo,
 } from "@pi-ling/contracts";
 
 const PROVIDER = "deepseek";
 const MODEL = "deepseek-v4-flash";
-
 const models = createModels([deepseekProvider()]);
 
 export class PiAgentSession {
-  readonly #agent: Agent;
   readonly #emit: (envelope: AgentEventEnvelope) => void;
+  #agent: CodingAgent | undefined;
+  #workspace: WorkspaceInfo | undefined;
   #requestId: string | null = null;
 
   constructor(emit: (envelope: AgentEventEnvelope) => void) {
-    const model = models.getModel(PROVIDER, MODEL);
-    if (!model) {
-      throw new Error(`Model is unavailable: ${PROVIDER}/${MODEL}`);
-    }
-
     this.#emit = emit;
-    this.#agent = new Agent({
-      initialState: {
-        systemPrompt:
-          "You are pi-ling, a concise and helpful coding assistant.",
-        model,
-        thinkingLevel: "high",
-        tools: [],
-      },
-      streamFn: models.stream.bind(models),
-    });
-    this.#agent.subscribe((event) => this.#handleEvent(event));
   }
 
   get status(): AgentStatus {
@@ -43,41 +36,91 @@ export class PiAgentSession {
       provider: PROVIDER,
       model: MODEL,
       configured: Boolean(process.env["DEEPSEEK_API_KEY"]?.trim()),
+      ...(this.#workspace ? { workspace: this.#workspace } : {}),
     };
   }
 
+  async setWorkspace(root: string): Promise<WorkspaceInfo> {
+    this.dispose();
+    const model = models.getModel(PROVIDER, MODEL);
+    if (!model) {
+      throw new Error(`Model is unavailable: ${PROVIDER}/${MODEL}`);
+    }
+    this.#workspace = { root, name: path.basename(root) };
+    this.#agent = await CodingAgent.create({
+      workspaceRoot: root,
+      model,
+      streamFn: models.stream.bind(models),
+      emit: (event) => this.#handleCodingEvent(event),
+    });
+    return this.#workspace;
+  }
+
   startPrompt(requestId: string, prompt: string): void {
-    if (this.#requestId || this.#agent.state.isStreaming) {
+    if (!this.#agent) {
+      throw new Error("Select a workspace before sending a prompt");
+    }
+    if (this.#requestId || this.#agent.isStreaming) {
       throw new Error("Agent is already processing a prompt");
     }
 
     this.#requestId = requestId;
-    void this.#agent.prompt(prompt).finally(() => {
-      if (this.#requestId === requestId) {
-        this.#requestId = null;
-      }
-    });
+    void this.#agent
+      .prompt(prompt)
+      .catch((error: unknown) => {
+        this.#send({
+          type: "assistant_end",
+          stopReason: "error",
+          usage: {
+            input: 0,
+            output: 0,
+            totalTokens: 0,
+            cost: 0,
+          },
+          error: error instanceof Error ? error.message : String(error),
+        });
+        this.#send({ type: "agent_end" });
+      })
+      .finally(() => {
+        if (this.#requestId === requestId) {
+          this.#requestId = null;
+        }
+      });
   }
 
   cancel(requestId: string): boolean {
-    if (this.#requestId !== requestId) {
+    if (this.#requestId !== requestId || !this.#agent) {
       return false;
     }
-    this.#agent.abort();
+    this.#agent.cancel();
     return true;
   }
 
   async reset(): Promise<void> {
-    if (this.#agent.state.isStreaming) {
-      this.#agent.abort();
-      await this.#agent.waitForIdle();
+    if (this.#agent) {
+      await this.#agent.reset();
     }
-    this.#agent.reset();
     this.#requestId = null;
   }
 
+  resolveApproval(
+    callId: string,
+    decision: ApprovalDecision,
+  ): boolean {
+    return this.#agent?.resolveApproval(callId, decision) ?? false;
+  }
+
+  changedFiles(): Promise<ChangedFile[]> {
+    return this.#agent?.changedFiles() ?? Promise.resolve([]);
+  }
+
+  diff(userPath: string): Promise<FileDiff | undefined> {
+    return this.#agent?.diff(userPath) ?? Promise.resolve(undefined);
+  }
+
   dispose(): void {
-    this.#agent.abort();
+    this.#agent?.cancel();
+    this.#agent = undefined;
     this.#requestId = null;
   }
 
@@ -87,55 +130,91 @@ export class PiAgentSession {
     }
   }
 
-  #handleEvent(event: AgentEvent): void {
-    switch (event.type) {
+  #handleCodingEvent(event: CodingAgentEvent): void {
+    if (event.type === "approval_requested") {
+      this.#send({
+        type: "approval_requested",
+        approval: event.approval,
+      });
+      return;
+    }
+    if (event.type === "approval_resolved") {
+      this.#send({
+        type: "approval_resolved",
+        callId: event.callId,
+        approved: event.approved,
+      });
+      return;
+    }
+    if (event.type === "changes") {
+      this.#send({ type: "changes", files: event.files });
+      return;
+    }
+
+    const agentEvent = event.event;
+    switch (agentEvent.type) {
       case "agent_start":
         this.#send({ type: "agent_start" });
         break;
       case "message_start":
-        if (event.message.role === "assistant") {
+        if (agentEvent.message.role === "assistant") {
           this.#send({ type: "assistant_start" });
         }
         break;
       case "message_update":
-        if (event.assistantMessageEvent.type === "text_delta") {
+        if (agentEvent.assistantMessageEvent.type === "text_delta") {
           this.#send({
             type: "text_delta",
-            delta: event.assistantMessageEvent.delta,
+            delta: agentEvent.assistantMessageEvent.delta,
           });
         } else if (
-          event.assistantMessageEvent.type === "thinking_delta"
+          agentEvent.assistantMessageEvent.type === "thinking_delta"
         ) {
           this.#send({
             type: "thinking_delta",
-            delta: event.assistantMessageEvent.delta,
+            delta: agentEvent.assistantMessageEvent.delta,
           });
         }
         break;
+      case "tool_execution_start":
+        this.#send({
+          type: "tool_start",
+          callId: agentEvent.toolCall.id,
+          tool: agentEvent.toolCall.name,
+          arguments: agentEvent.toolCall.arguments,
+        });
+        break;
+      case "tool_execution_end":
+        this.#send({
+          type: "tool_end",
+          callId: agentEvent.toolCall.id,
+          tool: agentEvent.toolCall.name,
+          isError: agentEvent.result.isError,
+          output: agentEvent.result.content
+            .filter((block) => block.type === "text")
+            .map((block) => block.text)
+            .join("\n"),
+        });
+        break;
       case "message_end":
-        if (event.message.role === "assistant") {
+        if (agentEvent.message.role === "assistant") {
           const usage: AgentUsage = {
-            input: event.message.usage.input,
-            output: event.message.usage.output,
-            totalTokens: event.message.usage.totalTokens,
-            cost: event.message.usage.cost.total,
+            input: agentEvent.message.usage.input,
+            output: agentEvent.message.usage.output,
+            totalTokens: agentEvent.message.usage.totalTokens,
+            cost: agentEvent.message.usage.cost.total,
           };
-          if (event.message.usage.reasoning !== undefined) {
-            usage.reasoning = event.message.usage.reasoning;
+          if (agentEvent.message.usage.reasoning !== undefined) {
+            usage.reasoning = agentEvent.message.usage.reasoning;
           }
-
-          const finished: Extract<
-            AgentUiEvent,
-            { type: "assistant_end" }
-          > = {
+          this.#send({
             type: "assistant_end",
-            stopReason: event.message.stopReason,
+            stopReason: agentEvent.message.stopReason,
             usage,
-          };
-          if (event.message.errorMessage) {
-            finished.error = event.message.errorMessage;
-          }
-          this.#send(finished);
+            ...(agentEvent.message.errorMessage
+              ? { error: agentEvent.message.errorMessage }
+              : {}),
+          });
         }
         break;
       case "agent_end":

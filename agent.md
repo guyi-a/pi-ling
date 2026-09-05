@@ -31,8 +31,9 @@ Electron Main Supervisor
   └─ Worker lifecycle
         ↓ RuntimeAdapter
         └─ PiLingRuntime Worker
-              ├─ @pi-ling/agent-core
-              └─ @pi-ling/ai
+              └─ @pi-ling/coding-agent
+                    ├─ @pi-ling/agent-core
+                    └─ @pi-ling/ai
 ```
 
 ## Runtime 规划
@@ -41,9 +42,18 @@ Electron Main Supervisor
 
 - `@pi-ling/ai` 负责模型协议，只实现 DeepSeek OpenAI-compatible Chat Completions 与 Anthropic Messages。
 - `@pi-ling/agent-core` 负责状态、事件、上下文、取消和 ReAct 工具循环。
+- `@pi-ling/coding-agent` 负责 Coding Harness 和全部产品内置 Agent 能力。
 - `vendor/pi-ai` 与 `vendor/pi-agent-core` 保留为 MIT 源码参考，不作为运行依赖。
 - Claude Agent SDK、DeepSeek Harness 和其他模型 Provider 不在当前实现范围。
 - 产品层继续负责 effect 审批、权限边界、沙箱、持久化和恢复。
+
+## Coding Harness
+
+- 所有 Harness 能力直接实现于 `packages/coding-agent`，不建立扩展系统。
+- 内部按 `tools`、`workspace`、`effects`、`approval`、`sessions`、`mcp`、`skills`、`hooks`、`validation` 分模块组织。
+- 上述模块均为产品内置代码，不提供 extension API、插件注册器、第三方动态加载或插件市场。
+- Workspace 校验、effect 审批和凭据边界属于强制安全机制，任何内部模块均不得绕过。
+- `agent-core` 只保留领域无关的工具接口及 `beforeToolCall`、`afterToolCall` 等必要调用点，具体策略由 `coding-agent` 实现。
 
 ## RuntimeAdapter
 
@@ -92,9 +102,8 @@ interface RuntimeAdapter {
 
 - API Key 和其他凭据只能由 Main 安全存储和使用。
 - 文件写入、命令执行、网络访问等副作用由产品层统一建模并审批。
-- 插件默认视为不可信代码。
-- 默认禁止三套 Runtime 同时修改同一工作区。
-- 多 Runtime 对比必须在独立 Git worktree 中运行。
+- 不执行第三方插件代码，不提供动态插件加载。
+- 默认禁止多个活跃会话同时修改同一工作区。
 - IPC 必须使用白名单通道、结构化参数和运行时校验，禁止暴露通用 Node/Electron 能力。
 
 ## 实施顺序
@@ -104,11 +113,12 @@ interface RuntimeAdapter {
 1. 建立 Electron + React + TypeScript monorepo。
 2. 实现 `@pi-ling/ai` 共享协议和 DeepSeek、Anthropic Provider。
 3. 实现 `@pi-ling/agent-core` 状态、事件和 ReAct 循环。
-4. 打通 Main / Preload / Renderer 的类型安全 IPC。
-5. 实现 Chat/Event Stream。
-6. 实现 Workspace、Diff、Terminal。
-7. 实现 Effect Approval。
-8. 实现 Session 持久化、取消和崩溃恢复。
+4. 实现 `@pi-ling/coding-agent` 及内置 Harness 模块。
+5. 打通 Main / Preload / Renderer 的类型安全 IPC。
+6. 实现 Chat/Event Stream。
+7. 实现 Workspace、Diff、Terminal。
+8. 实现 Effect Approval。
+9. 实现 Session 持久化、取消和崩溃恢复。
 
 第一条端到端流程必须覆盖：
 
@@ -129,13 +139,13 @@ Renderer 输入 Prompt
 ## 工程原则
 
 - 优先建立稳定的领域协议，Runtime 专属类型留在各自适配层。
-- 不为尚未接入的 Runtime 编写虚假实现；只保留必要扩展点。
+- 不设计 extension API 或动态插件机制；产品能力直接作为 `coding-agent` 内部模块实现。
 - 所有跨进程消息必须可序列化、可版本化并可关联会话与事件 ID。
 - 副作用审批应基于 effect，而不是仅基于工具名称。
 - 会话路由、事件持久化和 UI 投影需支持幂等处理。
 - 对依赖 Runtime 私有行为的代码添加适配层，避免泄漏到 UI。
 - 新增功能应包含与风险相称的类型检查、单元测试或端到端验证。
-- Coding Eval 最终应作为统一的黑盒 Harness 测试三套 Runtime，并借鉴 LingCoWork `internal/codingeval` 的确定性评测思路。
+- Coding Eval 应作为当前 Runtime 的黑盒 Harness，并借鉴 LingCoWork `internal/codingeval` 的确定性评测思路。
 
 ## 当前本地参考
 

@@ -1,4 +1,5 @@
 import type {
+  ApprovalDecisionRequest,
   AgentEventEnvelope,
   AgentPromptRequest,
   DesktopApi,
@@ -11,6 +12,10 @@ const AGENT_SEND_CHANNEL = "agent:send";
 const AGENT_CANCEL_CHANNEL = "agent:cancel";
 const AGENT_RESET_CHANNEL = "agent:reset";
 const AGENT_EVENT_CHANNEL = "agent:event";
+const WORKSPACE_SELECT_CHANNEL = "workspace:select";
+const APPROVAL_RESOLVE_CHANNEL = "approval:resolve";
+const CHANGES_GET_CHANNEL = "changes:get";
+const DIFF_GET_CHANNEL = "diff:get";
 
 const desktopApi: DesktopApi = {
   getAppInfo: () => ipcRenderer.invoke(APP_INFO_CHANNEL),
@@ -20,6 +25,11 @@ const desktopApi: DesktopApi = {
   cancelPrompt: (requestId: string) =>
     ipcRenderer.invoke(AGENT_CANCEL_CHANNEL, requestId),
   resetAgent: () => ipcRenderer.invoke(AGENT_RESET_CHANNEL),
+  selectWorkspace: () => ipcRenderer.invoke(WORKSPACE_SELECT_CHANNEL),
+  resolveApproval: (decision: ApprovalDecisionRequest) =>
+    ipcRenderer.invoke(APPROVAL_RESOLVE_CHANNEL, decision),
+  getChanges: () => ipcRenderer.invoke(CHANGES_GET_CHANNEL),
+  getDiff: (path: string) => ipcRenderer.invoke(DIFF_GET_CHANNEL, path),
   onAgentEvent: (listener: (event: AgentEventEnvelope) => void) => {
     const handler = (
       _event: Electron.IpcRendererEvent,

@@ -42,3 +42,4 @@
 3. 验证开发启动、类型检查和生产构建。
 4. `packages/ai` 实现 DeepSeek 与 Anthropic Claude Provider。
 5. `packages/agent-core` 实现 Agent 状态、事件、上下文和 ReAct 循环。
+6. `packages/coding-agent` 实现 Workspace、内置工具、effect 审批和 Diff。

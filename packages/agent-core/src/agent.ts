@@ -12,6 +12,7 @@ import type {
   AgentOptions,
   AgentState,
   AgentTool,
+  BeforeToolCall,
 } from "./types.js";
 
 interface MutableAgentState {
@@ -27,6 +28,7 @@ interface MutableAgentState {
 export class Agent {
   readonly #state: MutableAgentState;
   readonly #streamFn: AgentOptions["streamFn"];
+  readonly #beforeToolCall: BeforeToolCall | undefined;
   readonly #maxTurns: number;
   readonly #listeners = new Set<AgentEventListener>();
   #active:
@@ -47,6 +49,7 @@ export class Agent {
       errorMessage: undefined,
     };
     this.#streamFn = options.streamFn;
+    this.#beforeToolCall = options.beforeToolCall;
     this.#maxTurns = options.maxTurns ?? 20;
   }
 
@@ -131,6 +134,9 @@ export class Agent {
       prompt,
       signal: controller.signal,
       streamFn: this.#streamFn,
+      ...(this.#beforeToolCall
+        ? { beforeToolCall: this.#beforeToolCall }
+        : {}),
       maxTurns: this.#maxTurns,
       emit: async (event) => {
         this.#reduce(event);

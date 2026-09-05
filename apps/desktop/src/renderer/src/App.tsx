@@ -1,4 +1,10 @@
-import type { AgentStatus, AgentUsage } from "@pi-ling/contracts";
+import type {
+  AgentStatus,
+  AgentUsage,
+  ApprovalRequest,
+  ChangedFile,
+  FileDiff,
+} from "@pi-ling/contracts";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 
@@ -12,9 +18,21 @@ interface ChatMessage {
   pending?: boolean;
 }
 
+interface ToolActivity {
+  callId: string;
+  tool: string;
+  arguments: Record<string, unknown>;
+  status: "running" | "done" | "error";
+  output?: string;
+}
+
 export function App() {
   const [prompt, setPrompt] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [tools, setTools] = useState<ToolActivity[]>([]);
+  const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
+  const [changes, setChanges] = useState<ChangedFile[]>([]);
+  const [selectedDiff, setSelectedDiff] = useState<FileDiff | null>(null);
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
   const messageEndRef = useRef<HTMLDivElement>(null);
@@ -54,22 +72,68 @@ export function App() {
               : message,
           ),
         );
+      } else if (event.type === "tool_start") {
+        setTools((current) => [
+          ...current.filter((tool) => tool.callId !== event.callId),
+          {
+            callId: event.callId,
+            tool: event.tool,
+            arguments: event.arguments,
+            status: "running",
+          },
+        ]);
+      } else if (event.type === "tool_end") {
+        setTools((current) =>
+          current.map((tool) =>
+            tool.callId === event.callId
+              ? {
+                  ...tool,
+                  status: event.isError ? "error" : "done",
+                  output: event.output,
+                }
+              : tool,
+          ),
+        );
+      } else if (event.type === "approval_requested") {
+        setApprovals((current) => [...current, event.approval]);
+      } else if (event.type === "approval_resolved") {
+        setApprovals((current) =>
+          current.filter((approval) => approval.callId !== event.callId),
+        );
+      } else if (event.type === "changes") {
+        setChanges(event.files);
       } else if (event.type === "agent_end") {
-          setActiveRequestId((current) =>
+        setActiveRequestId((current) =>
           current === requestId ? null : current,
-          );
+        );
       }
     });
   }, []);
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, tools, approvals]);
+
+  async function chooseWorkspace() {
+    const workspace = await window.piLing.selectWorkspace();
+    if (!workspace) {
+      return;
+    }
+    setStatus((current) =>
+      current ? { ...current, workspace } : current,
+    );
+    setMessages([]);
+    setTools([]);
+    setApprovals([]);
+    setChanges([]);
+    setSelectedDiff(null);
+    setActiveRequestId(null);
+  }
 
   async function sendPrompt(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const value = prompt.trim();
-    if (!value || activeRequestId) {
+    if (!value || activeRequestId || !status?.workspace) {
       return;
     }
 
@@ -78,11 +142,7 @@ export function App() {
     setActiveRequestId(requestId);
     setMessages((current) => [
       ...current,
-      {
-        id: `${requestId}-user`,
-        role: "user",
-        text: value,
-      },
+      { id: `${requestId}-user`, role: "user", text: value },
       {
         id: requestId,
         role: "assistant",
@@ -108,10 +168,32 @@ export function App() {
     }
   }
 
+  async function decide(approval: ApprovalRequest, approved: boolean) {
+    const resolved = await window.piLing.resolveApproval({
+      callId: approval.callId,
+      approved,
+      effectDigest: approval.effectDigest,
+      ...(!approved ? { reason: "Denied by user" } : {}),
+    });
+    if (resolved) {
+      setApprovals((current) =>
+        current.filter((item) => item.callId !== approval.callId),
+      );
+    }
+  }
+
+  async function showDiff(file: ChangedFile) {
+    setSelectedDiff((await window.piLing.getDiff(file.path)) ?? null);
+  }
+
   async function newSession() {
     await window.piLing.resetAgent();
     setActiveRequestId(null);
     setMessages([]);
+    setTools([]);
+    setApprovals([]);
+    setChanges([]);
+    setSelectedDiff(null);
     setPrompt("");
   }
 
@@ -122,6 +204,9 @@ export function App() {
           <span className="brand-mark">π</span>
           <span>pi-ling</span>
         </div>
+        <button className="workspace-button" type="button" onClick={chooseWorkspace}>
+          {status?.workspace?.name ?? "Open workspace"}
+        </button>
       </header>
 
       <section className="workspace">
@@ -161,16 +246,47 @@ export function App() {
                 ) : null}
               </article>
             ))}
+
+            {tools.map((tool) => (
+              <div className={`tool-card ${tool.status}`} key={tool.callId}>
+                <div>
+                  <strong>{tool.tool}</strong>
+                  <span>{tool.status}</span>
+                </div>
+                <code>{JSON.stringify(tool.arguments)}</code>
+                {tool.output ? <pre>{tool.output}</pre> : null}
+              </div>
+            ))}
+
+            {approvals.map((approval) => (
+              <div className="approval-card" key={approval.callId}>
+                <strong>Approval required · {approval.tool}</strong>
+                <p>{approval.reason}</p>
+                <pre>{JSON.stringify(approval.arguments, null, 2)}</pre>
+                <div className="approval-actions">
+                  <button type="button" onClick={() => decide(approval, false)}>
+                    Deny
+                  </button>
+                  <button
+                    className="allow"
+                    type="button"
+                    onClick={() => decide(approval, true)}
+                  >
+                    Allow once
+                  </button>
+                </div>
+              </div>
+            ))}
             <div ref={messageEndRef} />
           </div>
 
           <form className="composer" onSubmit={sendPrompt}>
             <div className="model-status">
-              {status
-                ? `${status.provider}/${status.model}${
-                    status.configured ? "" : " · DEEPSEEK_API_KEY missing"
-                  }`
-                : "Starting agent…"}
+              {!status?.configured
+                ? "DEEPSEEK_API_KEY missing"
+                : status.workspace
+                  ? `${status.provider}/${status.model} · ${status.workspace.root}`
+                  : "Select a workspace to start"}
             </div>
             <div className="composer-row">
               <textarea
@@ -182,8 +298,9 @@ export function App() {
                     event.currentTarget.form?.requestSubmit();
                   }
                 }}
-                placeholder="Message pi-ling"
+                placeholder="Ask pi-ling to inspect or change the workspace"
                 rows={2}
+                disabled={!status?.workspace}
               />
               {activeRequestId ? (
                 <button
@@ -197,7 +314,7 @@ export function App() {
                 <button
                   className="send-button"
                   type="submit"
-                  disabled={!prompt.trim()}
+                  disabled={!prompt.trim() || !status?.workspace}
                 >
                   Send
                 </button>
@@ -205,6 +322,28 @@ export function App() {
             </div>
           </form>
         </section>
+
+        <aside className="diff-panel">
+          <p className="section-label">CHANGES</p>
+          {changes.length === 0 ? (
+            <div className="empty-changes">No changes</div>
+          ) : (
+            changes.map((file) => (
+              <button
+                className="change-file"
+                type="button"
+                key={file.path}
+                onClick={() => showDiff(file)}
+              >
+                <span>{file.path}</span>
+                <small>{file.status}</small>
+              </button>
+            ))
+          )}
+          {selectedDiff ? (
+            <pre className="diff-content">{selectedDiff.patch}</pre>
+          ) : null}
+        </aside>
       </section>
     </main>
   );

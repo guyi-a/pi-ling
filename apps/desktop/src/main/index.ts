@@ -2,14 +2,19 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type {
+  ApprovalDecisionRequest,
   AgentPromptAccepted,
   AgentPromptRequest,
   AgentStatus,
   AppInfo,
+  ChangedFile,
+  FileDiff,
+  WorkspaceInfo,
 } from "@pi-ling/contracts";
 import {
   app,
   BrowserWindow,
+  dialog,
   ipcMain,
   shell,
   type WebContents,
@@ -24,6 +29,10 @@ const AGENT_SEND_CHANNEL = "agent:send";
 const AGENT_CANCEL_CHANNEL = "agent:cancel";
 const AGENT_RESET_CHANNEL = "agent:reset";
 const AGENT_EVENT_CHANNEL = "agent:event";
+const WORKSPACE_SELECT_CHANNEL = "workspace:select";
+const APPROVAL_RESOLVE_CHANNEL = "approval:resolve";
+const CHANGES_GET_CHANNEL = "changes:get";
+const DIFF_GET_CHANNEL = "diff:get";
 
 try {
   process.loadEnvFile(join(__dirname, "../../../../.env"));
@@ -51,6 +60,29 @@ function parsePromptRequest(value: unknown): AgentPromptRequest {
   return {
     requestId: value.requestId,
     prompt: value.prompt.trim(),
+  };
+}
+
+function parseApprovalDecision(value: unknown): ApprovalDecisionRequest {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("callId" in value) ||
+    typeof value.callId !== "string" ||
+    !("approved" in value) ||
+    typeof value.approved !== "boolean" ||
+    !("effectDigest" in value) ||
+    typeof value.effectDigest !== "string"
+  ) {
+    throw new Error("Invalid approval decision");
+  }
+  return {
+    callId: value.callId,
+    approved: value.approved,
+    effectDigest: value.effectDigest,
+    ...("reason" in value && typeof value.reason === "string"
+      ? { reason: value.reason }
+      : {}),
   };
 }
 
@@ -145,6 +177,52 @@ ipcMain.handle(
 ipcMain.handle(AGENT_RESET_CHANNEL, async (event): Promise<void> => {
   await getAgentSession(event.sender).reset();
 });
+
+ipcMain.handle(
+  WORKSPACE_SELECT_CHANNEL,
+  async (event): Promise<WorkspaceInfo | undefined> => {
+    const parent = BrowserWindow.fromWebContents(event.sender);
+    const options: Electron.OpenDialogOptions = {
+      title: "Select coding workspace",
+      properties: ["openDirectory"],
+    };
+    const result = parent
+      ? await dialog.showOpenDialog(parent, options)
+      : await dialog.showOpenDialog(options);
+    const root = result.filePaths[0];
+    if (result.canceled || !root) {
+      return undefined;
+    }
+    return getAgentSession(event.sender).setWorkspace(root);
+  },
+);
+
+ipcMain.handle(
+  APPROVAL_RESOLVE_CHANNEL,
+  (event, input: unknown): boolean => {
+    const decision = parseApprovalDecision(input);
+    return getAgentSession(event.sender).resolveApproval(
+      decision.callId,
+      decision,
+    );
+  },
+);
+
+ipcMain.handle(
+  CHANGES_GET_CHANNEL,
+  (event): Promise<ChangedFile[]> =>
+    getAgentSession(event.sender).changedFiles(),
+);
+
+ipcMain.handle(
+  DIFF_GET_CHANNEL,
+  (event, userPath: unknown): Promise<FileDiff | undefined> => {
+    if (typeof userPath !== "string" || !userPath.trim()) {
+      throw new Error("Invalid diff path");
+    }
+    return getAgentSession(event.sender).diff(userPath);
+  },
+);
 
 void app.whenReady().then(() => {
   createWindow();

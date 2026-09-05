@@ -161,6 +161,51 @@ describe("Agent", () => {
     ]);
   });
 
+  it("returns a denied tool call to the model without executing it", async () => {
+    let executed = false;
+    const parameters = Type.Object({ path: Type.String() });
+    const responses = [
+      toolResponse({
+        type: "toolCall",
+        id: "call-denied",
+        name: "write_file",
+        arguments: { path: "secret.txt" },
+      }),
+      textResponse("I will not write it."),
+    ];
+    const agent = new Agent({
+      initialState: {
+        model,
+        tools: [
+          {
+            name: "write_file",
+            label: "Write file",
+            description: "Write a file",
+            parameters,
+            execute: async () => {
+              executed = true;
+              return { content: [{ type: "text", text: "written" }] };
+            },
+          },
+        ],
+      },
+      streamFn: () => responses.shift()!,
+      beforeToolCall: async () => ({
+        allow: false,
+        reason: "User denied this write",
+      }),
+    });
+
+    await agent.prompt("write a file");
+
+    expect(executed).toBe(false);
+    expect(agent.state.messages[2]).toMatchObject({
+      role: "toolResult",
+      isError: true,
+      content: [{ text: "User denied this write" }],
+    });
+  });
+
   it("propagates cancellation through the stream signal", async () => {
     const streamFn = (
       _model: Model,

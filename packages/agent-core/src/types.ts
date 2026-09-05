@@ -49,6 +49,23 @@ export interface AgentState {
   readonly errorMessage: string | undefined;
 }
 
+export interface BeforeToolCallContext {
+  toolCall: ToolCall;
+  tool: AgentTool;
+  arguments: unknown;
+  context: Context;
+}
+
+export interface BeforeToolCallResult {
+  allow: boolean;
+  reason?: string;
+}
+
+export type BeforeToolCall = (
+  context: BeforeToolCallContext,
+  signal: AbortSignal,
+) => BeforeToolCallResult | Promise<BeforeToolCallResult>;
+
 export type AgentEvent =
   | { type: "agent_start" }
   | { type: "agent_end"; messages: Message[] }
@@ -90,5 +107,6 @@ export interface AgentOptions {
     messages?: Message[];
   };
   streamFn: StreamFunction;
+  beforeToolCall?: BeforeToolCall;
   maxTurns?: number;
 }
