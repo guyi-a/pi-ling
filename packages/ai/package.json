@@ -1,0 +1,35 @@
+{
+  "name": "@pi-ling/ai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./dist/index.js"
+    },
+    "./providers/deepseek": {
+      "types": "./src/providers/deepseek.ts",
+      "import": "./dist/providers/deepseek.js"
+    },
+    "./providers/anthropic": {
+      "types": "./src/providers/anthropic.ts",
+      "import": "./dist/providers/anthropic.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.123.0",
+    "openai": "6.40.0",
+    "typebox": "1.3.7"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "typescript": "7.0.2",
+    "vitest": "4.1.9"
+  }
+}

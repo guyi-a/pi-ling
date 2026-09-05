@@ -8,10 +8,8 @@
   - 远程仓库：`https://github.com/earendil-works/pi.git`
   - 当前本地版本信息：monorepo `0.0.3`，交接记录中的 Pi 版本为 `0.85.0`。
   - 重点参考：`packages/coding-agent`、`packages/ai`、`packages/agent`、协议和 session backend。
-  - Phase 1 应使用 `@earendil-works/pi-coding-agent`，不能仅用裸 `pi-agent-core` 重写 Coding Harness。
   - `packages/ai` 的源码快照已复制到本项目 `vendor/pi-ai`，版本和提交信息见其 `UPSTREAM.md`。
-  - Pi Runtime 直接使用 vendored pi-ai，不再增加重复的模型适配包装。
-  - `packages/agent` 的源码快照已复制到本项目 `vendor/pi-agent-core`，先通过最小无工具 Agent 学习事件和状态，再逐步接入 Coding Harness。
+  - `packages/agent` 的源码快照已复制到本项目 `vendor/pi-agent-core`，版本和提交信息见其 `UPSTREAM.md`。
 
 - LingCoWork：`E:\LingCoWork`
   - 远程仓库：`https://github.com/guyi-a/LingCoWork.git`
@@ -42,5 +40,5 @@
 1. 先建立可运行的 Electron + React + TypeScript 框架。
 2. 打通 Main、Preload、Renderer 的最小类型安全 IPC。
 3. 验证开发启动、类型检查和生产构建。
-4. 在 Pi Runtime 中直接接入 vendored pi-ai。
-5. 再接入 Pi Coding Runtime 和完整 Agent Harness。
+4. `packages/ai` 实现 DeepSeek 与 Anthropic Claude Provider。
+5. `packages/agent-core` 实现 Agent 状态、事件、上下文和 ReAct 循环。

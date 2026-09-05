@@ -1,8 +1,6 @@
-import { randomUUID } from "node:crypto";
-
-import { Agent, type AgentEvent } from "@earendil-works/pi-agent-core";
-import { createModels } from "@earendil-works/pi-ai";
-import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
+import { Agent, type AgentEvent } from "@pi-ling/agent-core";
+import { createModels } from "@pi-ling/ai";
+import { deepseekProvider } from "@pi-ling/ai/providers/deepseek";
 import type {
   AgentEventEnvelope,
   AgentStatus,
@@ -13,8 +11,7 @@ import type {
 const PROVIDER = "deepseek";
 const MODEL = "deepseek-v4-flash";
 
-const models = createModels();
-models.setProvider(deepseekProvider());
+const models = createModels([deepseekProvider()]);
 
 export class PiAgentSession {
   readonly #agent: Agent;
@@ -36,8 +33,7 @@ export class PiAgentSession {
         thinkingLevel: "high",
         tools: [],
       },
-      sessionId: randomUUID(),
-      streamFn: models.streamSimple.bind(models),
+      streamFn: models.stream.bind(models),
     });
     this.#agent.subscribe((event) => this.#handleEvent(event));
   }

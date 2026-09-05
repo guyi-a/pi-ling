@@ -6,7 +6,7 @@
 
 - 不修改或复制 LingCoWork 主工程。
 - LingCoWork 仅作为需求、设计和评测参考。
-- 三套 Runtime 并列设计、分阶段实现，Phase 1 只实现 Pi Runtime。
+- 当前只实现自研 Runtime，模型层限定为 DeepSeek 和 Anthropic Claude。
 
 ## 技术栈与架构
 
@@ -30,34 +30,20 @@ Electron Main Supervisor
   ├─ Effect approval policy
   └─ Worker lifecycle
         ↓ RuntimeAdapter
-        ├─ PiRuntime Worker
-        ├─ ClaudeRuntime CLI
-        └─ DshRuntime Sidecar
+        └─ PiLingRuntime Worker
+              ├─ @pi-ling/agent-core
+              └─ @pi-ling/ai
 ```
 
 ## Runtime 规划
 
-### Pi Runtime（主 Runtime）
+### 自研 Runtime（主 Runtime）
 
-- 使用 `@earendil-works/pi-coding-agent`。
-- 底层使用其现有的 `pi-agent-core + pi-ai` 体系。
-- 使用 `pi-ai` 完成多模型和 provider 适配。
-- 不使用裸 `pi-agent-core` 重新实现 Coding Harness。
-- 产品层必须补充 effect 审批、权限边界和沙箱。
-
-### Claude Agent SDK（Phase 2）
-
-- Electron 优先采用 TypeScript SDK。
-- Runtime 本质上管理 Claude Code CLI 子进程，通常一个活跃会话对应一个进程。
-- 模型层由 Anthropic 管理，不得替换为 `pi-ai`。
-- 接入前确认 Anthropic Commercial Terms。
-
-### DeepSeek Harness（Phase 3）
-
-- 使用 Cordis 插件架构，可复用已有 `llm-pi-ai` provider。
-- 通过 SDK/ACP sidecar 接入，不把 Cordis 嵌入 Renderer。
-- developer preview 阶段必须固定版本、使用 feature flag，并隔离适配层。
-- `E:\dsh-for-humans` 只是教程，不作为 DSH 源码。
+- `@pi-ling/ai` 负责模型协议，只实现 DeepSeek OpenAI-compatible Chat Completions 与 Anthropic Messages。
+- `@pi-ling/agent-core` 负责状态、事件、上下文、取消和 ReAct 工具循环。
+- `vendor/pi-ai` 与 `vendor/pi-agent-core` 保留为 MIT 源码参考，不作为运行依赖。
+- Claude Agent SDK、DeepSeek Harness 和其他模型 Provider 不在当前实现范围。
+- 产品层继续负责 effect 审批、权限边界、沙箱、持久化和恢复。
 
 ## RuntimeAdapter
 
@@ -113,11 +99,11 @@ interface RuntimeAdapter {
 
 ## 实施顺序
 
-### Phase 1：Pi Runtime
+### Phase 1：自研 Runtime
 
 1. 建立 Electron + React + TypeScript monorepo。
-2. 定义 RuntimeAdapter、capabilities 和共享领域类型。
-3. 实现 PiRuntime Worker 的最小适配。
+2. 实现 `@pi-ling/ai` 共享协议和 DeepSeek、Anthropic Provider。
+3. 实现 `@pi-ling/agent-core` 状态、事件和 ReAct 循环。
 4. 打通 Main / Preload / Renderer 的类型安全 IPC。
 5. 实现 Chat/Event Stream。
 6. 实现 Workspace、Diff、Terminal。
@@ -130,7 +116,8 @@ interface RuntimeAdapter {
 Renderer 输入 Prompt
   → Preload IPC
   → Main Supervisor 路由会话
-  → PiRuntime Worker 执行
+  → Agent Core 执行
+  → DeepSeek 或 Anthropic Provider
   → 原始事件持久化
   → 标准事件投影
   → IPC 流式推送
@@ -138,18 +125,6 @@ Renderer 输入 Prompt
 ```
 
 同时覆盖错误、取消、审批请求和进程异常退出。
-
-### Phase 2
-
-接入 Claude Agent SDK，用真实实现验证 RuntimeAdapter 的通用性，避免为 Claude 修改 Pi 专属语义。
-
-### Phase 3
-
-通过 SDK/ACP sidecar 接入 DSH，并使用 feature flag 开启。
-
-### Phase 4
-
-实现 Runtime handoff、并行 worktree 和 A/B Eval。
 
 ## 工程原则
 
