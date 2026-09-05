@@ -10,6 +10,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@earendil-works/pi-ai':
+        specifier: workspace:*
+        version: link:../../vendor/pi-ai
       '@pi-ling/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts

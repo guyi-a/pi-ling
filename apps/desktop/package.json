@@ -2,6 +2,7 @@
   "name": "@pi-ling/desktop",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "pi-ling desktop coding agent",
   "main": "./out/main/index.js",
   "scripts": {
@@ -11,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@earendil-works/pi-ai": "workspace:*",
     "@pi-ling/contracts": "workspace:*",
     "react": "19.2.8",
     "react-dom": "19.2.8"

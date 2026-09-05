@@ -97,14 +97,105 @@ button {
   background: #1c212b;
 }
 
-.empty-list {
-  margin-top: 28px;
-  color: #596273;
+.session-item {
+  margin-top: 12px;
+  padding: 9px 10px;
+  overflow: hidden;
+  color: #aeb6c4;
+  border-radius: 7px;
   font-size: 13px;
-  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-item.active {
+  background: #171b23;
 }
 
 .content {
   min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 1fr auto;
   background: #0b0d12;
+}
+
+.event-log {
+  min-height: 0;
+  overflow: auto;
+  padding: 18px 22px 8px;
+}
+
+.raw-event {
+  margin: 0 0 12px;
+  padding: 14px;
+  overflow: auto;
+  color: #b9c2d0;
+  border: 1px solid #252a34;
+  border-radius: 8px;
+  background: #10131a;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.composer {
+  margin: 0 22px 20px;
+  padding: 10px;
+  border: 1px solid #303644;
+  border-radius: 10px;
+  background: #12151c;
+}
+
+.model-status {
+  min-height: 18px;
+  padding: 0 2px 7px;
+  color: #687285;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
+}
+
+.composer-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.composer textarea {
+  min-height: 48px;
+  flex: 1;
+  resize: none;
+  padding: 10px;
+  color: #e3e8f0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  line-height: 1.45;
+}
+
+.composer textarea::placeholder {
+  color: #596273;
+}
+
+.send-button {
+  min-width: 64px;
+  height: 34px;
+  padding: 0 13px;
+  color: #e7ebf2;
+  border: 1px solid #3a4150;
+  border-radius: 7px;
+  background: #252b36;
+  cursor: pointer;
+}
+
+.send-button:hover:not(:disabled) {
+  background: #303745;
+}
+
+.send-button:disabled {
+  color: #626b7a;
+  cursor: default;
 }
