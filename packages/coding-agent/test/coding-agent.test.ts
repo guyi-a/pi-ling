@@ -142,6 +142,35 @@ describe("CodingAgent", () => {
     expect((await agent.diff("hello.txt"))?.patch).toContain("+hello");
   });
 
+  it("allows workspace writes without a prompt in accept-write mode", async () => {
+    const responses = [
+      responseWithTool({
+        type: "toolCall",
+        id: "accepted-write",
+        name: "write_file",
+        arguments: { path: "accepted.txt", content: "accepted\n" },
+      }),
+      responseWithText("Done."),
+    ];
+    let approvals = 0;
+    const agent = await CodingAgent.create({
+      workspaceRoot: root,
+      model,
+      approvalMode: "accept-write",
+      streamFn: () => responses.shift()!,
+      emit: (event) => {
+        if (event.type === "approval_requested") approvals += 1;
+      },
+    });
+
+    await agent.prompt("Create accepted.txt", "accept-write-run");
+
+    expect(approvals).toBe(0);
+    expect(await fs.readFile(path.join(root, "accepted.txt"), "utf8")).toBe(
+      "accepted\n",
+    );
+  });
+
   it("resumes an approved pending tool exactly once", async () => {
     const call: ToolCall = {
       type: "toolCall",

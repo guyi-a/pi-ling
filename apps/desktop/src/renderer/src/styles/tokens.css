@@ -1,30 +1,29 @@
 :root {
   color-scheme: dark;
-  --bg: #0c0d10;
-  --surface-1: #101216;
-  --surface-2: #15181e;
-  --surface-3: #1b1f27;
-  --surface-hover: #20252e;
-  --border: #242831;
-  --border-strong: #303641;
-  --text: #e5e8ed;
-  --text-soft: #bdc3ce;
-  --muted: #7d8696;
-  --muted-2: #555e6e;
-  --accent: #80d8df;
-  --accent-soft: #19363a;
+  --bg: #111216;
+  --surface-1: #15161a;
+  --surface-2: #1a1b20;
+  --surface-3: #202126;
+  --surface-hover: #26272e;
+  --border: #292a31;
+  --border-strong: #363842;
+  --text: #e8e9ed;
+  --text-soft: #c4c6cf;
+  --muted: #858996;
+  --muted-2: #5e626e;
+  --accent: #a8b4e0;
+  --accent-soft: #282d42;
   --success: #70d69a;
   --warning: #e3bd6b;
   --danger: #ef8794;
-  --focus: rgb(128 216 223 / 38%);
+  --focus: rgb(168 180 224 / 38%);
   --sidebar-width: 248px;
   --content-width: 780px;
   --radius-sm: 6px;
   --radius-md: 9px;
   --radius-lg: 14px;
   font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
+    "Segoe UI Variable", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -67,7 +66,7 @@ summary:focus-visible {
 }
 
 ::selection {
-  color: #071013;
+  color: #171922;
   background: var(--accent);
 }
 

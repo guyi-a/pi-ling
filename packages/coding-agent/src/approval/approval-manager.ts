@@ -2,7 +2,7 @@ import type { BeforeToolCallResult } from "@pi-ling/agent-core";
 import type { ToolCall } from "@pi-ling/ai";
 
 import type { Effect } from "../effects/effects.js";
-import { approvalReason, effectDigest } from "../effects/effects.js";
+import { effectDigest } from "../effects/effects.js";
 
 export interface ApprovalRequest {
   runId: string;
@@ -50,11 +50,8 @@ export class ApprovalManager {
     effect: Effect,
     signal: AbortSignal,
     identity: { runId: string; turnId: string },
+    reason: string | undefined,
   ): Promise<BeforeToolCallResult> {
-    const reason = approvalReason(effect);
-    if (!reason) {
-      return Promise.resolve({ allow: true });
-    }
     const restoredDecision = this.#restoredDecisions.get(call.id);
     if (restoredDecision) {
       this.#restoredDecisions.delete(call.id);
@@ -71,6 +68,9 @@ export class ApprovalManager {
     if (existing) {
       this.#attachSignal(existing, signal);
       return existing.promise;
+    }
+    if (!reason) {
+      return Promise.resolve({ allow: true });
     }
 
     const request: ApprovalRequest = {

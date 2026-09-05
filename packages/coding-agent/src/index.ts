@@ -19,6 +19,7 @@ export {
   classifyCommand,
   deriveEffect,
   effectDigest,
+  type ApprovalMode,
   type Effect,
 } from "./effects/effects.js";
 export { CommandRunner, type CommandResult } from "./tools/command-runner.js";

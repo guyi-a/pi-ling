@@ -1,5 +1,6 @@
 import type {
   ApprovalDecisionRequest,
+  ApprovalMode,
   AgentPromptRequest,
   CreateSessionRequest,
   DesktopApi,
@@ -21,6 +22,7 @@ const SESSIONS_LIST_CHANNEL = "sessions:list";
 const SESSIONS_CREATE_CHANNEL = "sessions:create";
 const SESSIONS_SWITCH_CHANNEL = "sessions:switch";
 const SESSIONS_DELETE_CHANNEL = "sessions:delete";
+const SESSION_APPROVAL_MODE_CHANNEL = "session:approval-mode";
 
 const desktopApi: DesktopApi = {
   getAppInfo: () => ipcRenderer.invoke(APP_INFO_CHANNEL),
@@ -42,6 +44,8 @@ const desktopApi: DesktopApi = {
     ipcRenderer.invoke(SESSIONS_SWITCH_CHANNEL, sessionId),
   deleteSession: (sessionId: string) =>
     ipcRenderer.invoke(SESSIONS_DELETE_CHANNEL, sessionId),
+  setApprovalMode: (mode: ApprovalMode) =>
+    ipcRenderer.invoke(SESSION_APPROVAL_MODE_CHANNEL, mode),
   onTimelineEvent: (listener: (event: TimelineEnvelope) => void) => {
     const handler = (
       _event: Electron.IpcRendererEvent,

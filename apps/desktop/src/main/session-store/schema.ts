@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   title TEXT NOT NULL,
   lifecycle TEXT NOT NULL DEFAULT 'idle'
     CHECK (lifecycle IN ('idle', 'running', 'awaiting_approval', 'crashed')),
+  approval_mode TEXT NOT NULL DEFAULT 'manual'
+    CHECK (approval_mode IN ('manual', 'accept-write', 'auto')),
   active_run_id TEXT,
   last_seq INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,

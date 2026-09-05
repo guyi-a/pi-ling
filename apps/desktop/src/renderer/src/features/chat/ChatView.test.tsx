@@ -65,9 +65,11 @@ describe("ChatView", () => {
         modelLabel="model"
         workspaceReady
         activeRunId={null}
+        approvalMode="manual"
         onSend={async () => {}}
         onCancel={() => {}}
         onApproval={async () => {}}
+        onApprovalModeChange={async () => {}}
       />,
     );
 

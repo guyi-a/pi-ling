@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { Message, ToolCall } from "@pi-ling/ai";
 import type { ApprovalRequest as RuntimeApprovalRequest } from "@pi-ling/coding-agent";
 import type {
+  ApprovalMode,
   SessionLifecycle,
   SessionSummary,
   TimelineEnvelope,
@@ -51,6 +52,7 @@ interface SessionRow {
   workspace_root: string;
   title: string;
   lifecycle: SessionLifecycle;
+  approval_mode: ApprovalMode;
   active_run_id: string | null;
   last_seq: number;
   created_at: number;
@@ -66,6 +68,7 @@ function sessionFromRow(row: SessionRow): SessionSummary {
       name: path.basename(row.workspace_root),
     },
     lifecycle: row.lifecycle,
+    approvalMode: row.approval_mode,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -77,6 +80,14 @@ export class SessionStore {
   constructor(filename: string) {
     this.#db = new DatabaseSync(filename);
     this.#db.exec(SESSION_SCHEMA);
+    const columns = this.#db
+      .prepare("PRAGMA table_info(sessions)")
+      .all() as unknown as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "approval_mode")) {
+      this.#db.exec(
+        "ALTER TABLE sessions ADD COLUMN approval_mode TEXT NOT NULL DEFAULT 'manual'",
+      );
+    }
   }
 
   close(): void {
@@ -257,6 +268,23 @@ export class SessionStore {
          WHERE session_id = ?`,
       )
       .run(lifecycle, activeRunId ?? null, Date.now(), sessionId);
+  }
+
+  setApprovalMode(
+    sessionId: string,
+    mode: ApprovalMode,
+  ): SessionSummary {
+    this.#db
+      .prepare(
+        `UPDATE sessions SET approval_mode = ?, updated_at = ?
+         WHERE session_id = ?`,
+      )
+      .run(mode, Date.now(), sessionId);
+    const session = this.getSession(sessionId);
+    if (!session) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+    return session;
   }
 
   setCheckpoint(checkpoint: RunCheckpoint): void {

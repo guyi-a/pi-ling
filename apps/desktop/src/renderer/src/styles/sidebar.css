@@ -57,11 +57,64 @@
   overflow-y: auto;
 }
 
+.project-group {
+  margin: 14px 0 4px;
+}
+
+.project-header {
+  height: 26px;
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) 22px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 5px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.project-header > svg {
+  width: 13px;
+  height: 13px;
+}
+
+.project-header > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-header button {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  color: var(--muted-2);
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.project-header:hover button,
+.project-header button:focus-visible {
+  opacity: 1;
+}
+
+.project-header button:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.project-header button svg {
+  width: 12px;
+  height: 12px;
+}
+
 .session-item {
   width: 100%;
   display: grid;
   grid-template-columns: 8px minmax(0, 1fr) auto;
-  grid-template-rows: auto auto;
   align-items: center;
   column-gap: 8px;
   row-gap: 3px;
@@ -92,7 +145,6 @@
 }
 
 .session-status {
-  grid-row: 1 / span 2;
   width: 6px;
   height: 6px;
   border-radius: 50%;
@@ -101,7 +153,7 @@
 
 .session-status.running {
   background: var(--accent);
-  box-shadow: 0 0 0 3px rgb(128 216 223 / 10%);
+  box-shadow: 0 0 0 3px rgb(168 180 224 / 10%);
 }
 
 .session-status.awaiting_approval {
@@ -126,22 +178,30 @@
   font-variant-numeric: tabular-nums;
 }
 
-.session-workspace {
-  grid-column: 2 / 4;
+.add-workspace {
+  width: 100%;
+  height: 30px;
   display: flex;
   align-items: center;
-  gap: 5px;
-  overflow: hidden;
+  gap: 7px;
+  margin-top: 8px;
+  padding: 0 8px;
   color: var(--muted-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
   font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.session-workspace svg {
-  width: 11px;
-  height: 11px;
-  flex: 0 0 auto;
+.add-workspace:hover {
+  color: var(--text-soft);
+  background: var(--surface-2);
+}
+
+.add-workspace svg {
+  width: 13px;
+  height: 13px;
 }
 
 .sidebar-empty {

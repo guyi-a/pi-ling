@@ -1,6 +1,6 @@
 import type { SessionSummary } from "@pi-ling/contracts";
-import { FolderOpen, Plus } from "lucide-react";
-import { memo } from "react";
+import { FolderOpen, FolderPlus, Plus } from "lucide-react";
+import { memo, useMemo } from "react";
 
 function relativeTime(timestamp: number): string {
   const elapsed = Math.max(0, Date.now() - timestamp);
@@ -20,55 +20,91 @@ function relativeTime(timestamp: number): string {
 export const Sidebar = memo(function Sidebar(props: {
   sessions: SessionSummary[];
   activeSessionId?: string;
-  onNewSession: () => void;
+  onNewSession: (workspaceRoot?: string) => void;
+  onAddWorkspace: () => void;
   onSelect: (sessionId: string) => void;
 }) {
+  const projects = useMemo(() => {
+    const grouped = new Map<
+      string,
+      { name: string; sessions: SessionSummary[] }
+    >();
+    for (const session of props.sessions) {
+      const project = grouped.get(session.workspace.root) ?? {
+        name: session.workspace.name,
+        sessions: [],
+      };
+      project.sessions.push(session);
+      grouped.set(session.workspace.root, project);
+    }
+    return [...grouped.entries()];
+  }, [props.sessions]);
+
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <p className="section-label">会话</p>
+        <p className="section-label">项目与会话</p>
       </div>
       <button
         className="new-session"
         type="button"
-        onClick={props.onNewSession}
+        onClick={() => props.onNewSession()}
       >
         <Plus />
         新建会话
       </button>
       <div className="session-list">
-        {props.sessions.length === 0 ? (
-          <div className="sidebar-empty">选择工作区后开始对话</div>
+        {projects.length === 0 ? (
+          <div className="sidebar-empty">添加一个工作区开始对话</div>
         ) : (
-          props.sessions.map((session) => (
-            <button
-              className={`session-item ${
-                session.id === props.activeSessionId ? "active" : ""
-              }`}
-              type="button"
-              key={session.id}
-              onClick={() => props.onSelect(session.id)}
-              title={`${session.title}\n${session.workspace.root}`}
-            >
-              <span
-                className={`session-status ${session.lifecycle}`}
-                title={session.lifecycle}
-              />
-              <span className="session-title">{session.title}</span>
-              <time
-                className="session-time"
-                dateTime={new Date(session.updatedAt).toISOString()}
-              >
-                {relativeTime(session.updatedAt)}
-              </time>
-              <span className="session-workspace">
+          projects.map(([root, project]) => (
+            <section className="project-group" key={root}>
+              <div className="project-header" title={root}>
                 <FolderOpen />
-                {session.workspace.name}
-              </span>
-            </button>
+                <span>{project.name}</span>
+                <button
+                  type="button"
+                  aria-label={`在 ${project.name} 中新建会话`}
+                  onClick={() => props.onNewSession(root)}
+                >
+                  <Plus />
+                </button>
+              </div>
+              {project.sessions.map((session) => (
+                <button
+                  className={`session-item ${
+                    session.id === props.activeSessionId ? "active" : ""
+                  }`}
+                  type="button"
+                  key={session.id}
+                  onClick={() => props.onSelect(session.id)}
+                  title={session.title}
+                >
+                  <span
+                    className={`session-status ${session.lifecycle}`}
+                    title={session.lifecycle}
+                  />
+                  <span className="session-title">{session.title}</span>
+                  <time
+                    className="session-time"
+                    dateTime={new Date(session.updatedAt).toISOString()}
+                  >
+                    {relativeTime(session.updatedAt)}
+                  </time>
+                </button>
+              ))}
+            </section>
           ))
         )}
       </div>
+      <button
+        className="add-workspace"
+        type="button"
+        onClick={props.onAddWorkspace}
+      >
+        <FolderPlus />
+        添加工作区
+      </button>
     </aside>
   );
 });

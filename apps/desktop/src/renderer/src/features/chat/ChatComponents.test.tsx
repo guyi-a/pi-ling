@@ -7,6 +7,7 @@ import type {
   ToolTimelineItem,
 } from "../../timeline/reducer";
 import { ApprovalCard } from "./ApprovalCard";
+import { ApprovalModePicker } from "./ApprovalModePicker";
 import { shouldSubmitComposer } from "./ChatView";
 import { MessageItem } from "./MessageItem";
 import { ToolCard } from "./ToolCard";
@@ -102,5 +103,14 @@ describe("chat components", () => {
         isComposing: true,
       }),
     ).toBe(false);
+  });
+
+  it("renders all three approval modes", () => {
+    const html = renderToStaticMarkup(
+      <ApprovalModePicker value="accept-write" onChange={async () => {}} />,
+    );
+    expect(html).toContain("手动确认");
+    expect(html).toContain("接受编辑");
+    expect(html).toContain("自动执行");
   });
 });

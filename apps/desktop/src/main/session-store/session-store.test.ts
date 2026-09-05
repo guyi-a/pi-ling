@@ -28,6 +28,10 @@ describe("SessionStore", () => {
       title: "Test",
     });
     expect(session.title).toBe("Test");
+    expect(session.approvalMode).toBe("manual");
+    expect(store.setApprovalMode(session.id, "auto").approvalMode).toBe(
+      "auto",
+    );
     expect(store.listSessions()).toHaveLength(1);
     store.deleteSession(session.id);
     expect(store.listSessions()).toHaveLength(0);

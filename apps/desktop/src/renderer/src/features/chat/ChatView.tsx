@@ -1,4 +1,5 @@
 import { ArrowUp, Bot, Square } from "lucide-react";
+import type { ApprovalMode } from "@pi-ling/contracts";
 import {
   useEffect,
   useLayoutEffect,
@@ -13,6 +14,7 @@ import type {
   ToolTimelineItem,
 } from "../../timeline/reducer";
 import { ApprovalCard } from "./ApprovalCard";
+import { ApprovalModePicker } from "./ApprovalModePicker";
 import { ExecutionTimeline } from "./ExecutionTimeline";
 import { MessageItem } from "./MessageItem";
 import { ToolCard } from "./ToolCard";
@@ -30,21 +32,25 @@ export function ChatView(props: {
   modelLabel: string;
   workspaceReady: boolean;
   activeRunId: string | null;
+  approvalMode: ApprovalMode;
   onSend: (prompt: string) => Promise<void>;
   onCancel: (runId: string) => void;
   onApproval: (
     item: ApprovalTimelineItem,
     approved: boolean,
   ) => Promise<void>;
+  onApprovalModeChange: (mode: ApprovalMode) => Promise<void>;
 }) {
   const {
     items,
     modelLabel,
     workspaceReady,
     activeRunId,
+    approvalMode,
     onSend,
     onCancel,
     onApproval,
+    onApprovalModeChange,
   } = props;
   const [prompt, setPrompt] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
@@ -169,9 +175,16 @@ export function ChatView(props: {
           />
           {sendError ? <div className="message-error">{sendError}</div> : null}
           <div className="composer-footer">
-            <div className="model-status" title={modelLabel}>
-              <Bot />
-              {modelLabel}
+            <div className="composer-controls">
+              <ApprovalModePicker
+                value={approvalMode}
+                disabled={!workspaceReady}
+                onChange={onApprovalModeChange}
+              />
+              <div className="model-status" title={modelLabel}>
+                <Bot />
+                {modelLabel}
+              </div>
             </div>
             {activeRunId ? (
               <button

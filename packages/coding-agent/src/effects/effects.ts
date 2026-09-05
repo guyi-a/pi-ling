@@ -25,6 +25,8 @@ export type Effect =
     }
   | { kind: "unknown"; note: string };
 
+export type ApprovalMode = "manual" | "accept-write" | "auto";
+
 const DESTRUCTIVE_COMMANDS = [
   /\brm\s+(-\S*r\S*f|-rf|-fr)\b/i,
   /\brmdir\s+\/s\b/i,
@@ -110,19 +112,60 @@ export async function deriveEffect(
   };
 }
 
-export function approvalReason(effect: Effect): string | undefined {
+function sensitiveReason(
+  effect: Effect,
+  call: ToolCall,
+): string | undefined {
+  if (effect.kind !== "filesystem-write") return undefined;
+  const name = effect.path.toLowerCase();
+  if (
+    /(?:^|[\\/])\.env(?:\.|$)/.test(name) ||
+    /\.(?:pem|key)$/.test(name) ||
+    /credential|secret|token/.test(name)
+  ) {
+    return "sensitive file";
+  }
+  const content = [call.arguments["content"], call.arguments["newText"]]
+    .filter((value): value is string => typeof value === "string")
+    .join("\n");
+  return /(?:api[_-]?key|secret|token|password)\s*[:=]/i.test(content)
+    ? "content may contain credentials"
+    : undefined;
+}
+
+export function approvalReason(
+  effect: Effect,
+  mode: ApprovalMode = "manual",
+  call?: ToolCall,
+): string | undefined {
+  if (effect.kind === "unknown") {
+    return effect.note;
+  }
+  if (
+    effect.kind === "process-exec" &&
+    effect.classification === "destructive"
+  ) {
+    return "destructive command";
+  }
+  if (call) {
+    const sensitive = sensitiveReason(effect, call);
+    if (sensitive) return sensitive;
+  }
   if (effect.kind === "filesystem-read") {
     return undefined;
   }
   if (effect.kind === "filesystem-write") {
-    return `${effect.operation} ${effect.path}`;
+    return mode === "manual"
+      ? `${effect.operation} ${effect.path}`
+      : undefined;
   }
   if (effect.kind === "process-exec") {
-    return effect.classification === "harmless"
-      ? undefined
-      : `${effect.classification} command`;
+    if (effect.classification === "harmless" || mode === "auto") {
+      return undefined;
+    }
+    return `${effect.classification} command`;
   }
-  return effect.note;
+  return undefined;
 }
 
 function canonical(value: unknown): string {

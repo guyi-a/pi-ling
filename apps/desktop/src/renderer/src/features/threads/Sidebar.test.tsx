@@ -13,12 +13,14 @@ describe("Sidebar", () => {
             title: "实现登录",
             workspace: { root: "E:\\project", name: "project" },
             lifecycle: "awaiting_approval",
+            approvalMode: "manual",
             createdAt: Date.now(),
             updatedAt: Date.now(),
           },
         ]}
         activeSessionId="session"
         onNewSession={() => {}}
+        onAddWorkspace={() => {}}
         onSelect={() => {}}
       />,
     );

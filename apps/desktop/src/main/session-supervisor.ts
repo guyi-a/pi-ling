@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type {
   AgentStatus,
+  ApprovalMode,
   CreateSessionRequest,
   SessionActivation,
   SessionSummary,
@@ -87,6 +88,7 @@ export class SessionSupervisor {
         provider: "deepseek",
         model: "deepseek-v4-flash",
         configured: Boolean(process.env["DEEPSEEK_API_KEY"]?.trim()),
+        approvalMode: "manual",
       }
     );
   }
@@ -126,6 +128,13 @@ export class SessionSupervisor {
 
   diff(path: string) {
     return this.#active?.diff(path) ?? Promise.resolve(undefined);
+  }
+
+  setApprovalMode(mode: ApprovalMode): SessionSummary {
+    if (!this.#active) {
+      throw new Error("No active session");
+    }
+    return this.#active.setApprovalMode(mode);
   }
 
   async dispose(): Promise<void> {

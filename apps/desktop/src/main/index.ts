@@ -6,6 +6,7 @@ import type {
   AgentPromptRequest,
   AgentStatus,
   AppInfo,
+  ApprovalMode,
   ApprovalDecisionRequest,
   ChangedFile,
   CreateSessionRequest,
@@ -41,6 +42,7 @@ const SESSIONS_LIST_CHANNEL = "sessions:list";
 const SESSIONS_CREATE_CHANNEL = "sessions:create";
 const SESSIONS_SWITCH_CHANNEL = "sessions:switch";
 const SESSIONS_DELETE_CHANNEL = "sessions:delete";
+const SESSION_APPROVAL_MODE_CHANNEL = "session:approval-mode";
 
 try {
   process.loadEnvFile(join(__dirname, "../../../../.env"));
@@ -291,6 +293,22 @@ ipcMain.handle(
       throw new Error("Invalid session id");
     }
     await (await getSupervisor(event.sender)).delete(sessionId);
+  },
+);
+
+ipcMain.handle(
+  SESSION_APPROVAL_MODE_CHANNEL,
+  async (event, mode: unknown): Promise<SessionSummary> => {
+    if (
+      mode !== "manual" &&
+      mode !== "accept-write" &&
+      mode !== "auto"
+    ) {
+      throw new Error("Invalid approval mode");
+    }
+    return (await getSupervisor(event.sender)).setApprovalMode(
+      mode as ApprovalMode,
+    );
   },
 );
 

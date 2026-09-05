@@ -30,45 +30,20 @@
   height: 24px;
   display: grid;
   place-items: center;
-  color: #071013;
+  color: #171922;
   border-radius: 7px;
   background: var(--accent);
   font-size: 14px;
   font-weight: 800;
 }
 
-.workspace-button {
+.workspace-context {
   max-width: 360px;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 5px 9px;
   overflow: hidden;
-  color: var(--muted);
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  cursor: pointer;
+  color: var(--muted-2);
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
-  transition:
-    color 120ms ease,
-    background 120ms ease,
-    border-color 120ms ease;
-  -webkit-app-region: no-drag;
-}
-
-.workspace-button:hover {
-  color: var(--text-soft);
-  border-color: var(--border);
-  background: var(--surface-2);
-}
-
-.workspace-button svg {
-  width: 12px;
-  height: 12px;
-  flex: 0 0 auto;
 }
 
 .workspace {
@@ -82,9 +57,7 @@
   min-height: 0;
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
-  background:
-    radial-gradient(circle at 50% -20%, rgb(128 216 223 / 4%), transparent 42%),
-    var(--bg);
+  background: var(--bg);
 }
 
 .diff-panel {

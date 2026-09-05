@@ -80,6 +80,7 @@ export class PiAgentSession {
       pendingApprovals:
         checkpoint?.phase === "awaiting_approval" ? pending : [],
       approvedApprovals: approved,
+      approvalMode: options.session.approvalMode,
       emit: (event) => instance.#handleCodingEvent(event),
     });
     instance = new PiAgentSession(
@@ -102,6 +103,7 @@ export class PiAgentSession {
       provider: PROVIDER,
       model: MODEL,
       configured: Boolean(process.env["DEEPSEEK_API_KEY"]?.trim()),
+      approvalMode: this.#agent.approvalMode,
       workspace: this.#session.workspace,
     };
   }
@@ -160,6 +162,14 @@ export class PiAgentSession {
 
   waitForIdle(): Promise<void> {
     return this.#agent.waitForIdle();
+  }
+
+  setApprovalMode(
+    mode: SessionSummary["approvalMode"],
+  ): SessionSummary {
+    const session = this.#store.setApprovalMode(this.#session.id, mode);
+    this.#agent.setApprovalMode(mode);
+    return session;
   }
 
   diff(userPath: string): Promise<FileDiff | undefined> {

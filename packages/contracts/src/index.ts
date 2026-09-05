@@ -13,6 +13,7 @@ export const IPC_CHANNELS = {
   sessionsCreate: "sessions:create",
   sessionsSwitch: "sessions:switch",
   sessionsDelete: "sessions:delete",
+  sessionApprovalMode: "session:approval-mode",
 } as const;
 
 export interface AppInfo {
@@ -26,6 +27,7 @@ export interface AgentStatus {
   provider: string;
   model: string;
   configured: boolean;
+  approvalMode: ApprovalMode;
   workspace?: WorkspaceInfo;
 }
 
@@ -57,11 +59,14 @@ export type SessionLifecycle =
   | "awaiting_approval"
   | "crashed";
 
+export type ApprovalMode = "manual" | "accept-write" | "auto";
+
 export interface SessionSummary {
   id: string;
   title: string;
   workspace: WorkspaceInfo;
   lifecycle: SessionLifecycle;
+  approvalMode: ApprovalMode;
   createdAt: number;
   updatedAt: number;
 }
@@ -217,5 +222,6 @@ export interface DesktopApi {
   createSession(request: CreateSessionRequest): Promise<SessionActivation>;
   switchSession(sessionId: string): Promise<SessionActivation>;
   deleteSession(sessionId: string): Promise<void>;
+  setApprovalMode(mode: ApprovalMode): Promise<SessionSummary>;
   onTimelineEvent(listener: (event: TimelineEnvelope) => void): () => void;
 }

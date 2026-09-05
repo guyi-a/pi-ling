@@ -99,6 +99,8 @@ interface RuntimeAdapter {
 - Renderer 只从 timeline 投影 Chat；assistant 使用流式 Markdown，tool output 保持等宽纯文本。
 - thinking 与工具步骤进入可折叠执行过程，pending approval 必须保持展开可见。
 - 页面采用紧凑暗色工作台布局，不使用宣传式 Hero；用户消息气泡与 assistant 平铺内容保持清晰区分。
+- Workspace 作为 Project 在侧栏分组，Session 隶属于 Workspace；添加目录和新建会话都从侧栏进入，不使用顶部全局选择器。
+- 每个 Session 持久化 `manual`、`accept-write`、`auto` 三档审批模式，切换入口位于 Composer。
 - 标准投影必须可版本化，不能破坏原始事件。
 - 第一版不转换不同 Runtime 的原生历史。
 - Runtime 切换可以继续传递标准消息；私有 checkpoint、thinking 签名和执行中状态不得混用。
@@ -111,6 +113,7 @@ interface RuntimeAdapter {
 
 - API Key 和其他凭据只能由 Main 安全存储和使用。
 - 文件写入、命令执行、网络访问等副作用由产品层统一建模并审批。
+- `manual` 询问写入和普通命令；`accept-write` 自动允许工作区写入；`auto` 自动允许普通操作。未知 effect、破坏性命令和敏感写入在任何模式下都必须询问。
 - 不执行第三方插件代码，不提供动态插件加载。
 - 默认禁止多个活跃会话同时修改同一工作区。
 - IPC 必须使用白名单通道、结构化参数和运行时校验，禁止暴露通用 Node/Electron 能力。

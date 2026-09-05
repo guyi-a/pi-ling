@@ -47,7 +47,7 @@
   height: 19px;
   display: grid;
   place-items: center;
-  color: #071013;
+  color: #171922;
   border-radius: 6px;
   background: var(--accent);
   font-size: 11px;
@@ -149,9 +149,9 @@
 }
 
 .composer:focus-within {
-  border-color: rgb(128 216 223 / 38%);
+  border-color: rgb(168 180 224 / 38%);
   box-shadow:
-    0 0 0 3px rgb(128 216 223 / 6%),
+    0 0 0 3px rgb(168 180 224 / 6%),
     0 12px 36px rgb(0 0 0 / 22%);
 }
 
@@ -187,6 +187,108 @@
   min-height: 30px;
 }
 
+.composer-controls {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.approval-mode {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.approval-mode > summary {
+  height: 25px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 6px;
+  color: var(--muted);
+  border-radius: 5px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 10px;
+}
+
+.approval-mode > summary::-webkit-details-marker {
+  display: none;
+}
+
+.approval-mode > summary:hover {
+  color: var(--text-soft);
+  background: var(--surface-hover);
+}
+
+.approval-mode > summary svg {
+  width: 12px;
+  height: 12px;
+}
+
+.approval-mode-chevron {
+  transition: transform 120ms ease;
+}
+
+.approval-mode[open] .approval-mode-chevron {
+  transform: rotate(180deg);
+}
+
+.approval-mode-menu {
+  position: absolute;
+  z-index: 20;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: 268px;
+  padding: 5px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: #1b1c21;
+  box-shadow: 0 14px 34px rgb(0 0 0 / 38%);
+}
+
+.approval-mode-menu button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  color: var(--muted);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.approval-mode-menu button:hover,
+.approval-mode-menu button.selected {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.approval-mode-menu button > svg {
+  width: 14px;
+  height: 14px;
+}
+
+.approval-mode-menu button > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.approval-mode-menu strong {
+  font-size: 11px;
+  font-weight: 570;
+}
+
+.approval-mode-menu small {
+  color: var(--muted-2);
+  font-size: 9px;
+}
+
 .model-status {
   min-width: 0;
   display: flex;
@@ -211,7 +313,7 @@
   display: grid;
   place-items: center;
   flex: 0 0 auto;
-  color: #071013;
+  color: #171922;
   border: 0;
   border-radius: 8px;
   background: var(--accent);

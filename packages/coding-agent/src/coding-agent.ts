@@ -17,7 +17,11 @@ import {
   type FileBaseline,
   type FileDiff,
 } from "./diff/change-tracker.js";
-import { deriveEffect } from "./effects/effects.js";
+import {
+  approvalReason,
+  deriveEffect,
+  type ApprovalMode,
+} from "./effects/effects.js";
 import { createBuiltinTools } from "./tools/builtins.js";
 import { Workspace } from "./workspace/workspace.js";
 
@@ -48,6 +52,7 @@ export interface CodingAgentOptions {
   baselines?: FileBaseline[];
   pendingApprovals?: ApprovalRequest[];
   approvedApprovals?: ApprovalRequest[];
+  approvalMode?: ApprovalMode;
 }
 
 export class CodingAgent {
@@ -56,6 +61,7 @@ export class CodingAgent {
   readonly #changes: ChangeTracker;
   readonly #approvals: ApprovalManager;
   readonly #emit: CodingAgentOptions["emit"];
+  #approvalMode: ApprovalMode;
 
   private constructor(
     workspace: Workspace,
@@ -63,6 +69,7 @@ export class CodingAgent {
   ) {
     this.workspace = workspace;
     this.#emit = options.emit;
+    this.#approvalMode = options.approvalMode ?? "manual";
     this.#changes = new ChangeTracker(workspace);
     if (options.baselines) {
       this.#changes.hydrateBaselines(options.baselines);
@@ -121,6 +128,14 @@ export class CodingAgent {
 
   get messages() {
     return this.#agent.state.messages;
+  }
+
+  get approvalMode(): ApprovalMode {
+    return this.#approvalMode;
+  }
+
+  setApprovalMode(mode: ApprovalMode): void {
+    this.#approvalMode = mode;
   }
 
   baselines(): FileBaseline[] {
@@ -196,9 +211,14 @@ export class CodingAgent {
       arguments: context.arguments as Record<string, unknown>,
     };
     const effect = await deriveEffect(normalizedCall, this.workspace);
+    const reason = approvalReason(
+      effect,
+      this.#approvalMode,
+      normalizedCall,
+    );
     return this.#approvals.wait(normalizedCall, effect, signal, {
       runId: context.runId,
       turnId: context.turnId,
-    });
+    }, reason);
   }
 }

@@ -1,10 +1,10 @@
 import type {
   AgentStatus,
+  ApprovalMode,
   SessionActivation,
   SessionSummary,
   TimelineEnvelope,
 } from "@pi-ling/contracts";
-import { FolderOpen } from "lucide-react";
 import { useEffect, useReducer, useRef, useState } from "react";
 
 import { ChatView } from "./features/chat/ChatView";
@@ -116,14 +116,15 @@ export function App() {
     });
   }
 
-  async function newSession() {
-    if (!status?.workspace) {
+  async function newSession(workspaceRoot?: string) {
+    const root = workspaceRoot ?? status?.workspace?.root;
+    if (!root) {
       await chooseWorkspace();
       return;
     }
     applyActivation(
       await window.piLing.createSession({
-        workspaceRoot: status.workspace.root,
+        workspaceRoot: root,
       }),
     );
   }
@@ -133,6 +134,18 @@ export function App() {
       return;
     }
     applyActivation(await window.piLing.switchSession(sessionId));
+  }
+
+  async function changeApprovalMode(mode: ApprovalMode) {
+    const updated = await window.piLing.setApprovalMode(mode);
+    setStatus((current) =>
+      current ? { ...current, approvalMode: mode } : current,
+    );
+    setSessions((current) =>
+      current.map((session) =>
+        session.id === updated.id ? updated : session,
+      ),
+    );
   }
 
   const modelLabel = !status?.configured
@@ -148,14 +161,9 @@ export function App() {
           <span className="brand-mark">π</span>
           <span>pi-ling</span>
         </div>
-        <button
-          className="workspace-button"
-          type="button"
-          onClick={chooseWorkspace}
-        >
-          <FolderOpen />
-          {status?.workspace?.name ?? "打开工作区"}
-        </button>
+        <span className="workspace-context">
+          {status?.workspace?.name ?? "未选择工作区"}
+        </span>
       </header>
 
       <section className="workspace">
@@ -164,7 +172,8 @@ export function App() {
           {...(status?.sessionId
             ? { activeSessionId: status.sessionId }
             : {})}
-          onNewSession={() => void newSession()}
+          onNewSession={(root) => void newSession(root)}
+          onAddWorkspace={() => void chooseWorkspace()}
           onSelect={(sessionId) => void switchSession(sessionId)}
         />
         <ChatView
@@ -172,11 +181,13 @@ export function App() {
           modelLabel={modelLabel}
           workspaceReady={Boolean(status?.workspace)}
           activeRunId={activeRunId}
+          approvalMode={status?.approvalMode ?? "manual"}
           onSend={sendPrompt}
           onCancel={(runId) => {
             void window.piLing.cancelPrompt(runId);
           }}
           onApproval={decide}
+          onApprovalModeChange={changeApprovalMode}
         />
       </section>
     </main>
