@@ -1,9 +1,10 @@
 export const IPC_CHANNELS = {
   appInfo: "app:get-info",
-  modelStatus: "model:get-status",
-  modelSend: "model:send",
-  modelCancel: "model:cancel",
-  modelEvent: "model:event",
+  agentStatus: "agent:get-status",
+  agentSend: "agent:send",
+  agentCancel: "agent:cancel",
+  agentReset: "agent:reset",
+  agentEvent: "agent:event",
 } as const;
 
 export interface AppInfo {
@@ -12,30 +13,52 @@ export interface AppInfo {
   platform: string;
 }
 
-export interface ModelStatus {
+export interface AgentStatus {
   provider: string;
   model: string;
   configured: boolean;
 }
 
-export interface ModelPromptRequest {
+export interface AgentPromptRequest {
   requestId: string;
   prompt: string;
 }
 
-export interface ModelPromptAccepted {
+export interface AgentPromptAccepted {
   requestId: string;
 }
 
-export interface RawModelEvent {
+export interface AgentUsage {
+  input: number;
+  output: number;
+  reasoning?: number;
+  totalTokens: number;
+  cost: number;
+}
+
+export type AgentUiEvent =
+  | { type: "agent_start" }
+  | { type: "assistant_start" }
+  | { type: "text_delta"; delta: string }
+  | { type: "thinking_delta"; delta: string }
+  | {
+      type: "assistant_end";
+      stopReason: string;
+      usage: AgentUsage;
+      error?: string;
+    }
+  | { type: "agent_end" };
+
+export interface AgentEventEnvelope {
   requestId: string;
-  json: string;
+  event: AgentUiEvent;
 }
 
 export interface DesktopApi {
   getAppInfo(): Promise<AppInfo>;
-  getModelStatus(): Promise<ModelStatus>;
-  sendPrompt(request: ModelPromptRequest): Promise<ModelPromptAccepted>;
+  getAgentStatus(): Promise<AgentStatus>;
+  sendPrompt(request: AgentPromptRequest): Promise<AgentPromptAccepted>;
   cancelPrompt(requestId: string): Promise<boolean>;
-  onModelEvent(listener: (event: RawModelEvent) => void): () => void;
+  resetAgent(): Promise<void>;
+  onAgentEvent(listener: (event: AgentEventEnvelope) => void): () => void;
 }

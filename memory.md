@@ -11,6 +11,7 @@
   - Phase 1 应使用 `@earendil-works/pi-coding-agent`，不能仅用裸 `pi-agent-core` 重写 Coding Harness。
   - `packages/ai` 的源码快照已复制到本项目 `vendor/pi-ai`，版本和提交信息见其 `UPSTREAM.md`。
   - Pi Runtime 直接使用 vendored pi-ai，不再增加重复的模型适配包装。
+  - `packages/agent` 的源码快照已复制到本项目 `vendor/pi-agent-core`，先通过最小无工具 Agent 学习事件和状态，再逐步接入 Coding Harness。
 
 - LingCoWork：`E:\LingCoWork`
   - 远程仓库：`https://github.com/guyi-a/LingCoWork.git`

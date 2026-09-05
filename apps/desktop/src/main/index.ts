@@ -1,25 +1,29 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { createModels } from "@earendil-works/pi-ai";
-import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 import type {
+  AgentPromptAccepted,
+  AgentPromptRequest,
+  AgentStatus,
   AppInfo,
-  ModelPromptAccepted,
-  ModelPromptRequest,
-  ModelStatus,
-  RawModelEvent,
 } from "@pi-ling/contracts";
-import { app, BrowserWindow, ipcMain, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  shell,
+  type WebContents,
+} from "electron";
+
+import { PiAgentSession } from "./pi-agent-session.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const APP_INFO_CHANNEL = "app:get-info";
-const MODEL_STATUS_CHANNEL = "model:get-status";
-const MODEL_SEND_CHANNEL = "model:send";
-const MODEL_CANCEL_CHANNEL = "model:cancel";
-const MODEL_EVENT_CHANNEL = "model:event";
-const MODEL_PROVIDER = "deepseek";
-const MODEL_ID = "deepseek-v4-flash";
+const AGENT_STATUS_CHANNEL = "agent:get-status";
+const AGENT_SEND_CHANNEL = "agent:send";
+const AGENT_CANCEL_CHANNEL = "agent:cancel";
+const AGENT_RESET_CHANNEL = "agent:reset";
+const AGENT_EVENT_CHANNEL = "agent:event";
 
 try {
   process.loadEnvFile(join(__dirname, "../../../../.env"));
@@ -29,22 +33,9 @@ try {
   }
 }
 
-const models = createModels();
-models.setProvider(deepseekProvider());
+const agentSessions = new Map<number, PiAgentSession>();
 
-const activeRequests = new Map<
-  string,
-  { controller: AbortController; webContentsId: number }
->();
-
-function rawEvent(requestId: string, event: unknown): RawModelEvent {
-  return {
-    requestId,
-    json: JSON.stringify(event, null, 2),
-  };
-}
-
-function parsePromptRequest(value: unknown): ModelPromptRequest {
+function parsePromptRequest(value: unknown): AgentPromptRequest {
   if (
     typeof value !== "object" ||
     value === null ||
@@ -61,6 +52,25 @@ function parsePromptRequest(value: unknown): ModelPromptRequest {
     requestId: value.requestId,
     prompt: value.prompt.trim(),
   };
+}
+
+function getAgentSession(webContents: WebContents): PiAgentSession {
+  const existing = agentSessions.get(webContents.id);
+  if (existing) {
+    return existing;
+  }
+
+  const session = new PiAgentSession((envelope) => {
+    if (!webContents.isDestroyed()) {
+      webContents.send(AGENT_EVENT_CHANNEL, envelope);
+    }
+  });
+  agentSessions.set(webContents.id, session);
+  webContents.once("destroyed", () => {
+    session.dispose();
+    agentSessions.delete(webContents.id);
+  });
+  return session;
 }
 
 function createWindow(): BrowserWindow {
@@ -109,94 +119,32 @@ ipcMain.handle(APP_INFO_CHANNEL, (): AppInfo => ({
 }));
 
 ipcMain.handle(
-  MODEL_STATUS_CHANNEL,
-  (): ModelStatus => ({
-    provider: MODEL_PROVIDER,
-    model: MODEL_ID,
-    configured: Boolean(process.env["DEEPSEEK_API_KEY"]?.trim()),
-  }),
+  AGENT_STATUS_CHANNEL,
+  (event): AgentStatus => getAgentSession(event.sender).status,
 );
 
 ipcMain.handle(
-  MODEL_SEND_CHANNEL,
-  (event, input: unknown): ModelPromptAccepted => {
+  AGENT_SEND_CHANNEL,
+  (event, input: unknown): AgentPromptAccepted => {
     const request = parsePromptRequest(input);
-    if (activeRequests.has(request.requestId)) {
-      throw new Error(`Model request already exists: ${request.requestId}`);
-    }
-
-    const model = models.getModel(MODEL_PROVIDER, MODEL_ID);
-    if (!model) {
-      throw new Error(`Model is unavailable: ${MODEL_PROVIDER}/${MODEL_ID}`);
-    }
-
-    const controller = new AbortController();
-    activeRequests.set(request.requestId, {
-      controller,
-      webContentsId: event.sender.id,
-    });
-
-    void (async () => {
-      try {
-        const stream = models.streamSimple(
-          model,
-          {
-            messages: [
-              {
-                role: "user",
-                content: request.prompt,
-                timestamp: Date.now(),
-              },
-            ],
-          },
-          {
-            signal: controller.signal,
-            sessionId: request.requestId,
-            reasoning: "high",
-          },
-        );
-
-        for await (const modelEvent of stream) {
-          if (!event.sender.isDestroyed()) {
-            event.sender.send(
-              MODEL_EVENT_CHANNEL,
-              rawEvent(request.requestId, modelEvent),
-            );
-          }
-        }
-      } catch (error) {
-        if (!event.sender.isDestroyed()) {
-          event.sender.send(
-            MODEL_EVENT_CHANNEL,
-            rawEvent(request.requestId, {
-              type: "ipc_error",
-              error: error instanceof Error ? error.message : String(error),
-            }),
-          );
-        }
-      } finally {
-        activeRequests.delete(request.requestId);
-      }
-    })();
-
+    getAgentSession(event.sender).startPrompt(request.requestId, request.prompt);
     return { requestId: request.requestId };
   },
 );
 
 ipcMain.handle(
-  MODEL_CANCEL_CHANNEL,
+  AGENT_CANCEL_CHANNEL,
   (event, requestId: unknown): boolean => {
     if (typeof requestId !== "string") {
       return false;
     }
-    const request = activeRequests.get(requestId);
-    if (!request || request.webContentsId !== event.sender.id) {
-      return false;
-    }
-    request.controller.abort();
-    return true;
+    return getAgentSession(event.sender).cancel(requestId);
   },
 );
+
+ipcMain.handle(AGENT_RESET_CHANNEL, async (event): Promise<void> => {
+  await getAgentSession(event.sender).reset();
+});
 
 void app.whenReady().then(() => {
   createWindow();
@@ -209,10 +157,10 @@ void app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => {
-  for (const request of activeRequests.values()) {
-    request.controller.abort();
+  for (const session of agentSessions.values()) {
+    session.dispose();
   }
-  activeRequests.clear();
+  agentSessions.clear();
 
   if (process.platform !== "darwin") {
     app.quit();

@@ -1,38 +1,70 @@
-import type { ModelStatus, RawModelEvent } from "@pi-ling/contracts";
+import type { AgentStatus, AgentUsage } from "@pi-ling/contracts";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 
+interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  thinking?: string;
+  error?: string;
+  usage?: AgentUsage;
+  pending?: boolean;
+}
+
 export function App() {
   const [prompt, setPrompt] = useState("");
-  const [events, setEvents] = useState<RawModelEvent[]>([]);
-  const [status, setStatus] = useState<ModelStatus | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [status, setStatus] = useState<AgentStatus | null>(null);
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
-  const logEndRef = useRef<HTMLDivElement>(null);
+  const messageEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    void window.piLing.getModelStatus().then(setStatus);
-    return window.piLing.onModelEvent((event) => {
-      setEvents((current) => [...current, event]);
-      try {
-        const parsed = JSON.parse(event.json) as { type?: unknown };
-        if (
-          parsed.type === "done" ||
-          parsed.type === "error" ||
-          parsed.type === "ipc_error"
-        ) {
+    void window.piLing.getAgentStatus().then(setStatus);
+    return window.piLing.onAgentEvent(({ requestId, event }) => {
+      if (event.type === "text_delta") {
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === requestId
+              ? { ...message, text: message.text + event.delta }
+              : message,
+          ),
+        );
+      } else if (event.type === "thinking_delta") {
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === requestId
+              ? {
+                  ...message,
+                  thinking: (message.thinking ?? "") + event.delta,
+                }
+              : message,
+          ),
+        );
+      } else if (event.type === "assistant_end") {
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === requestId
+              ? {
+                  ...message,
+                  pending: false,
+                  usage: event.usage,
+                  ...(event.error ? { error: event.error } : {}),
+                }
+              : message,
+          ),
+        );
+      } else if (event.type === "agent_end") {
           setActiveRequestId((current) =>
-            current === event.requestId ? null : current,
+          current === requestId ? null : current,
           );
-        }
-      } catch {
-        // Keep malformed payloads visible in the raw event log.
       }
     });
   }, []);
 
   useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [events]);
+    messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   async function sendPrompt(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -44,33 +76,42 @@ export function App() {
     const requestId = crypto.randomUUID();
     setPrompt("");
     setActiveRequestId(requestId);
+    setMessages((current) => [
+      ...current,
+      {
+        id: `${requestId}-user`,
+        role: "user",
+        text: value,
+      },
+      {
+        id: requestId,
+        role: "assistant",
+        text: "",
+        pending: true,
+      },
+    ]);
     try {
       await window.piLing.sendPrompt({ requestId, prompt: value });
     } catch (error) {
-      setEvents((current) => [
-        ...current,
-        {
-          requestId,
-          json: JSON.stringify(
-            {
-              type: "ipc_error",
-              error: error instanceof Error ? error.message : String(error),
-            },
-            null,
-            2,
-          ),
-        },
-      ]);
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === requestId
+            ? {
+                ...message,
+                pending: false,
+                error: error instanceof Error ? error.message : String(error),
+              }
+            : message,
+        ),
+      );
       setActiveRequestId(null);
     }
   }
 
   async function newSession() {
-    if (activeRequestId) {
-      await window.piLing.cancelPrompt(activeRequestId);
-    }
+    await window.piLing.resetAgent();
     setActiveRequestId(null);
-    setEvents([]);
+    setMessages([]);
     setPrompt("");
   }
 
@@ -93,13 +134,34 @@ export function App() {
         </aside>
 
         <section className="content" aria-label="Session workspace">
-          <div className="event-log" aria-live="polite">
-            {events.map((event, index) => (
-              <pre className="raw-event" key={`${event.requestId}-${index}`}>
-                {event.json}
-              </pre>
+          <div className="message-list" aria-live="polite">
+            {messages.map((message) => (
+              <article className={`message ${message.role}`} key={message.id}>
+                <div className="message-role">
+                  {message.role === "user" ? "You" : "pi-ling"}
+                </div>
+                {message.thinking ? (
+                  <details className="thinking">
+                    <summary>Thinking</summary>
+                    <div>{message.thinking}</div>
+                  </details>
+                ) : null}
+                <div className="message-text">
+                  {message.text ||
+                    (message.pending ? "Thinking…" : "No text response")}
+                </div>
+                {message.error ? (
+                  <div className="message-error">{message.error}</div>
+                ) : null}
+                {message.usage ? (
+                  <div className="message-usage">
+                    {message.usage.input} in · {message.usage.output} out ·{" "}
+                    {message.usage.totalTokens} total
+                  </div>
+                ) : null}
+              </article>
             ))}
-            <div ref={logEndRef} />
+            <div ref={messageEndRef} />
           </div>
 
           <form className="composer" onSubmit={sendPrompt}>
@@ -108,7 +170,7 @@ export function App() {
                 ? `${status.provider}/${status.model}${
                     status.configured ? "" : " · DEEPSEEK_API_KEY missing"
                   }`
-                : "Checking model configuration…"}
+                : "Starting agent…"}
             </div>
             <div className="composer-row">
               <textarea
@@ -120,7 +182,7 @@ export function App() {
                     event.currentTarget.form?.requestSubmit();
                   }
                 }}
-                placeholder="Send a prompt to pi-ai"
+                placeholder="Message pi-ling"
                 rows={2}
               />
               {activeRequestId ? (

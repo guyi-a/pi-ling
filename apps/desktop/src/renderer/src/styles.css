@@ -120,29 +120,68 @@ button {
   background: #0b0d12;
 }
 
-.event-log {
+.message-list {
   min-height: 0;
   overflow: auto;
-  padding: 18px 22px 8px;
+  padding: 28px max(28px, calc((100% - 760px) / 2)) 12px;
 }
 
-.raw-event {
-  margin: 0 0 12px;
-  padding: 14px;
-  overflow: auto;
-  color: #b9c2d0;
-  border: 1px solid #252a34;
-  border-radius: 8px;
-  background: #10131a;
-  font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.55;
+.message {
+  margin-bottom: 26px;
+  color: #d8dee9;
+}
+
+.message.user {
+  max-width: 72%;
+  margin-left: auto;
+  padding: 12px 15px;
+  border-radius: 12px;
+  background: #1a1f29;
+}
+
+.message-role {
+  margin-bottom: 7px;
+  color: #6f798b;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.message-text,
+.thinking {
+  font-size: 14px;
+  line-height: 1.7;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
+.thinking {
+  margin: 0 0 12px;
+  color: #7f899a;
+}
+
+.thinking summary {
+  margin-bottom: 7px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.message-error {
+  margin-top: 10px;
+  color: #fb7185;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+}
+
+.message-usage {
+  margin-top: 10px;
+  color: #596273;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 10px;
+}
+
 .composer {
-  margin: 0 22px 20px;
+  width: min(760px, calc(100% - 44px));
+  margin: 0 auto 20px;
   padding: 10px;
   border: 1px solid #303644;
   border-radius: 10px;

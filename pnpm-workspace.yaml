@@ -3,6 +3,8 @@ packages:
   - packages/*
   - vendor/*
 
+linkWorkspacePackages: true
+
 onlyBuiltDependencies:
   - electron
   - esbuild
