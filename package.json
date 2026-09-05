@@ -6,6 +6,7 @@
   "scripts": {
     "build": "pnpm --filter @pi-ling/desktop build",
     "dev": "pnpm --filter @pi-ling/desktop dev",
+    "test": "pnpm --filter \"@pi-ling/*\" --if-present test",
     "typecheck": "pnpm -r --if-present typecheck"
   }
 }

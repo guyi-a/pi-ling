@@ -9,6 +9,8 @@
   - 当前本地版本信息：monorepo `0.0.3`，交接记录中的 Pi 版本为 `0.85.0`。
   - 重点参考：`packages/coding-agent`、`packages/ai`、`packages/agent`、协议和 session backend。
   - Phase 1 应使用 `@earendil-works/pi-coding-agent`，不能仅用裸 `pi-agent-core` 重写 Coding Harness。
+  - `packages/ai` 的源码快照已复制到本项目 `vendor/pi-ai`，版本和提交信息见其 `UPSTREAM.md`。
+  - 产品代码通过 `packages/model-adapter` 使用 vendored pi-ai，不直接修改上游快照。
 
 - LingCoWork：`E:\LingCoWork`
   - 远程仓库：`https://github.com/guyi-a/LingCoWork.git`
