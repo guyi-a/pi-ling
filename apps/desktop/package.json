@@ -9,6 +9,7 @@
     "build": "electron-vite build",
     "dev": "electron-vite dev",
     "preview": "electron-vite preview",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -26,6 +27,7 @@
     "electron": "44.2.0",
     "electron-vite": "5.0.0",
     "typescript": "7.0.2",
-    "vite": "7.3.1"
+    "vite": "7.3.1",
+    "vitest": "4.1.9"
   }
 }

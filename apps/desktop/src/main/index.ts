@@ -9,6 +9,7 @@ import type {
   AppInfo,
   ChangedFile,
   FileDiff,
+  TimelineSnapshot,
   WorkspaceInfo,
 } from "@pi-ling/contracts";
 import {
@@ -28,7 +29,8 @@ const AGENT_STATUS_CHANNEL = "agent:get-status";
 const AGENT_SEND_CHANNEL = "agent:send";
 const AGENT_CANCEL_CHANNEL = "agent:cancel";
 const AGENT_RESET_CHANNEL = "agent:reset";
-const AGENT_EVENT_CHANNEL = "agent:event";
+const TIMELINE_EVENT_CHANNEL = "timeline:event";
+const TIMELINE_SNAPSHOT_CHANNEL = "timeline:snapshot";
 const WORKSPACE_SELECT_CHANNEL = "workspace:select";
 const APPROVAL_RESOLVE_CHANNEL = "approval:resolve";
 const CHANGES_GET_CHANNEL = "changes:get";
@@ -94,7 +96,7 @@ function getAgentSession(webContents: WebContents): PiAgentSession {
 
   const session = new PiAgentSession((envelope) => {
     if (!webContents.isDestroyed()) {
-      webContents.send(AGENT_EVENT_CHANNEL, envelope);
+      webContents.send(TIMELINE_EVENT_CHANNEL, envelope);
     }
   });
   agentSessions.set(webContents.id, session);
@@ -177,6 +179,11 @@ ipcMain.handle(
 ipcMain.handle(AGENT_RESET_CHANNEL, async (event): Promise<void> => {
   await getAgentSession(event.sender).reset();
 });
+
+ipcMain.handle(
+  TIMELINE_SNAPSHOT_CHANNEL,
+  (event): TimelineSnapshot => getAgentSession(event.sender).snapshot(),
+);
 
 ipcMain.handle(
   WORKSPACE_SELECT_CHANNEL,

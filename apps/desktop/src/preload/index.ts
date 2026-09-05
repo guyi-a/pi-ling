@@ -1,8 +1,8 @@
 import type {
   ApprovalDecisionRequest,
-  AgentEventEnvelope,
   AgentPromptRequest,
   DesktopApi,
+  TimelineEnvelope,
 } from "@pi-ling/contracts";
 import { contextBridge, ipcRenderer } from "electron";
 
@@ -11,7 +11,8 @@ const AGENT_STATUS_CHANNEL = "agent:get-status";
 const AGENT_SEND_CHANNEL = "agent:send";
 const AGENT_CANCEL_CHANNEL = "agent:cancel";
 const AGENT_RESET_CHANNEL = "agent:reset";
-const AGENT_EVENT_CHANNEL = "agent:event";
+const TIMELINE_EVENT_CHANNEL = "timeline:event";
+const TIMELINE_SNAPSHOT_CHANNEL = "timeline:snapshot";
 const WORKSPACE_SELECT_CHANNEL = "workspace:select";
 const APPROVAL_RESOLVE_CHANNEL = "approval:resolve";
 const CHANGES_GET_CHANNEL = "changes:get";
@@ -30,13 +31,14 @@ const desktopApi: DesktopApi = {
     ipcRenderer.invoke(APPROVAL_RESOLVE_CHANNEL, decision),
   getChanges: () => ipcRenderer.invoke(CHANGES_GET_CHANNEL),
   getDiff: (path: string) => ipcRenderer.invoke(DIFF_GET_CHANNEL, path),
-  onAgentEvent: (listener: (event: AgentEventEnvelope) => void) => {
+  getTimelineSnapshot: () => ipcRenderer.invoke(TIMELINE_SNAPSHOT_CHANNEL),
+  onTimelineEvent: (listener: (event: TimelineEnvelope) => void) => {
     const handler = (
       _event: Electron.IpcRendererEvent,
-      value: AgentEventEnvelope,
+      value: TimelineEnvelope,
     ) => listener(value);
-    ipcRenderer.on(AGENT_EVENT_CHANNEL, handler);
-    return () => ipcRenderer.removeListener(AGENT_EVENT_CHANNEL, handler);
+    ipcRenderer.on(TIMELINE_EVENT_CHANNEL, handler);
+    return () => ipcRenderer.removeListener(TIMELINE_EVENT_CHANNEL, handler);
   },
 };
 

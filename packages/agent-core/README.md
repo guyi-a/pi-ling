@@ -25,3 +25,5 @@ Agent.prompt()
 Core 不访问 Electron、文件系统或凭据。具体工具及审批策略由上层 Runtime 提供。
 
 `beforeToolCall` 是通用执行门控：上层可以异步允许或拒绝已经完成参数校验的调用。Core 不理解 effect 或审批 UI。
+
+每次 `prompt` 使用一个 `runId`，每次模型生成使用 `${runId}:turn:N` 形式的 `turnId`。所有生命周期事件携带这些标识，供上层建立有序 timeline。

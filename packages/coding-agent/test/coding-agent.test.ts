@@ -98,7 +98,7 @@ describe("CodingAgent", () => {
       },
     });
 
-    await agent.prompt("Create hello.txt");
+    await agent.prompt("Create hello.txt", "run-write");
 
     expect(await fs.readFile(path.join(root, "hello.txt"), "utf8")).toBe(
       "hello\n",
@@ -106,6 +106,33 @@ describe("CodingAgent", () => {
     expect(observed.some((event) => event.type === "approval_requested")).toBe(
       true,
     );
+    const approvalIndex = observed.findIndex(
+      (event) => event.type === "approval_requested",
+    );
+    const toolStartIndex = observed.findIndex(
+      (event) =>
+        event.type === "agent" &&
+        event.event.type === "tool_execution_start",
+    );
+    const toolEndIndex = observed.findIndex(
+      (event) =>
+        event.type === "agent" &&
+        event.event.type === "tool_execution_end",
+    );
+    const changesIndex = observed.findIndex(
+      (event) => event.type === "changes",
+    );
+    expect(approvalIndex).toBeLessThan(toolStartIndex);
+    expect(toolStartIndex).toBeLessThan(toolEndIndex);
+    expect(toolEndIndex).toBeLessThan(changesIndex);
+    expect(
+      observed.every(
+        (event) =>
+          event.type === "agent" ||
+          !("runId" in event) ||
+          event.runId === "run-write",
+      ),
+    ).toBe(true);
     expect(await agent.changedFiles()).toEqual([
       expect.objectContaining({ path: "hello.txt", status: "added" }),
     ]);

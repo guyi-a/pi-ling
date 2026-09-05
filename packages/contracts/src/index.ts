@@ -4,7 +4,8 @@ export const IPC_CHANNELS = {
   agentSend: "agent:send",
   agentCancel: "agent:cancel",
   agentReset: "agent:reset",
-  agentEvent: "agent:event",
+  timelineEvent: "timeline:event",
+  timelineSnapshot: "timeline:snapshot",
   workspaceSelect: "workspace:select",
   approvalResolve: "approval:resolve",
   changesGet: "changes:get",
@@ -81,42 +82,95 @@ export interface FileDiff {
   truncated: boolean;
 }
 
-export type AgentUiEvent =
-  | { type: "agent_start" }
-  | { type: "assistant_start" }
-  | { type: "text_delta"; delta: string }
-  | { type: "thinking_delta"; delta: string }
+export type TimelineEvent =
+  | { type: "run_start"; userItemId: string; prompt: string }
+  | {
+      type: "run_end";
+      status: "completed" | "cancelled" | "error";
+    }
+  | { type: "turn_start"; turnId: string; turn: number }
+  | { type: "turn_end"; turnId: string }
+  | { type: "assistant_start"; turnId: string; itemId: string }
+  | {
+      type: "assistant_text_delta";
+      turnId: string;
+      itemId: string;
+      delta: string;
+    }
+  | {
+      type: "assistant_thinking_delta";
+      turnId: string;
+      itemId: string;
+      delta: string;
+    }
+  | {
+      type: "assistant_end";
+      turnId: string;
+      itemId: string;
+      stopReason: string;
+      usage: AgentUsage;
+      error?: string;
+    }
+  | {
+      type: "tool_requested";
+      turnId: string;
+      itemId: string;
+      callId: string;
+      tool: string;
+      arguments: Record<string, unknown>;
+    }
   | {
       type: "tool_start";
+      turnId: string;
+      itemId: string;
       callId: string;
       tool: string;
       arguments: Record<string, unknown>;
     }
   | {
       type: "tool_end";
+      turnId: string;
+      itemId: string;
       callId: string;
       tool: string;
       isError: boolean;
       output: string;
     }
-  | { type: "approval_requested"; approval: ApprovalRequest }
+  | {
+      type: "approval_requested";
+      turnId: string;
+      itemId: string;
+      toolItemId: string;
+      approval: ApprovalRequest;
+    }
   | {
       type: "approval_resolved";
+      turnId: string;
+      itemId: string;
+      toolItemId: string;
       callId: string;
       approved: boolean;
     }
-  | { type: "changes"; files: ChangedFile[] }
   | {
-      type: "assistant_end";
-      stopReason: string;
-      usage: AgentUsage;
-      error?: string;
-    }
-  | { type: "agent_end" };
+      type: "changes";
+      turnId: string;
+      itemId: string;
+      callId: string;
+      files: ChangedFile[];
+    };
 
-export interface AgentEventEnvelope {
-  requestId: string;
-  event: AgentUiEvent;
+export interface TimelineEnvelope {
+  sessionId: string;
+  runId: string;
+  seq: number;
+  emittedAt: number;
+  event: TimelineEvent;
+}
+
+export interface TimelineSnapshot {
+  sessionId: string;
+  lastSeq: number;
+  events: TimelineEnvelope[];
 }
 
 export interface DesktopApi {
@@ -129,5 +183,6 @@ export interface DesktopApi {
   resolveApproval(decision: ApprovalDecisionRequest): Promise<boolean>;
   getChanges(): Promise<ChangedFile[]>;
   getDiff(path: string): Promise<FileDiff | undefined>;
-  onAgentEvent(listener: (event: AgentEventEnvelope) => void): () => void;
+  getTimelineSnapshot(): Promise<TimelineSnapshot>;
+  onTimelineEvent(listener: (event: TimelineEnvelope) => void): () => void;
 }

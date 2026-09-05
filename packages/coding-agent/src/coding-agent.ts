@@ -25,10 +25,18 @@ export type CodingAgentEvent =
   | { type: "approval_requested"; approval: ApprovalRequest }
   | {
       type: "approval_resolved";
+      runId: string;
+      turnId: string;
       callId: string;
       approved: boolean;
     }
-  | { type: "changes"; files: ChangedFile[] };
+  | {
+      type: "changes";
+      runId: string;
+      turnId: string;
+      callId: string;
+      files: ChangedFile[];
+    };
 
 export interface CodingAgentOptions {
   workspaceRoot: string;
@@ -79,6 +87,9 @@ export class CodingAgent {
       if (event.type === "tool_execution_end") {
         await this.#emit({
           type: "changes",
+          runId: event.runId,
+          turnId: event.turnId,
+          callId: event.toolCall.id,
           files: await this.#changes.changedFiles(),
         });
       }
@@ -97,8 +108,8 @@ export class CodingAgent {
     return this.#agent.state.messages;
   }
 
-  prompt(text: string): Promise<void> {
-    return this.#agent.prompt(text);
+  prompt(text: string, runId?: string): Promise<void> {
+    return this.#agent.prompt(text, runId ? { runId } : {});
   }
 
   cancel(): void {
@@ -114,10 +125,15 @@ export class CodingAgent {
   }
 
   resolveApproval(callId: string, decision: ApprovalDecision): boolean {
+    const approval = this.#approvals
+      .list()
+      .find((item) => item.callId === callId);
     const resolved = this.#approvals.resolve(callId, decision);
-    if (resolved) {
+    if (resolved && approval) {
       void this.#emit({
         type: "approval_resolved",
+        runId: approval.runId,
+        turnId: approval.turnId,
         callId,
         approved: decision.approved,
       });
@@ -146,6 +162,9 @@ export class CodingAgent {
       arguments: context.arguments as Record<string, unknown>,
     };
     const effect = await deriveEffect(normalizedCall, this.workspace);
-    return this.#approvals.wait(normalizedCall, effect, signal);
+    return this.#approvals.wait(normalizedCall, effect, signal, {
+      runId: context.runId,
+      turnId: context.turnId,
+    });
   }
 }

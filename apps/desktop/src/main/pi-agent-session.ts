@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 import {
@@ -8,12 +9,13 @@ import {
 import { createModels } from "@pi-ling/ai";
 import { deepseekProvider } from "@pi-ling/ai/providers/deepseek";
 import type {
-  AgentEventEnvelope,
   AgentStatus,
-  AgentUiEvent,
   AgentUsage,
   ChangedFile,
   FileDiff,
+  TimelineEnvelope,
+  TimelineEvent,
+  TimelineSnapshot,
   WorkspaceInfo,
 } from "@pi-ling/contracts";
 
@@ -22,12 +24,17 @@ const MODEL = "deepseek-v4-flash";
 const models = createModels([deepseekProvider()]);
 
 export class PiAgentSession {
-  readonly #emit: (envelope: AgentEventEnvelope) => void;
+  readonly #emit: (envelope: TimelineEnvelope) => void;
   #agent: CodingAgent | undefined;
   #workspace: WorkspaceInfo | undefined;
-  #requestId: string | null = null;
+  #sessionId = randomUUID();
+  #seq = 0;
+  #events: TimelineEnvelope[] = [];
+  #activeRunId: string | null = null;
+  #runOutcome: "completed" | "cancelled" | "error" = "completed";
+  #generation = 0;
 
-  constructor(emit: (envelope: AgentEventEnvelope) => void) {
+  constructor(emit: (envelope: TimelineEnvelope) => void) {
     this.#emit = emit;
   }
 
@@ -40,58 +47,73 @@ export class PiAgentSession {
     };
   }
 
+  snapshot(): TimelineSnapshot {
+    return {
+      sessionId: this.#sessionId,
+      lastSeq: this.#seq,
+      events: structuredClone(this.#events),
+    };
+  }
+
   async setWorkspace(root: string): Promise<WorkspaceInfo> {
     this.dispose();
+    this.#resetTimeline();
     const model = models.getModel(PROVIDER, MODEL);
     if (!model) {
       throw new Error(`Model is unavailable: ${PROVIDER}/${MODEL}`);
     }
     this.#workspace = { root, name: path.basename(root) };
+    const generation = ++this.#generation;
     this.#agent = await CodingAgent.create({
       workspaceRoot: root,
       model,
       streamFn: models.stream.bind(models),
-      emit: (event) => this.#handleCodingEvent(event),
+      emit: (event) => {
+        if (generation === this.#generation) {
+          this.#handleCodingEvent(event);
+        }
+      },
     });
     return this.#workspace;
   }
 
-  startPrompt(requestId: string, prompt: string): void {
+  startPrompt(runId: string, prompt: string): void {
     if (!this.#agent) {
       throw new Error("Select a workspace before sending a prompt");
     }
-    if (this.#requestId || this.#agent.isStreaming) {
+    if (this.#activeRunId || this.#agent.isStreaming) {
       throw new Error("Agent is already processing a prompt");
     }
 
-    this.#requestId = requestId;
+    this.#activeRunId = runId;
+    this.#runOutcome = "completed";
+    this.#publish(runId, {
+      type: "run_start",
+      userItemId: `${runId}:user`,
+      prompt,
+    });
     void this.#agent
-      .prompt(prompt)
+      .prompt(prompt, runId)
       .catch((error: unknown) => {
-        this.#send({
-          type: "assistant_end",
-          stopReason: "error",
-          usage: {
-            input: 0,
-            output: 0,
-            totalTokens: 0,
-            cost: 0,
-          },
-          error: error instanceof Error ? error.message : String(error),
+        this.#runOutcome = "error";
+        this.#publish(runId, {
+          type: "run_end",
+          status: "error",
         });
-        this.#send({ type: "agent_end" });
+        console.error("Coding agent run failed", error);
       })
       .finally(() => {
-        if (this.#requestId === requestId) {
-          this.#requestId = null;
+        if (this.#activeRunId === runId) {
+          this.#activeRunId = null;
         }
       });
   }
 
-  cancel(requestId: string): boolean {
-    if (this.#requestId !== requestId || !this.#agent) {
+  cancel(runId: string): boolean {
+    if (this.#activeRunId !== runId || !this.#agent) {
       return false;
     }
+    this.#runOutcome = "cancelled";
     this.#agent.cancel();
     return true;
   }
@@ -100,7 +122,8 @@ export class PiAgentSession {
     if (this.#agent) {
       await this.#agent.reset();
     }
-    this.#requestId = null;
+    this.#activeRunId = null;
+    this.#resetTimeline();
   }
 
   resolveApproval(
@@ -119,85 +142,125 @@ export class PiAgentSession {
   }
 
   dispose(): void {
+    this.#generation += 1;
     this.#agent?.cancel();
     this.#agent = undefined;
-    this.#requestId = null;
+    this.#activeRunId = null;
   }
 
-  #send(event: AgentUiEvent): void {
-    if (this.#requestId) {
-      this.#emit({ requestId: this.#requestId, event });
-    }
+  #publish(runId: string, event: TimelineEvent): void {
+    const envelope: TimelineEnvelope = {
+      sessionId: this.#sessionId,
+      runId,
+      seq: ++this.#seq,
+      emittedAt: Date.now(),
+      event,
+    };
+    this.#events.push(envelope);
+    this.#emit(envelope);
+  }
+
+  #resetTimeline(): void {
+    this.#sessionId = randomUUID();
+    this.#seq = 0;
+    this.#events = [];
   }
 
   #handleCodingEvent(event: CodingAgentEvent): void {
     if (event.type === "approval_requested") {
-      this.#send({
+      const approval = event.approval;
+      this.#publish(approval.runId, {
         type: "approval_requested",
-        approval: event.approval,
+        turnId: approval.turnId,
+        itemId: `${approval.callId}:approval`,
+        toolItemId: approval.callId,
+        approval: {
+          callId: approval.callId,
+          tool: approval.tool,
+          arguments: approval.arguments,
+          effect: { ...approval.effect },
+          effectDigest: approval.effectDigest,
+          reason: approval.reason,
+        },
       });
       return;
     }
     if (event.type === "approval_resolved") {
-      this.#send({
+      this.#publish(event.runId, {
         type: "approval_resolved",
+        turnId: event.turnId,
+        itemId: `${event.callId}:approval`,
+        toolItemId: event.callId,
         callId: event.callId,
         approved: event.approved,
       });
       return;
     }
     if (event.type === "changes") {
-      this.#send({ type: "changes", files: event.files });
+      this.#publish(event.runId, {
+        type: "changes",
+        turnId: event.turnId,
+        itemId: `${event.callId}:changes`,
+        callId: event.callId,
+        files: event.files,
+      });
       return;
     }
 
     const agentEvent = event.event;
+    const runId = agentEvent.runId;
     switch (agentEvent.type) {
       case "agent_start":
-        this.#send({ type: "agent_start" });
+        break;
+      case "turn_start":
+        this.#publish(runId, {
+          type: "turn_start",
+          turnId: agentEvent.turnId,
+          turn: agentEvent.turn,
+        });
+        break;
+      case "turn_end":
+        this.#publish(runId, {
+          type: "turn_end",
+          turnId: agentEvent.turnId,
+        });
         break;
       case "message_start":
-        if (agentEvent.message.role === "assistant") {
-          this.#send({ type: "assistant_start" });
+        if (
+          agentEvent.message.role === "assistant" &&
+          agentEvent.turnId
+        ) {
+          this.#publish(runId, {
+            type: "assistant_start",
+            turnId: agentEvent.turnId,
+            itemId: `${agentEvent.turnId}:assistant`,
+          });
         }
         break;
       case "message_update":
         if (agentEvent.assistantMessageEvent.type === "text_delta") {
-          this.#send({
-            type: "text_delta",
+          this.#publish(runId, {
+            type: "assistant_text_delta",
+            turnId: agentEvent.turnId,
+            itemId: `${agentEvent.turnId}:assistant`,
             delta: agentEvent.assistantMessageEvent.delta,
           });
         } else if (
           agentEvent.assistantMessageEvent.type === "thinking_delta"
         ) {
-          this.#send({
-            type: "thinking_delta",
+          this.#publish(runId, {
+            type: "assistant_thinking_delta",
+            turnId: agentEvent.turnId,
+            itemId: `${agentEvent.turnId}:assistant`,
             delta: agentEvent.assistantMessageEvent.delta,
           });
         }
         break;
-      case "tool_execution_start":
-        this.#send({
-          type: "tool_start",
-          callId: agentEvent.toolCall.id,
-          tool: agentEvent.toolCall.name,
-          arguments: agentEvent.toolCall.arguments,
-        });
-        break;
-      case "tool_execution_end":
-        this.#send({
-          type: "tool_end",
-          callId: agentEvent.toolCall.id,
-          tool: agentEvent.toolCall.name,
-          isError: agentEvent.result.isError,
-          output: agentEvent.result.content
-            .filter((block) => block.type === "text")
-            .map((block) => block.text)
-            .join("\n"),
-        });
-        break;
       case "message_end":
-        if (agentEvent.message.role === "assistant") {
+        if (
+          agentEvent.message.role === "assistant" &&
+          agentEvent.turnId
+        ) {
           const usage: AgentUsage = {
             input: agentEvent.message.usage.input,
             output: agentEvent.message.usage.output,
@@ -207,18 +270,64 @@ export class PiAgentSession {
           if (agentEvent.message.usage.reasoning !== undefined) {
             usage.reasoning = agentEvent.message.usage.reasoning;
           }
-          this.#send({
+          this.#publish(runId, {
             type: "assistant_end",
+            turnId: agentEvent.turnId,
+            itemId: `${agentEvent.turnId}:assistant`,
             stopReason: agentEvent.message.stopReason,
             usage,
             ...(agentEvent.message.errorMessage
               ? { error: agentEvent.message.errorMessage }
               : {}),
           });
+          for (const block of agentEvent.message.content) {
+            if (block.type === "toolCall") {
+              this.#publish(runId, {
+                type: "tool_requested",
+                turnId: agentEvent.turnId,
+                itemId: block.id,
+                callId: block.id,
+                tool: block.name,
+                arguments: block.arguments,
+              });
+            }
+          }
+          if (agentEvent.message.stopReason === "error") {
+            this.#runOutcome = "error";
+          } else if (agentEvent.message.stopReason === "aborted") {
+            this.#runOutcome = "cancelled";
+          }
         }
         break;
+      case "tool_execution_start":
+        this.#publish(runId, {
+          type: "tool_start",
+          turnId: agentEvent.turnId,
+          itemId: agentEvent.toolCall.id,
+          callId: agentEvent.toolCall.id,
+          tool: agentEvent.toolCall.name,
+          arguments: agentEvent.toolCall.arguments,
+        });
+        break;
+      case "tool_execution_end":
+        this.#publish(runId, {
+          type: "tool_end",
+          turnId: agentEvent.turnId,
+          itemId: agentEvent.toolCall.id,
+          callId: agentEvent.toolCall.id,
+          tool: agentEvent.toolCall.name,
+          isError: agentEvent.result.isError,
+          output: agentEvent.result.content
+            .filter((block) => block.type === "text")
+            .map((block) => block.text)
+            .join("\n"),
+        });
+        break;
       case "agent_end":
-        this.#send({ type: "agent_end" });
+        this.#publish(runId, {
+          type: "run_end",
+          status: this.#runOutcome,
+        });
         break;
     }
   }

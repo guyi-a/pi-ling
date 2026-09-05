@@ -5,6 +5,8 @@ import type { Effect } from "../effects/effects.js";
 import { approvalReason, effectDigest } from "../effects/effects.js";
 
 export interface ApprovalRequest {
+  runId: string;
+  turnId: string;
   callId: string;
   tool: string;
   arguments: Record<string, unknown>;
@@ -38,6 +40,7 @@ export class ApprovalManager {
     call: ToolCall,
     effect: Effect,
     signal: AbortSignal,
+    identity: { runId: string; turnId: string },
   ): Promise<BeforeToolCallResult> {
     const reason = approvalReason(effect);
     if (!reason) {
@@ -48,6 +51,8 @@ export class ApprovalManager {
     }
 
     const request: ApprovalRequest = {
+      runId: identity.runId,
+      turnId: identity.turnId,
       callId: call.id,
       tool: call.name,
       arguments: structuredClone(call.arguments),

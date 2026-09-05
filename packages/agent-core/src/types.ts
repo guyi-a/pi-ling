@@ -50,6 +50,8 @@ export interface AgentState {
 }
 
 export interface BeforeToolCallContext {
+  runId: string;
+  turnId: string;
   toolCall: ToolCall;
   tool: AgentTool;
   arguments: unknown;
@@ -66,32 +68,37 @@ export type BeforeToolCall = (
   signal: AbortSignal,
 ) => BeforeToolCallResult | Promise<BeforeToolCallResult>;
 
-export type AgentEvent =
+export type AgentEvent = { runId: string } & (
   | { type: "agent_start" }
   | { type: "agent_end"; messages: Message[] }
-  | { type: "turn_start"; turn: number }
+  | { type: "turn_start"; turnId: string; turn: number }
   | {
       type: "turn_end";
+      turnId: string;
       turn: number;
       message: AssistantMessage;
       toolResults: ToolResultMessage[];
     }
-  | { type: "message_start"; message: Message }
+  | { type: "message_start"; turnId?: string; message: Message }
   | {
       type: "message_update";
+      turnId: string;
       message: AssistantMessage;
       assistantMessageEvent: AssistantMessageEvent;
     }
-  | { type: "message_end"; message: Message }
+  | { type: "message_end"; turnId?: string; message: Message }
   | {
       type: "tool_execution_start";
+      turnId: string;
       toolCall: ToolCall;
     }
   | {
       type: "tool_execution_end";
+      turnId: string;
       toolCall: ToolCall;
       result: ToolResultMessage;
-    };
+    }
+);
 
 export type AgentEventListener = (
   event: AgentEvent,

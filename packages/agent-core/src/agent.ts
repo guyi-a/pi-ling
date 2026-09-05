@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type {
   Message,
   Model,
@@ -76,7 +78,10 @@ export class Agent {
     this.#state.tools = [...tools];
   }
 
-  async prompt(text: string): Promise<void> {
+  async prompt(
+    text: string,
+    options: { runId?: string } = {},
+  ): Promise<void> {
     if (this.#active) {
       throw new Error("Agent is already processing a prompt");
     }
@@ -91,10 +96,11 @@ export class Agent {
       timestamp: Date.now(),
     };
     const controller = new AbortController();
+    const runId = options.runId ?? randomUUID();
     this.#state.isStreaming = true;
     this.#state.errorMessage = undefined;
 
-    const promise = this.#run(prompt, controller).finally(() => {
+    const promise = this.#run(prompt, controller, runId).finally(() => {
       this.#state.isStreaming = false;
       this.#active = undefined;
     });
@@ -121,8 +127,10 @@ export class Agent {
   async #run(
     prompt: UserMessage,
     controller: AbortController,
+    runId: string,
   ): Promise<void> {
     await runAgentLoop({
+      runId,
       context: {
         systemPrompt: this.#state.systemPrompt,
         messages: this.#state.messages,

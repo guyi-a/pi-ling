@@ -19,6 +19,7 @@ import type {
 } from "./types.js";
 
 export interface RunAgentLoopOptions {
+  runId: string;
   context: Context;
   model: Model;
   reasoning: ThinkingLevel;
@@ -52,6 +53,8 @@ async function executeTool(
   call: ToolCall,
   tools: readonly AgentTool[],
   context: Context,
+  runId: string,
+  turnId: string,
   signal: AbortSignal,
   beforeToolCall: BeforeToolCall | undefined,
   onStart: () => void | Promise<void>,
@@ -88,7 +91,14 @@ async function executeTool(
 
   if (beforeToolCall) {
     const decision = await beforeToolCall(
-      { toolCall: call, tool, arguments: arguments_, context },
+      {
+        runId,
+        turnId,
+        toolCall: call,
+        tool,
+        arguments: arguments_,
+        context,
+      },
       signal,
     );
     if (!decision.allow) {
@@ -146,12 +156,26 @@ export async function runAgentLoop(
     tools: options.tools,
   };
 
-  await options.emit({ type: "agent_start" });
-  await options.emit({ type: "message_start", message: options.prompt });
-  await options.emit({ type: "message_end", message: options.prompt });
+  await options.emit({ type: "agent_start", runId: options.runId });
+  await options.emit({
+    type: "message_start",
+    runId: options.runId,
+    message: options.prompt,
+  });
+  await options.emit({
+    type: "message_end",
+    runId: options.runId,
+    message: options.prompt,
+  });
 
   for (let turn = 1; turn <= options.maxTurns; turn += 1) {
-    await options.emit({ type: "turn_start", turn });
+    const turnId = `${options.runId}:turn:${turn}`;
+    await options.emit({
+      type: "turn_start",
+      runId: options.runId,
+      turnId,
+      turn,
+    });
     const stream = options.streamFn(options.model, context, {
       signal: options.signal,
       ...(options.reasoning !== "off"
@@ -169,10 +193,17 @@ export async function runAgentLoop(
             : event.partial;
       if (!started) {
         started = true;
-        await options.emit({ type: "message_start", message });
+        await options.emit({
+          type: "message_start",
+          runId: options.runId,
+          turnId,
+          message,
+        });
       }
       await options.emit({
         type: "message_update",
+        runId: options.runId,
+        turnId,
         message,
         assistantMessageEvent: event,
       });
@@ -180,9 +211,19 @@ export async function runAgentLoop(
 
     const assistant = await stream.result();
     if (!started) {
-      await options.emit({ type: "message_start", message: assistant });
+      await options.emit({
+        type: "message_start",
+        runId: options.runId,
+        turnId,
+        message: assistant,
+      });
     }
-    await options.emit({ type: "message_end", message: assistant });
+    await options.emit({
+      type: "message_end",
+      runId: options.runId,
+      turnId,
+      message: assistant,
+    });
     context.messages.push(assistant);
     produced.push(assistant);
 
@@ -194,11 +235,17 @@ export async function runAgentLoop(
     ) {
       await options.emit({
         type: "turn_end",
+        runId: options.runId,
+        turnId,
         turn,
         message: assistant,
         toolResults: [],
       });
-      await options.emit({ type: "agent_end", messages: produced });
+      await options.emit({
+        type: "agent_end",
+        runId: options.runId,
+        messages: produced,
+      });
       return produced;
     }
 
@@ -208,24 +255,45 @@ export async function runAgentLoop(
         call,
         options.tools,
         context,
+        options.runId,
+        turnId,
         options.signal,
         options.beforeToolCall,
         () =>
-          options.emit({ type: "tool_execution_start", toolCall: call }),
+          options.emit({
+            type: "tool_execution_start",
+            runId: options.runId,
+            turnId,
+            toolCall: call,
+          }),
       );
       await options.emit({
         type: "tool_execution_end",
+        runId: options.runId,
+        turnId,
         toolCall: call,
         result,
       });
-      await options.emit({ type: "message_start", message: result });
-      await options.emit({ type: "message_end", message: result });
+      await options.emit({
+        type: "message_start",
+        runId: options.runId,
+        turnId,
+        message: result,
+      });
+      await options.emit({
+        type: "message_end",
+        runId: options.runId,
+        turnId,
+        message: result,
+      });
       context.messages.push(result);
       produced.push(result);
       results.push(result);
     }
     await options.emit({
       type: "turn_end",
+      runId: options.runId,
+      turnId,
       turn,
       message: assistant,
       toolResults: results,
@@ -235,9 +303,24 @@ export async function runAgentLoop(
   const failure = createAssistantMessage(options.model);
   failure.stopReason = "error";
   failure.errorMessage = `Agent exceeded ${options.maxTurns} turns`;
-  await options.emit({ type: "message_start", message: failure });
-  await options.emit({ type: "message_end", message: failure });
+  const finalTurnId = `${options.runId}:turn:${options.maxTurns}`;
+  await options.emit({
+    type: "message_start",
+    runId: options.runId,
+    turnId: finalTurnId,
+    message: failure,
+  });
+  await options.emit({
+    type: "message_end",
+    runId: options.runId,
+    turnId: finalTurnId,
+    message: failure,
+  });
   produced.push(failure);
-  await options.emit({ type: "agent_end", messages: produced });
+  await options.emit({
+    type: "agent_end",
+    runId: options.runId,
+    messages: produced,
+  });
   return produced;
 }

@@ -143,16 +143,23 @@ describe("Agent", () => {
       },
       streamFn,
     });
-    const eventTypes: AgentEvent["type"][] = [];
+    const events: AgentEvent[] = [];
     agent.subscribe((event) => {
-      eventTypes.push(event.type);
+      events.push(event);
     });
 
-    await agent.prompt("add 2 and 3");
+    await agent.prompt("add 2 and 3", { runId: "run-tools" });
 
     expect(calls).toEqual([{ left: 2, right: 3 }]);
+    const eventTypes = events.map((event) => event.type);
     expect(eventTypes).toContain("tool_execution_start");
     expect(eventTypes).toContain("tool_execution_end");
+    expect(events.every((event) => event.runId === "run-tools")).toBe(true);
+    expect(
+      events
+        .filter((event) => event.type === "turn_start")
+        .map((event) => event.turnId),
+    ).toEqual(["run-tools:turn:1", "run-tools:turn:2"]);
     expect(agent.state.messages.map((message) => message.role)).toEqual([
       "user",
       "assistant",

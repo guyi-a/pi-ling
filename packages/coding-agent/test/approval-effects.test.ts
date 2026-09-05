@@ -72,6 +72,7 @@ describe("effects and approval", () => {
       call,
       effect,
       new AbortController().signal,
+      { runId: "run-1", turnId: "run-1:turn:1" },
     );
 
     expect(
@@ -101,6 +102,7 @@ describe("effects and approval", () => {
       call,
       await deriveEffect(call, workspace),
       new AbortController().signal,
+      { runId: "run-2", turnId: "run-2:turn:1" },
     );
     approvals.cancelAll("cancelled");
     await expect(waiting).resolves.toEqual({

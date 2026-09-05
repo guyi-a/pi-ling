@@ -89,13 +89,16 @@ interface RuntimeAdapter {
 
 ## 会话与事件模型
 
-- 每个会话只能由一个 Runtime 持有。
+- 每个会话同一时刻只能有一个活跃 Runtime；前一个结束并释放后允许顺序切换。
 - 同时保存 Runtime 原始事件和标准 UI 投影。
 - 原始事件用于恢复、调试和完整保真。
 - UI 投影至少包含 `text`、`thinking`、`tool`、`approval`、`usage`、`status`。
+- UI 事件统一使用 `sessionId`、`runId`、`turnId`、`itemId` 和会话内单调递增 `seq`。
+- Main 按执行顺序发布 timeline；snapshot 与实时事件必须经过同一个幂等 reducer。
+- 每个 ReAct assistant turn、tool call 和 approval 都是独立 timeline item，不得按 Prompt 合并。
 - 标准投影必须可版本化，不能破坏原始事件。
 - 第一版不转换不同 Runtime 的原生历史。
-- 跨 Runtime handoff 必须创建新会话，只传递显式摘要和用户选定的文件。
+- Runtime 切换可以继续传递标准消息；私有 checkpoint、thinking 签名和执行中状态不得混用。
 - 持久化应支持应用崩溃后的会话恢复，并明确区分可恢复、已取消、失败和已完成状态。
 
 ## 安全边界
