@@ -14,6 +14,7 @@ export const IPC_CHANNELS = {
   sessionsSwitch: "sessions:switch",
   sessionsDelete: "sessions:delete",
   sessionApprovalMode: "session:approval-mode",
+  sessionRuntime: "session:runtime",
 } as const;
 
 export interface AppInfo {
@@ -24,6 +25,8 @@ export interface AppInfo {
 
 export interface AgentStatus {
   sessionId?: string;
+  runtimeKind: RuntimeKind;
+  availableRuntimes: RuntimeKind[];
   provider: string;
   model: string;
   configured: boolean;
@@ -60,6 +63,7 @@ export type SessionLifecycle =
   | "crashed";
 
 export type ApprovalMode = "manual" | "accept-write" | "auto";
+export type RuntimeKind = "native" | "dsh";
 
 export interface SessionSummary {
   id: string;
@@ -67,6 +71,8 @@ export interface SessionSummary {
   workspace: WorkspaceInfo;
   lifecycle: SessionLifecycle;
   approvalMode: ApprovalMode;
+  runtimeKind: RuntimeKind;
+  runtimeVersion?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -74,6 +80,7 @@ export interface SessionSummary {
 export interface CreateSessionRequest {
   workspaceRoot: string;
   title?: string;
+  runtimeKind?: RuntimeKind;
 }
 
 export interface SessionActivation {
@@ -213,7 +220,7 @@ export interface DesktopApi {
   getAgentStatus(): Promise<AgentStatus>;
   sendPrompt(request: AgentPromptRequest): Promise<AgentPromptAccepted>;
   cancelPrompt(requestId: string): Promise<boolean>;
-  selectWorkspace(): Promise<SessionActivation | undefined>;
+  selectWorkspace(runtimeKind?: RuntimeKind): Promise<SessionActivation | undefined>;
   resolveApproval(decision: ApprovalDecisionRequest): Promise<boolean>;
   getChanges(): Promise<ChangedFile[]>;
   getDiff(path: string): Promise<FileDiff | undefined>;
@@ -223,5 +230,6 @@ export interface DesktopApi {
   switchSession(sessionId: string): Promise<SessionActivation>;
   deleteSession(sessionId: string): Promise<void>;
   setApprovalMode(mode: ApprovalMode): Promise<SessionSummary>;
+  switchRuntime(runtimeKind: RuntimeKind): Promise<SessionActivation>;
   onTimelineEvent(listener: (event: TimelineEnvelope) => void): () => void;
 }
