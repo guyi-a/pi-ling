@@ -23,7 +23,7 @@ export function ApprovalCard(props: {
     return (
       <div className="approval-card resolved">
         <Icon />
-        {item.status === "approved" ? "已允许" : "已拒绝"} ·{" "}
+        {item.status === "approved" ? "Allowed" : "Denied"} ·{" "}
         {item.approval.tool}
       </div>
     );
@@ -33,24 +33,24 @@ export function ApprovalCard(props: {
     <div className="approval-card pending">
       <div className="approval-title">
         <ShieldAlert />
-        需要确认 · {item.approval.tool}
+        Approval required · {item.approval.tool}
       </div>
       <div className="approval-target">{target(item)}</div>
       <p className="approval-reason">{item.approval.reason}</p>
       <details className="tool-arguments">
-        <summary>查看完整参数</summary>
+        <summary>Show full arguments</summary>
         <pre>{JSON.stringify(item.approval.arguments, null, 2)}</pre>
       </details>
       <div className="approval-actions">
         <button type="button" onClick={() => onDecision(item, false)}>
-          拒绝
+          Deny
         </button>
         <button
           className="allow"
           type="button"
           onClick={() => onDecision(item, true)}
         >
-          仅允许这次
+          Allow once
         </button>
       </div>
     </div>

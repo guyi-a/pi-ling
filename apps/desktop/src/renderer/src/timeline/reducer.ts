@@ -2,6 +2,7 @@ import type {
   AgentUsage,
   ApprovalRequest,
   ChangedFile,
+  StreamFrameEnvelope,
   TimelineEnvelope,
   TimelineSnapshot,
 } from "@pi-ling/contracts";
@@ -40,7 +41,8 @@ export interface ToolTimelineItem extends ItemBase {
     | "running"
     | "completed"
     | "failed"
-    | "denied";
+    | "denied"
+    | "cancelled";
   output?: string;
 }
 
@@ -77,11 +79,14 @@ export interface TimelineState {
   received: Record<number, TimelineEnvelope>;
   items: TimelineItem[];
   runs: Record<string, TimelineRun>;
+  frameSeqByRun: Record<string, number>;
 }
 
 export type TimelineAction =
   | { type: "event"; envelope: TimelineEnvelope }
   | { type: "snapshot"; snapshot: TimelineSnapshot }
+  | { type: "frame"; frame: StreamFrameEnvelope }
+  | { type: "replace"; state: TimelineState }
   | { type: "clear" };
 
 export function createTimelineState(): TimelineState {
@@ -91,6 +96,34 @@ export function createTimelineState(): TimelineState {
     received: {},
     items: [],
     runs: {},
+    frameSeqByRun: {},
+  };
+}
+
+export function applyStreamFrame(
+  state: TimelineState,
+  envelope: StreamFrameEnvelope,
+): TimelineState {
+  if (state.sessionId !== envelope.sessionId) return state;
+  if ((state.frameSeqByRun[envelope.runId] ?? 0) >= envelope.frameSeq) {
+    return state;
+  }
+  let items = state.items;
+  if (envelope.frame.kind === "tool.status" && envelope.toolCallId) {
+    const frame = envelope.frame;
+    items = updateItem<ToolTimelineItem>(
+      items,
+      envelope.toolCallId,
+      (item) => ({ ...item, status: frame.status }),
+    );
+  }
+  return {
+    ...state,
+    items,
+    frameSeqByRun: {
+      ...state.frameSeqByRun,
+      [envelope.runId]: envelope.frameSeq,
+    },
   };
 }
 
@@ -126,6 +159,28 @@ function applyEvent(
       break;
     case "run_end":
       runs = { ...runs, [runId]: { id: runId, status: event.status } };
+      if (event.status !== "completed") {
+        let failedAssigned = false;
+        items = items.map((item) => {
+          if (
+            item.kind !== "tool" ||
+            item.runId !== runId ||
+            ["completed", "failed", "denied", "cancelled"].includes(
+              item.status,
+            )
+          ) {
+            return item;
+          }
+          if (
+            (event.status === "error" || event.status === "crashed") &&
+            !failedAssigned
+          ) {
+            failedAssigned = true;
+            return { ...item, status: "failed" };
+          }
+          return { ...item, status: "cancelled" };
+        });
+      }
       break;
     case "assistant_start":
       if (!items.some((item) => item.id === event.itemId)) {
@@ -142,6 +197,15 @@ function applyEvent(
             status: "streaming",
           },
         ];
+      } else {
+        items = updateItem<AssistantTimelineItem>(
+          items,
+          event.itemId,
+          (item) => ({
+            ...item,
+            status: "streaming",
+          }),
+        );
       }
       break;
     case "assistant_text_delta":
@@ -342,8 +406,14 @@ export function timelineReducer(
   if (action.type === "clear") {
     return createTimelineState();
   }
+  if (action.type === "replace") {
+    return action.state;
+  }
   if (action.type === "snapshot") {
     return applyTimelineSnapshot(state, action.snapshot);
+  }
+  if (action.type === "frame") {
+    return applyStreamFrame(state, action.frame);
   }
   return applyTimelineEnvelope(state, action.envelope);
 }

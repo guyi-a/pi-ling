@@ -43,9 +43,9 @@ describe("chat components", () => {
       status: "running",
     };
     const html = renderToStaticMarkup(<ToolCard item={item} />);
-    expect(html).toContain("执行命令");
+    expect(html).toContain("Run");
     expect(html).toContain("pnpm test");
-    expect(html).toContain("运行中");
+    expect(html).toContain("Running");
   });
 
   it("compresses resolved approvals and keeps pending actions visible", () => {
@@ -70,7 +70,7 @@ describe("chat components", () => {
       renderToStaticMarkup(
         <ApprovalCard item={base} onDecision={() => {}} />,
       ),
-    ).toContain("仅允许这次");
+    ).toContain("Allow once");
     expect(
       renderToStaticMarkup(
         <ApprovalCard
@@ -78,7 +78,7 @@ describe("chat components", () => {
           onDecision={() => {}}
         />,
       ),
-    ).toContain("已允许");
+    ).toContain("Allowed");
   });
 
   it("submits Enter only outside composition and without Shift", () => {

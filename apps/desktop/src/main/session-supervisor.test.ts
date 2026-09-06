@@ -17,6 +17,7 @@ class FakeDshRuntime implements RuntimeAdapter {
   readonly kind = "dsh" as const;
   readonly capabilities = {} as RuntimeCapabilities;
   readonly listeners = new Set<RuntimeEventListener>();
+  readonly closed: string[] = [];
   async initialize() {}
   async createSession(options: RuntimeSessionOptions) {
     return {
@@ -32,7 +33,9 @@ class FakeDshRuntime implements RuntimeAdapter {
   async resolvePermission() {
     return true;
   }
-  async closeSession() {}
+  async closeSession(sessionId: string) {
+    this.closed.push(sessionId);
+  }
   subscribe(listener: RuntimeEventListener) {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -62,10 +65,22 @@ describe("SessionSupervisor", () => {
       workspaceRoot: root,
       title: "First",
     });
-    store.appendTimeline(first.session.id, "run-1", {
-      type: "run_start",
-      userItemId: "run-1:user",
-      prompt: "first",
+    store.appendSessionEvent({
+      sessionId: first.session.id,
+      runtimeKind: "native",
+      runId: "run-1",
+      messageId: "run-1:user",
+      idempotencyKey: "run:run-1:start",
+      event: {
+        kind: "run.started",
+        userMessage: {
+          id: "run-1:user",
+          role: "user",
+          content: [{ type: "text", text: "first" }],
+          sourceRuntime: "native",
+          createdAt: 1,
+        },
+      },
     });
     const second = await supervisor.create({
       workspaceRoot: root,
@@ -91,6 +106,7 @@ describe("SessionSupervisor", () => {
     supervisor = new SessionSupervisor(
       store,
       () => {},
+      () => {},
       new FakeDshRuntime(),
     );
     const created = await supervisor.create({
@@ -102,5 +118,88 @@ describe("SessionSupervisor", () => {
     expect(switched.session.id).toBe(created.session.id);
     expect(switched.session.runtimeKind).toBe("dsh");
     expect(supervisor.list()).toHaveLength(1);
+  });
+
+  it("keeps empty workspaces and activates the next session on archive", async () => {
+    const empty = supervisor.addWorkspace(path.join(root, "empty"));
+    expect(supervisor.listWorkspaces()).toEqual([
+      expect.objectContaining({ id: empty.id, sessions: [] }),
+    ]);
+
+    const first = await supervisor.create({
+      workspaceRoot: root,
+      title: "First",
+    });
+    const second = await supervisor.create({
+      workspaceId: first.session.workspaceId,
+      title: "Second",
+    });
+    supervisor.setSessionPinned(first.session.id, true);
+
+    const archived = await supervisor.archiveSession(second.session.id);
+    expect(archived.activation?.session.id).toBe(first.session.id);
+    expect(
+      supervisor.listWorkspaces(true).find(
+        (workspace) => workspace.id === first.session.workspaceId,
+      )?.sessions,
+    ).toEqual([
+      expect.objectContaining({ id: first.session.id, pinnedAt: expect.any(Number) }),
+      expect.objectContaining({ id: second.session.id, archivedAt: expect.any(Number) }),
+    ]);
+    supervisor.restoreSession(second.session.id);
+    expect(supervisor.list()).toHaveLength(2);
+  });
+
+  it("leaves unavailable DSH history intact during startup", async () => {
+    const session = store.createSession({
+      workspaceRoot: root,
+      runtimeKind: "dsh",
+    });
+    await supervisor.initialize();
+    expect(supervisor.status.sessionId).toBeUndefined();
+    expect(store.getSession(session.id)?.lifecycle).toBe("idle");
+  });
+
+  it("switches selected sessions without closing background runtimes", async () => {
+    await supervisor.dispose();
+    const runtime = new FakeDshRuntime();
+    supervisor = new SessionSupervisor(
+      store,
+      () => {},
+      () => {},
+      runtime,
+    );
+    const first = await supervisor.create({
+      workspaceRoot: root,
+      runtimeKind: "dsh",
+      title: "First",
+    });
+    const second = await supervisor.create({
+      workspaceId: first.session.workspaceId,
+      runtimeKind: "dsh",
+      title: "Second",
+    });
+    await supervisor.activate(first.session.id);
+    await supervisor.activate(second.session.id);
+
+    expect(runtime.closed).toEqual([]);
+    expect((await supervisor.activate(first.session.id)).activationRevision)
+      .toBeGreaterThan(second.activationRevision);
+
+    await supervisor.activate(first.session.id);
+    supervisor.startPrompt("run-first", "work", first.session.id);
+    await supervisor.activate(second.session.id);
+    expect(() =>
+      supervisor.startPrompt("run-second", "conflict", second.session.id),
+    ).toThrow(/already running in this workspace/);
+
+    const third = await supervisor.create({
+      workspaceRoot: path.join(root, "other"),
+      runtimeKind: "dsh",
+      title: "Third",
+    });
+    expect(() =>
+      supervisor.startPrompt("run-third", "parallel", third.session.id),
+    ).not.toThrow();
   });
 });

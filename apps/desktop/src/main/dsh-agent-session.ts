@@ -11,6 +11,7 @@ import type {
   AgentUsage,
   ApprovalMode,
   ApprovalRequest,
+  CanonicalMessage,
   ChangedFile,
   FileDiff,
   RuntimeKind,
@@ -19,7 +20,9 @@ import type {
   TimelineEvent,
   TimelineSnapshot,
 } from "@pi-ling/contracts";
+import { projectTimelineSnapshot } from "@pi-ling/session-events";
 
+import { RunMessageBuffer } from "./run-message-buffer.js";
 import { SessionStore } from "./session-store/session-store.js";
 
 interface PendingPermission {
@@ -36,6 +39,8 @@ export class DshAgentSession {
   readonly #runtime: RuntimeAdapter;
   readonly #emit: (envelope: TimelineEnvelope) => void;
   readonly #availableRuntimes: RuntimeKind[];
+  readonly #buffer: RunMessageBuffer;
+  #projectedSeq: number;
   readonly #unsubscribe: () => void;
   readonly #pending = new Map<string, PendingPermission>();
   readonly #tools = new Set<string>();
@@ -44,6 +49,8 @@ export class DshAgentSession {
   #turn = 0;
   #assistantOpen = false;
   #assistantHasText = false;
+  #assistantText = "";
+  #assistantReasoning = "";
   #approvalMode: ApprovalMode;
   #usage: AgentUsage = {
     input: 0,
@@ -58,12 +65,18 @@ export class DshAgentSession {
     runtime: RuntimeAdapter;
     emit: (envelope: TimelineEnvelope) => void;
     availableRuntimes: RuntimeKind[];
+    buffer: RunMessageBuffer;
   }) {
     this.#store = options.store;
     this.#session = options.session;
     this.#runtime = options.runtime;
     this.#emit = options.emit;
     this.#availableRuntimes = options.availableRuntimes;
+    this.#buffer = options.buffer;
+    this.#projectedSeq = projectTimelineSnapshot(
+      options.session.id,
+      options.store.loadSessionEvents(options.session.id),
+    ).lastSeq;
     this.#approvalMode = options.session.approvalMode;
     this.#unsubscribe = this.#runtime.subscribe((event) =>
       this.#handleRuntimeEvent(event),
@@ -76,6 +89,7 @@ export class DshAgentSession {
     runtime: RuntimeAdapter;
     emit: (envelope: TimelineEnvelope) => void;
     availableRuntimes: RuntimeKind[];
+    buffer: RunMessageBuffer;
   }): Promise<DshAgentSession> {
     const instance = new DshAgentSession(options);
     const externalSessionId = options.store.getRuntimeSessionId(
@@ -116,7 +130,10 @@ export class DshAgentSession {
   }
 
   snapshot(): TimelineSnapshot {
-    return this.#store.loadSnapshot(this.#session.id);
+    return projectTimelineSnapshot(
+      this.#session.id,
+      this.#store.loadSessionEvents(this.#session.id),
+    );
   }
 
   startPrompt(runId: string, prompt: string): void {
@@ -125,7 +142,24 @@ export class DshAgentSession {
     this.#turn = 0;
     this.#assistantOpen = false;
     this.#assistantHasText = false;
+    this.#assistantText = "";
+    this.#assistantReasoning = "";
     this.#store.setLifecycle(this.#session.id, "running", runId);
+    const userMessage: CanonicalMessage = {
+      id: `${runId}:user`,
+      role: "user",
+      content: [{ type: "text", text: prompt }],
+      sourceRuntime: "dsh",
+      createdAt: Date.now(),
+    };
+    this.#store.appendSessionEvent({
+      sessionId: this.#session.id,
+      runtimeKind: "dsh",
+      runId,
+      messageId: userMessage.id,
+      idempotencyKey: `run:${runId}:start`,
+      event: { kind: "run.started", userMessage },
+    });
     this.#publish(runId, {
       type: "run_start",
       userItemId: `${runId}:user`,
@@ -163,6 +197,20 @@ export class DshAgentSession {
         : candidate.kind === "reject_once" ||
           candidate.kind === "reject_always",
     );
+    this.#store.appendSessionEvent({
+      sessionId: this.#session.id,
+      runtimeKind: "dsh",
+      runId: pending.runId,
+      turnId: pending.turnId,
+      toolCallId: callId,
+      idempotencyKey: `approval:${callId}:resolved`,
+      event: {
+        kind: "approval.resolved",
+        toolItemId: callId,
+        callId,
+        approved: decision.approved,
+      },
+    });
     this.#publish(pending.runId, {
       type: "approval_resolved",
       turnId: pending.turnId,
@@ -198,12 +246,16 @@ export class DshAgentSession {
   }
 
   #publish(runId: string, event: TimelineEvent): void {
-    const envelope = this.#store.appendTimeline(
+    this.#store.appendTimeline(
       this.#session.id,
       runId,
       event,
     );
-    this.#emit(envelope);
+    const projected = this.snapshot();
+    for (const next of projected.events.slice(this.#projectedSeq)) {
+      this.#emit(next);
+    }
+    this.#projectedSeq = projected.lastSeq;
   }
 
   #turnId(): string {
@@ -215,7 +267,17 @@ export class DshAgentSession {
       this.#turn += 1;
       this.#assistantOpen = true;
       this.#assistantHasText = false;
+      this.#assistantText = "";
+      this.#assistantReasoning = "";
       const turnId = this.#turnId();
+      this.#store.appendSessionEvent({
+        sessionId: this.#session.id,
+        runtimeKind: "dsh",
+        runId,
+        turnId,
+        idempotencyKey: `turn:${turnId}:start`,
+        event: { kind: "turn.started", turn: this.#turn },
+      });
       this.#publish(runId, { type: "turn_start", turnId, turn: this.#turn });
       this.#publish(runId, {
         type: "assistant_start",
@@ -229,10 +291,40 @@ export class DshAgentSession {
   #closeAssistant(runId: string, stopReason: string): void {
     if (!this.#assistantOpen) return;
     const turnId = this.#turnId();
+    const messageId = `${turnId}:assistant`;
+    const message: CanonicalMessage = {
+      id: messageId,
+      role: "assistant",
+      content: [
+        ...(this.#assistantReasoning
+          ? [{ type: "reasoning" as const, text: this.#assistantReasoning }]
+          : []),
+        ...(this.#assistantText
+          ? [{ type: "text" as const, text: this.#assistantText }]
+          : []),
+      ],
+      sourceRuntime: "dsh",
+      createdAt: Date.now(),
+    };
+    this.#store.appendSessionEvent({
+      sessionId: this.#session.id,
+      runtimeKind: "dsh",
+      runId,
+      turnId,
+      messageId,
+      idempotencyKey: `assistant:${turnId}`,
+      event: {
+        kind: "message.assistant.committed",
+        message,
+        stopReason,
+        usage: this.#usage,
+      },
+    });
+    this.#buffer.commitMessage(this.#session.id, runId, messageId);
     this.#publish(runId, {
       type: "assistant_end",
       turnId,
-      itemId: `${turnId}:assistant`,
+      itemId: messageId,
       stopReason,
       usage: this.#usage,
     });
@@ -240,13 +332,22 @@ export class DshAgentSession {
   }
 
   async #handleRuntimeEvent(event: RuntimeEvent): Promise<void> {
+    if (event.sessionId && event.sessionId !== this.#session.id) return;
     if (event.type === "runtime_error") {
       if (this.#activeRunId) {
+        this.#store.appendSessionEvent({
+          sessionId: this.#session.id,
+          runtimeKind: "dsh",
+          runId: this.#activeRunId,
+          idempotencyKey: `run:${this.#activeRunId}:end`,
+          event: { kind: "run.ended", status: "crashed" },
+        });
         this.#publish(this.#activeRunId, {
           type: "run_end",
           status: "crashed",
         });
         this.#store.setLifecycle(this.#session.id, "crashed");
+        this.#buffer.endRun(this.#session.id, this.#activeRunId);
       }
       return;
     }
@@ -255,20 +356,26 @@ export class DshAgentSession {
     if (event.type === "run_start") return;
     if (event.type === "assistant_thought") {
       const turnId = this.#ensureAssistant(runId);
-      this.#publish(runId, {
-        type: "assistant_thinking_delta",
+      this.#assistantReasoning += event.delta;
+      this.#buffer.ingest({
+        sessionId: this.#session.id,
+        runId,
         turnId,
-        itemId: `${turnId}:assistant`,
-        delta: event.delta,
+        messageId: `${turnId}:assistant`,
+        emittedAt: Date.now(),
+        frame: { kind: "assistant.reasoning.delta", delta: event.delta },
       });
     } else if (event.type === "assistant_text") {
       const turnId = this.#ensureAssistant(runId);
       this.#assistantHasText = true;
-      this.#publish(runId, {
-        type: "assistant_text_delta",
+      this.#assistantText += event.delta;
+      this.#buffer.ingest({
+        sessionId: this.#session.id,
+        runId,
         turnId,
-        itemId: `${turnId}:assistant`,
-        delta: event.delta,
+        messageId: `${turnId}:assistant`,
+        emittedAt: Date.now(),
+        frame: { kind: "assistant.text.delta", delta: event.delta },
       });
     } else if (event.type === "usage") {
       this.#usage = {
@@ -290,6 +397,22 @@ export class DshAgentSession {
       if (!this.#tools.has(event.callId)) {
         this.#tools.add(event.callId);
         this.#closeAssistant(runId, "toolUse");
+        this.#store.appendSessionEvent({
+          sessionId: this.#session.id,
+          runtimeKind: "dsh",
+          runId,
+          turnId,
+          toolCallId: event.callId,
+          idempotencyKey: `tool:${event.callId}:call`,
+          event: {
+            kind: "tool.call.committed",
+            toolCall: {
+              id: event.callId,
+              name: event.title,
+              input: arguments_,
+            },
+          },
+        });
         this.#publish(runId, {
           type: "tool_requested",
           turnId,
@@ -301,6 +424,18 @@ export class DshAgentSession {
       }
       if (event.status === "running") {
         this.#closeAssistant(runId, "toolUse");
+        this.#store.appendSessionEvent({
+          sessionId: this.#session.id,
+          runtimeKind: "dsh",
+          runId,
+          turnId,
+          toolCallId: event.callId,
+          idempotencyKey: `tool:${event.callId}:start`,
+          event: {
+            kind: "tool.execution.started",
+            toolCallId: event.callId,
+          },
+        });
         this.#publish(runId, {
           type: "tool_start",
           turnId,
@@ -310,6 +445,24 @@ export class DshAgentSession {
           arguments: arguments_,
         });
       } else {
+        this.#store.appendSessionEvent({
+          sessionId: this.#session.id,
+          runtimeKind: "dsh",
+          runId,
+          turnId,
+          messageId: `tool:${event.callId}`,
+          toolCallId: event.callId,
+          idempotencyKey: `tool:${event.callId}:result`,
+          event: {
+            kind: "tool.result.committed",
+            result: {
+              toolCallId: event.callId,
+              content: event.output ?? "",
+              isError: event.status === "failed",
+              rawPayload: { dsh: event },
+            },
+          },
+        });
         this.#publish(runId, {
           type: "tool_end",
           turnId,
@@ -324,8 +477,16 @@ export class DshAgentSession {
       await this.#handlePermission(event);
     } else if (event.type === "run_end") {
       this.#closeAssistant(runId, event.status === "completed" ? "stop" : event.status);
+      this.#store.appendSessionEvent({
+        sessionId: this.#session.id,
+        runtimeKind: "dsh",
+        runId,
+        idempotencyKey: `run:${runId}:end`,
+        event: { kind: "run.ended", status: event.status },
+      });
       this.#publish(runId, { type: "run_end", status: event.status });
       this.#store.setLifecycle(this.#session.id, "idle");
+      this.#buffer.endRun(this.#session.id, runId);
     }
   }
 
@@ -342,6 +503,22 @@ export class DshAgentSession {
       this.#tools.add(event.callId);
       this.#toolTurns.set(event.callId, turnId);
       this.#closeAssistant(event.runId, "toolUse");
+      this.#store.appendSessionEvent({
+        sessionId: this.#session.id,
+        runtimeKind: "dsh",
+        runId: event.runId,
+        turnId,
+        toolCallId: event.callId,
+        idempotencyKey: `tool:${event.callId}:call`,
+        event: {
+          kind: "tool.call.committed",
+          toolCall: {
+            id: event.callId,
+            name: event.title,
+            input,
+          },
+        },
+      });
       this.#publish(event.runId, {
         type: "tool_requested",
         turnId,
@@ -398,6 +575,19 @@ export class DshAgentSession {
       options: event.options,
     });
     const turnId = this.#toolTurns.get(event.callId) ?? this.#turnId();
+    this.#store.appendSessionEvent({
+      sessionId: this.#session.id,
+      runtimeKind: "dsh",
+      runId: event.runId,
+      turnId,
+      toolCallId: event.callId,
+      idempotencyKey: `approval:${event.callId}:requested`,
+      event: {
+        kind: "approval.requested",
+        toolItemId: event.callId,
+        approval,
+      },
+    });
     this.#publish(event.runId, {
       type: "approval_requested",
       turnId,

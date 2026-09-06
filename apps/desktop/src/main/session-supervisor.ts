@@ -4,18 +4,23 @@ import type { RuntimeAdapter } from "@pi-ling/runtime-contracts";
 import type {
   AgentStatus,
   ApprovalMode,
-  CreateSessionRequest,
   ChangedFile,
+  CreateSessionRequest,
   FileDiff,
   RuntimeKind,
   SessionActivation,
+  SessionArchiveResult,
   SessionSummary,
+  StreamFrameEnvelope,
   TimelineEnvelope,
   TimelineSnapshot,
+  WorkspaceListEntry,
+  WorkspaceSummary,
 } from "@pi-ling/contracts";
 
 import { DshAgentSession } from "./dsh-agent-session.js";
 import { PiAgentSession } from "./pi-agent-session.js";
+import { RunMessageBuffer } from "./run-message-buffer.js";
 import { SessionStore } from "./session-store/session-store.js";
 
 type ApprovalDecision = {
@@ -45,17 +50,23 @@ export class SessionSupervisor {
   readonly #emit: (envelope: TimelineEnvelope) => void;
   readonly #dshRuntime: RuntimeAdapter | undefined;
   readonly #emptySessionId = randomUUID();
-  #active: ActiveSession | undefined;
-  #generation = 0;
+  readonly #sessions = new Map<string, ActiveSession>();
+  readonly #runOwners = new Map<string, string>();
+  readonly #workspaceRuns = new Map<string, string>();
+  readonly #buffer: RunMessageBuffer;
+  #selectedSessionId: string | undefined;
+  #activationRevision = 0;
 
   constructor(
     store: SessionStore,
     emit: (envelope: TimelineEnvelope) => void,
+    emitFrame: (frame: StreamFrameEnvelope) => void = () => {},
     dshRuntime?: RuntimeAdapter,
   ) {
     this.#store = store;
     this.#emit = emit;
     this.#dshRuntime = dshRuntime;
+    this.#buffer = new RunMessageBuffer(emitFrame);
   }
 
   get availableRuntimes(): RuntimeKind[] {
@@ -64,6 +75,7 @@ export class SessionSupervisor {
 
   async initialize(): Promise<void> {
     for (const session of this.#store.listSessions()) {
+      if (session.runtimeKind === "dsh" && !this.#dshRuntime) continue;
       try {
         await this.activate(session.id);
         return;
@@ -77,13 +89,27 @@ export class SessionSupervisor {
     return this.#store.listSessions();
   }
 
+  listWorkspaces(includeArchived = false): WorkspaceListEntry[] {
+    return this.#store.listWorkspaces(includeArchived);
+  }
+
+  addWorkspace(workspaceRoot: string): WorkspaceSummary {
+    return this.#store.createWorkspace({ root: workspaceRoot });
+  }
+
   async create(request: CreateSessionRequest): Promise<SessionActivation> {
     const runtimeKind = request.runtimeKind ?? "native";
     if (runtimeKind === "dsh" && !this.#dshRuntime) {
       throw new Error("DSH Runtime is not enabled");
     }
+    if (runtimeKind === "claude") {
+      throw new Error("Claude Runtime is not enabled");
+    }
     const session = this.#store.createSession({
-      workspaceRoot: request.workspaceRoot,
+      ...(request.workspaceId ? { workspaceId: request.workspaceId } : {}),
+      ...(request.workspaceRoot
+        ? { workspaceRoot: request.workspaceRoot }
+        : {}),
       ...(request.title ? { title: request.title } : {}),
       runtimeKind,
       runtimeVersion:
@@ -100,40 +126,71 @@ export class SessionSupervisor {
   async activate(sessionId: string): Promise<SessionActivation> {
     const session = this.#store.getSession(sessionId);
     if (!session) throw new Error(`Session not found: ${sessionId}`);
-    if (this.#active) await this.#active.dispose();
-    const generation = ++this.#generation;
-    const emit = (envelope: TimelineEnvelope) => {
-      if (generation === this.#generation) this.#emit(envelope);
-    };
-    const active: ActiveSession =
-      session.runtimeKind === "dsh"
-        ? await this.#openDsh(session, emit)
-        : await PiAgentSession.open({
-            store: this.#store,
-            session,
-            emit,
-            availableRuntimes: this.availableRuntimes,
-          });
-    this.#active = active;
+    if (session.archivedAt) throw new Error(`Session is archived: ${sessionId}`);
+    if (session.runtimeKind === "dsh" && !this.#dshRuntime) {
+      throw new Error("DSH Runtime is not enabled");
+    }
+    if (session.runtimeKind === "claude") {
+      throw new Error("Claude Runtime is not enabled");
+    }
+    const activationRevision = ++this.#activationRevision;
+    this.#selectedSessionId = sessionId;
+    let active = this.#sessions.get(sessionId);
+    if (!active) {
+      active = await this.#open(session);
+      this.#sessions.set(sessionId, active);
+    }
+    this.#store.touchWorkspace(session.workspaceId);
     return {
       session: this.#store.getSession(sessionId)!,
       status: active.status,
       snapshot: active.snapshot(),
+      bufferFrames: this.#buffer.snapshot(sessionId),
+      activationRevision,
     };
   }
 
   async delete(sessionId: string): Promise<void> {
-    if (this.#active?.sessionId === sessionId) {
-      this.#generation += 1;
-      await this.#active.dispose();
-      this.#active = undefined;
-    }
+    await this.#shutdownSession(sessionId);
     this.#store.deleteSession(sessionId);
+    if (this.#selectedSessionId === sessionId) {
+      this.#selectedSessionId = undefined;
+      this.#activationRevision += 1;
+    }
+  }
+
+  setSessionPinned(sessionId: string, pinned: boolean): SessionSummary {
+    return this.#store.setSessionPinned(sessionId, pinned);
+  }
+
+  async archiveSession(sessionId: string): Promise<SessionArchiveResult> {
+    const session = this.#store.archiveSession(sessionId);
+    await this.#shutdownSession(sessionId);
+    if (this.#selectedSessionId !== sessionId) return { sessionId };
+    this.#selectedSessionId = undefined;
+    const workspace = this.#store
+      .listWorkspaces()
+      .find((entry) => entry.id === session.workspaceId);
+    const next = workspace?.sessions.find(
+      (candidate) =>
+        candidate.runtimeKind !== "dsh" || Boolean(this.#dshRuntime),
+    );
+    return {
+      sessionId,
+      ...(next ? { activation: await this.activate(next.id) } : {}),
+    };
+  }
+
+  restoreSession(sessionId: string): SessionSummary {
+    return this.#store.restoreSession(sessionId);
   }
 
   get status(): AgentStatus {
+    const active = this.#selectedSessionId
+      ? this.#sessions.get(this.#selectedSessionId)
+      : undefined;
     return (
-      this.#active?.status ?? {
+      active?.status ?? {
         runtimeKind: "native",
         availableRuntimes: this.availableRuntimes,
         provider: "deepseek",
@@ -144,65 +201,97 @@ export class SessionSupervisor {
     );
   }
 
-  snapshot(): TimelineSnapshot {
-    return (
-      this.#active?.snapshot() ?? {
+  snapshot(sessionId = this.#selectedSessionId): TimelineSnapshot {
+    if (!sessionId) {
+      return {
         sessionId: this.#emptySessionId,
         lastSeq: 0,
         events: [],
-      }
+      };
+    }
+    return (
+      this.#sessions.get(sessionId)?.snapshot() ??
+      this.#store.loadSnapshot(sessionId)
     );
   }
 
-  startPrompt(runId: string, prompt: string): void {
-    if (!this.#active) throw new Error("Create or select a session first");
-    this.#active.startPrompt(runId, prompt);
+  startPrompt(runId: string, prompt: string, sessionId?: string): void {
+    const targetId = sessionId ?? this.#selectedSessionId;
+    if (!targetId) throw new Error("Create or select a session first");
+    const active = this.#sessions.get(targetId);
+    if (!active) throw new Error(`Session is not active: ${targetId}`);
+    const session = this.#store.getSession(targetId);
+    if (!session) throw new Error(`Session not found: ${targetId}`);
+    const workspaceRun = this.#workspaceRuns.get(session.workspaceId);
+    if (workspaceRun && workspaceRun !== runId) {
+      throw new Error("Another session is already running in this workspace");
+    }
+    this.#workspaceRuns.set(session.workspaceId, runId);
+    this.#runOwners.set(runId, targetId);
+    try {
+      active.startPrompt(runId, prompt);
+    } catch (error) {
+      this.#workspaceRuns.delete(session.workspaceId);
+      this.#runOwners.delete(runId);
+      throw error;
+    }
   }
 
   cancel(runId: string): boolean | Promise<boolean> {
-    return this.#active?.cancel(runId) ?? false;
+    const sessionId = this.#runOwners.get(runId);
+    return sessionId
+      ? this.#sessions.get(sessionId)?.cancel(runId) ?? false
+      : false;
   }
 
   resolveApproval(
     callId: string,
     decision: ApprovalDecision,
   ): Promise<boolean> {
-    return (
-      this.#active?.resolveApproval(callId, decision) ??
-      Promise.resolve(false)
-    );
+    const active = this.#selectedSessionId
+      ? this.#sessions.get(this.#selectedSessionId)
+      : undefined;
+    return active?.resolveApproval(callId, decision) ?? Promise.resolve(false);
   }
 
-  changedFiles() {
-    return this.#active?.changedFiles() ?? Promise.resolve([]);
+  changedFiles(): Promise<ChangedFile[]> {
+    const active = this.#selectedSessionId
+      ? this.#sessions.get(this.#selectedSessionId)
+      : undefined;
+    return active?.changedFiles() ?? Promise.resolve([]);
   }
 
-  diff(path: string) {
-    return this.#active?.diff(path) ?? Promise.resolve(undefined);
+  diff(path: string): Promise<FileDiff | undefined> {
+    const active = this.#selectedSessionId
+      ? this.#sessions.get(this.#selectedSessionId)
+      : undefined;
+    return active?.diff(path) ?? Promise.resolve(undefined);
   }
 
   setApprovalMode(mode: ApprovalMode): SessionSummary {
-    if (!this.#active) throw new Error("No active session");
-    return this.#active.setApprovalMode(mode);
+    const active = this.#selectedSessionId
+      ? this.#sessions.get(this.#selectedSessionId)
+      : undefined;
+    if (!active) throw new Error("No active session");
+    return active.setApprovalMode(mode);
   }
 
   async switchRuntime(runtimeKind: RuntimeKind): Promise<SessionActivation> {
-    if (!this.#active) throw new Error("No active session");
+    if (!this.#selectedSessionId) throw new Error("No active session");
     if (runtimeKind === "dsh" && !this.#dshRuntime) {
       throw new Error("DSH Runtime is not enabled");
     }
-    if (this.#active.status.runtimeKind === runtimeKind) {
-      return {
-        session: this.#store.getSession(this.#active.sessionId)!,
-        status: this.#active.status,
-        snapshot: this.#active.snapshot(),
-      };
+    if (runtimeKind === "claude") {
+      throw new Error("Claude Runtime is not enabled");
     }
-    const sessionId = this.#active.sessionId;
-    const previousRuntime = this.#active.status.runtimeKind;
-    this.#generation += 1;
-    await this.#active.dispose();
-    this.#active = undefined;
+    const sessionId = this.#selectedSessionId;
+    const session = this.#store.getSession(sessionId)!;
+    if (session.lifecycle === "running" || session.lifecycle === "awaiting_approval") {
+      throw new Error("Runtime can only switch while the session is idle");
+    }
+    if (session.runtimeKind === runtimeKind) return this.activate(sessionId);
+    const previousRuntime = session.runtimeKind;
+    await this.#shutdownSession(sessionId);
     this.#store.setRuntime(
       sessionId,
       runtimeKind,
@@ -222,22 +311,55 @@ export class SessionSupervisor {
   }
 
   async dispose(): Promise<void> {
-    this.#generation += 1;
-    if (this.#active) await this.#active.dispose();
-    this.#active = undefined;
+    for (const sessionId of [...this.#sessions.keys()]) {
+      await this.#shutdownSession(sessionId);
+    }
+    this.#buffer.dispose();
+    this.#selectedSessionId = undefined;
   }
 
-  async #openDsh(
-    session: SessionSummary,
-    emit: (envelope: TimelineEnvelope) => void,
-  ): Promise<DshAgentSession> {
-    if (!this.#dshRuntime) throw new Error("DSH Runtime is not enabled");
-    return DshAgentSession.open({
-      store: this.#store,
-      session,
-      runtime: this.#dshRuntime,
-      emit,
-      availableRuntimes: this.availableRuntimes,
-    });
+  async #open(session: SessionSummary): Promise<ActiveSession> {
+    const emit = (envelope: TimelineEnvelope) => {
+      if (envelope.event.type === "run_end") {
+        this.#releaseRun(envelope.runId, session.workspaceId);
+      }
+      this.#emit(envelope);
+    };
+    return session.runtimeKind === "dsh"
+      ? DshAgentSession.open({
+          store: this.#store,
+          session,
+          runtime: this.#dshRuntime!,
+          emit,
+          buffer: this.#buffer,
+          availableRuntimes: this.availableRuntimes,
+        })
+      : PiAgentSession.open({
+          store: this.#store,
+          session,
+          emit,
+          buffer: this.#buffer,
+          availableRuntimes: this.availableRuntimes,
+        });
+  }
+
+  async #shutdownSession(sessionId: string): Promise<void> {
+    const active = this.#sessions.get(sessionId);
+    if (!active) return;
+    await active.dispose();
+    this.#sessions.delete(sessionId);
+    this.#buffer.clearSession(sessionId);
+    for (const [runId, owner] of this.#runOwners) {
+      if (owner !== sessionId) continue;
+      const workspaceId = this.#store.getSession(sessionId)?.workspaceId;
+      this.#releaseRun(runId, workspaceId);
+    }
+  }
+
+  #releaseRun(runId: string, workspaceId?: string): void {
+    this.#runOwners.delete(runId);
+    if (workspaceId && this.#workspaceRuns.get(workspaceId) === runId) {
+      this.#workspaceRuns.delete(workspaceId);
+    }
   }
 }

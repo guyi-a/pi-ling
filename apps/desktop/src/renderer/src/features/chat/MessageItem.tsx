@@ -8,6 +8,7 @@ import { Markdown } from "./Markdown";
 
 export function MessageItem(props: {
   item: UserTimelineItem | AssistantTimelineItem;
+  hideThinking?: boolean;
 }) {
   const { item } = props;
   if (item.kind === "user") {
@@ -20,7 +21,7 @@ export function MessageItem(props: {
 
   return (
     <article className="message assistant">
-      {item.thinking ? (
+      {item.thinking && !props.hideThinking ? (
         <details className="message-thinking">
           <summary>
             <Brain />

@@ -5,7 +5,7 @@
   "packageManager": "pnpm@10.33.2",
   "scripts": {
     "build": "pnpm build:packages && pnpm --filter @pi-ling/desktop build",
-    "build:packages": "pnpm --filter @pi-ling/runtime-contracts build && pnpm --filter @pi-ling/ai build && pnpm --filter @pi-ling/agent-core build && pnpm --filter @pi-ling/coding-agent build && pnpm --filter @pi-ling/native-runtime build && pnpm --filter @pi-ling/dsh-runtime build && pnpm --filter @pi-ling/dsh-llm build",
+    "build:packages": "pnpm --filter @pi-ling/runtime-contracts build && pnpm --filter @pi-ling/session-events build && pnpm --filter @pi-ling/ai build && pnpm --filter @pi-ling/agent-core build && pnpm --filter @pi-ling/coding-agent build && pnpm --filter @pi-ling/native-runtime build && pnpm --filter @pi-ling/dsh-runtime build && pnpm --filter @pi-ling/dsh-sdk-runtime build && pnpm --filter @pi-ling/dsh-llm build && pnpm --filter @pi-ling/dsh-transcript build && pnpm --filter @pi-ling/claude-transcript build",
     "dev": "pnpm build:packages && pnpm --filter @pi-ling/desktop dev",
     "test": "pnpm build:packages && pnpm --filter \"@pi-ling/*\" --if-present test",
     "typecheck": "pnpm -r --if-present typecheck"

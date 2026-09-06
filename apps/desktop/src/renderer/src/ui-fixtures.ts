@@ -1,4 +1,8 @@
-import type { AgentStatus, SessionSummary } from "@pi-ling/contracts";
+import type {
+  AgentStatus,
+  SessionSummary,
+  WorkspaceListEntry,
+} from "@pi-ling/contracts";
 
 import type { TimelineState } from "./timeline/reducer";
 import { createTimelineState } from "./timeline/reducer";
@@ -8,11 +12,17 @@ export type UiFixtureName =
   | "markdown"
   | "tool"
   | "approval"
-  | "long";
+  | "long"
+  | "sidebar"
+  | "run-active"
+  | "run-completed"
+  | "run-failed"
+  | "run-multi-runtime";
 
 export interface UiFixture {
   status: AgentStatus;
   sessions: SessionSummary[];
+  workspaces: WorkspaceListEntry[];
   timeline: TimelineState;
 }
 
@@ -20,9 +30,15 @@ export function createUiFixture(name: UiFixtureName): UiFixture {
   const now = Date.now();
   const session: SessionSummary = {
     id: "fixture-session",
+    workspaceId: "fixture-workspace",
     title: name === "empty" ? "新会话" : "重构 API 客户端",
     workspace: { root: "E:\\pi-ling", name: "pi-ling" },
-    lifecycle: name === "approval" ? "awaiting_approval" : "idle",
+    lifecycle:
+      name === "approval"
+        ? "awaiting_approval"
+        : name === "run-active"
+          ? "running"
+          : "idle",
     approvalMode: "manual",
     runtimeKind: "native",
     createdAt: now - 3_600_000,
@@ -34,6 +50,38 @@ export function createUiFixture(name: UiFixtureName): UiFixture {
     title: "检查测试失败",
     lifecycle: "crashed",
     updatedAt: now - 7_200_000,
+  };
+  const primary =
+    name === "sidebar"
+      ? { ...session, pinnedAt: now - 30_000 }
+      : session;
+  const archived: SessionSummary = {
+    ...session,
+    id: "fixture-archived",
+    title: "清理旧的构建脚本",
+    archivedAt: now - 86_400_000,
+    updatedAt: now - 86_400_000,
+  };
+  const secondWorkspace: WorkspaceListEntry = {
+    id: "fixture-workspace-two",
+    root: "E:\\deepseek-harness",
+    name: "deepseek-harness",
+    createdAt: now - 172_800_000,
+    updatedAt: now - 10_800_000,
+    sessions: [
+      {
+        ...session,
+        id: "fixture-dsh",
+        workspaceId: "fixture-workspace-two",
+        workspace: {
+          root: "E:\\deepseek-harness",
+          name: "deepseek-harness",
+        },
+        title: "检查 ACP 会话恢复",
+        runtimeKind: "dsh",
+        updatedAt: now - 10_800_000,
+      },
+    ],
   };
   const status: AgentStatus = {
     sessionId: session.id,
@@ -106,6 +154,122 @@ export function createUiFixture(name: UiFixtureName): UiFixture {
       status: name === "approval" ? "awaiting-approval" : "running",
     });
   }
+  if (
+    name === "run-active" ||
+    name === "run-completed" ||
+    name === "run-failed" ||
+    name === "run-multi-runtime"
+  ) {
+    const running = name === "run-active";
+    const failed = name === "run-failed";
+    timeline.items = [
+      {
+        kind: "user",
+        id: "user",
+        runId: "run",
+        createdSeq: 1,
+        text: "整理会话存储实现，并运行完整测试。",
+      },
+      {
+        kind: "assistant",
+        id: "assistant-tool",
+        runId: "run",
+        turnId: "run:turn:1",
+        createdSeq: 2,
+        text: "I’ll inspect the session storage before making changes.",
+        thinking: "先理解存储结构，再修改实现并验证。",
+        status: "completed",
+        stopReason: "toolUse",
+      },
+      {
+        kind: "tool",
+        id: "read",
+        runId: "run",
+        turnId: "run:turn:1",
+        createdSeq: 3,
+        callId: "read",
+        tool: name === "run-multi-runtime" ? "Read file" : "read_file",
+        arguments: { path: "src/session-store.ts" },
+        status: "completed",
+        output: "file contents",
+      },
+      {
+        kind: "tool",
+        id: "edit",
+        runId: "run",
+        turnId: "run:turn:1",
+        createdSeq: 4,
+        callId: "edit",
+        tool: "edit_file",
+        arguments: { path: "src/session-store.ts" },
+        status: "completed",
+        output: "updated",
+      },
+      {
+        kind: "tool",
+        id: "verify",
+        runId: "run",
+        turnId: "run:turn:2",
+        createdSeq: 5,
+        callId: "verify",
+        tool: name === "run-multi-runtime" ? "pwsh" : "run_command",
+        arguments: { command: "pnpm test" },
+        status: running ? "running" : failed ? "failed" : "completed",
+        ...(failed ? { output: "1 test failed" } : {}),
+      },
+      {
+        kind: "changes",
+        id: "changes",
+        runId: "run",
+        turnId: "run:turn:1",
+        createdSeq: 6,
+        callId: "edit",
+        files: [
+          {
+            path: "src/session-store.ts",
+            status: "modified",
+            binary: false,
+            sensitive: false,
+            tooLarge: false,
+            additions: 175,
+            deletions: 28,
+          },
+        ],
+      },
+      ...(!running
+        ? [
+            {
+              kind: "assistant" as const,
+              id: "assistant-final",
+              runId: "run",
+              turnId: "run:turn:3",
+              createdSeq: 7,
+              text: failed
+                ? "测试仍有一个失败，需要继续处理。"
+                : "存储实现已整理，完整测试通过。",
+              thinking: "",
+              status: failed ? ("error" as const) : ("completed" as const),
+              stopReason: failed ? "error" : "stop",
+              ...(failed ? { error: "pnpm test failed" } : {}),
+            },
+          ]
+        : []),
+    ];
+    timeline.runs["run"] = {
+      id: "run",
+      status: running ? "running" : failed ? "error" : "completed",
+    };
+    if (name === "run-multi-runtime") {
+      status.runtimeKind = "dsh";
+      status.provider = "deepseek-official";
+    }
+  } else if (name !== "empty") {
+    timeline.runs["run"] = {
+      id: "run",
+      status:
+        name === "tool" || name === "approval" ? "running" : "completed",
+    };
+  }
   if (name === "approval") {
     timeline.items.splice(3, 0, {
       kind: "approval",
@@ -137,7 +301,29 @@ export function createUiFixture(name: UiFixtureName): UiFixture {
       (item) => item.id !== "assistant-final",
     );
   }
-  return { status, sessions: [session, other], timeline };
+  const workspaces: WorkspaceListEntry[] = [
+    {
+      id: session.workspaceId,
+      ...session.workspace,
+      createdAt: now - 3_600_000,
+      updatedAt: now - 120_000,
+      lastOpenedAt: now - 120_000,
+      sessions:
+        name === "sidebar"
+          ? [primary, other, archived]
+          : [session, other],
+    },
+    ...(name === "sidebar" ? [secondWorkspace] : []),
+  ];
+  return {
+    status,
+    sessions:
+      name === "sidebar"
+        ? [primary, other, archived, ...secondWorkspace.sessions]
+        : [session, other],
+    workspaces,
+    timeline,
+  };
 }
 
 const longMarkdown = `

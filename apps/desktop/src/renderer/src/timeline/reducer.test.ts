@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyTimelineEnvelope,
   applyTimelineSnapshot,
+  applyStreamFrame,
   createTimelineState,
 } from "./reducer";
 
@@ -135,6 +136,36 @@ describe("timeline reducer", () => {
     expect(twice.lastSeq).toBe(once.lastSeq);
   });
 
+  it("settles tools that never finished when a run fails", () => {
+    const events = [
+      envelope(1, {
+        type: "run_start",
+        userItemId: "user",
+        prompt: "inspect",
+      }),
+      ...["first", "second"].map((callId, index) =>
+        envelope(index + 2, {
+          type: "tool_requested" as const,
+          turnId: "turn",
+          itemId: callId,
+          callId,
+          tool: "list_files",
+          arguments: { path: "." },
+        }),
+      ),
+      envelope(4, { type: "run_end", status: "error" }),
+    ];
+    const state = events.reduce(
+      applyTimelineEnvelope,
+      createTimelineState(),
+    );
+    expect(
+      state.items
+        .filter((item) => item.kind === "tool")
+        .map((item) => item.status),
+    ).toEqual(["failed", "cancelled"]);
+  });
+
   it("buffers gaps and drains them when missing events arrive", () => {
     let state = createTimelineState();
     state = applyTimelineEnvelope(state, sequence[2]!);
@@ -177,5 +208,28 @@ describe("timeline reducer", () => {
     const merged = applyTimelineSnapshot(liveFirst, snapshot);
     expect(merged.lastSeq).toBe(3);
     expect(merged.items.map((item) => item.kind)).toEqual(["user", "assistant"]);
+  });
+
+  it("ignores assistant frames until commit and rejects duplicates", () => {
+    const base = {
+      ...createTimelineState(),
+      sessionId: "session-1",
+    };
+    const frame = {
+      sessionId: "session-1",
+      runId: "run-1",
+      frameSeq: 1,
+      emittedAt: 1,
+      turnId: "turn",
+      messageId: "draft",
+      frame: { kind: "assistant.text.delta" as const, delta: "hello" },
+    };
+    const once = applyStreamFrame(base, frame);
+    const twice = applyStreamFrame(once, frame);
+    expect(twice.items).toHaveLength(0);
+    expect(twice.frameSeqByRun["run-1"]).toBe(1);
+    expect(
+      applyStreamFrame(once, { ...frame, sessionId: "session-2" }),
+    ).toBe(once);
   });
 });

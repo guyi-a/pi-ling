@@ -3,6 +3,7 @@ import type { ApprovalMode, RuntimeKind } from "@pi-ling/contracts";
 import {
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -11,13 +12,18 @@ import type { FormEvent, ReactNode } from "react";
 import type {
   ApprovalTimelineItem,
   TimelineItem,
-  ToolTimelineItem,
+  TimelineRun,
 } from "../../timeline/reducer";
+import { projectRunActivities } from "../../run-activity/project-run-activity";
 import { ApprovalModePicker } from "./ApprovalModePicker";
-import { ExecutionTimeline } from "./ExecutionTimeline";
+import { ApprovalDock } from "./ApprovalDock";
 import { MessageItem } from "./MessageItem";
+import { RunActivityBlock } from "./RunActivityBlock";
 import { RuntimePicker } from "./RuntimePicker";
-import { ToolCard } from "./ToolCard";
+import {
+  immediatePresentationRunIds,
+  useMessagePresentation,
+} from "./use-message-presentation";
 
 export function shouldSubmitComposer(input: {
   key: string;
@@ -28,7 +34,11 @@ export function shouldSubmitComposer(input: {
 }
 
 export function ChatView(props: {
+  sessionId: string | null;
   items: TimelineItem[];
+  runs: Record<string, TimelineRun>;
+  liveMessageIds: ReadonlySet<string>;
+  onMessagePresented: (messageId: string) => void;
   modelLabel: string;
   workspaceReady: boolean;
   activeRunId: string | null;
@@ -45,7 +55,11 @@ export function ChatView(props: {
   onRuntimeChange: (runtime: RuntimeKind) => void;
 }) {
   const {
+    sessionId,
     items,
+    runs,
+    liveMessageIds,
+    onMessagePresented,
     modelLabel,
     workspaceReady,
     activeRunId,
@@ -63,6 +77,23 @@ export function ChatView(props: {
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const shouldFollowRef = useRef(true);
+  const fastForwardRunIds = useMemo(
+    () => immediatePresentationRunIds(items, runs),
+    [items, runs],
+  );
+  const presentation = useMessagePresentation({
+    sessionId,
+    items,
+    liveMessageIds,
+    fastForwardRunIds,
+    onComplete: onMessagePresented,
+  });
+  const pendingApprovals = items
+    .filter(
+      (item): item is ApprovalTimelineItem =>
+        item.kind === "approval" && item.status === "pending",
+    )
+    .sort((left, right) => left.createdSeq - right.createdSeq);
 
   useEffect(() => {
     if (!shouldFollowRef.current) return;
@@ -71,7 +102,7 @@ export function ChatView(props: {
       if (node) node.scrollTop = node.scrollHeight;
     });
     return () => cancelAnimationFrame(frame);
-  }, [items]);
+  }, [items, presentation.revision]);
 
   useLayoutEffect(() => {
     const textarea = textareaRef.current;
@@ -95,60 +126,50 @@ export function ChatView(props: {
     }
   }
 
-  const approvalsByTool = new Map(
-    items
-      .filter(
-        (item): item is ApprovalTimelineItem => item.kind === "approval",
-      )
-      .map((item) => [item.toolItemId, item]),
-  );
   const rendered: ReactNode[] = [];
-  for (let index = 0; index < items.length; index += 1) {
-    const item = items[index]!;
-    if (item.kind === "changes") continue;
-    if (item.kind === "user") {
-      rendered.push(<MessageItem item={item} key={item.id} />);
-      continue;
+  for (const activity of projectRunActivities({
+    items,
+    runs,
+    presentingMessageIds: presentation.presentingMessageIds,
+    presentingRunIds: presentation.presentingRunIds,
+    visibleToolIds: presentation.visibleToolIds,
+    ...(presentation.currentToolId
+      ? { currentToolId: presentation.currentToolId }
+      : {}),
+  })) {
+    if (activity.user) {
+      rendered.push(
+        <MessageItem item={activity.user} key={activity.user.id} />,
+      );
     }
-    if (item.kind === "approval") {
-      continue;
+    if (activity.hasActivity) {
+      rendered.push(
+        <RunActivityBlock
+          activity={activity}
+          displayText={presentation.textFor}
+          isMessageComplete={presentation.isComplete}
+          key={`${activity.runId}:activity`}
+        />,
+      );
     }
-    if (item.kind === "assistant" && item.stopReason === "toolUse") {
-      const tools: ToolTimelineItem[] = [];
-      while (items[index + 1]?.kind === "tool") {
-        tools.push(items[index + 1] as ToolTimelineItem);
-        index += 1;
+    if (activity.finalAssistant) {
+      const text = presentation.textFor(activity.finalAssistant);
+      const complete = presentation.isComplete(activity.finalAssistant);
+      if (text || complete) {
+        rendered.push(
+          <MessageItem
+            item={{
+              ...activity.finalAssistant,
+              text,
+              status: complete
+                ? activity.finalAssistant.status
+                : "streaming",
+            }}
+            hideThinking
+            key={activity.finalAssistant.id}
+          />,
+        );
       }
-      rendered.push(
-        <ExecutionTimeline
-          assistant={item}
-          tools={tools}
-          approvals={approvalsByTool}
-          key={item.id}
-          onApproval={(approval, approved) => {
-            void onApproval(approval, approved);
-          }}
-        />,
-      );
-      continue;
-    }
-    if (item.kind === "assistant") {
-      rendered.push(<MessageItem item={item} key={item.id} />);
-      continue;
-    }
-    if (item.kind === "tool") {
-      rendered.push(
-        <ToolCard
-          item={item}
-          key={item.id}
-          {...(approvalsByTool.get(item.id)
-            ? { approval: approvalsByTool.get(item.id)! }
-            : {})}
-          onApproval={(approval, approved) => {
-            void onApproval(approval, approved);
-          }}
-        />,
-      );
     }
   }
 
@@ -173,6 +194,12 @@ export function ChatView(props: {
       </div>
 
       <div className="composer-wrap">
+        <ApprovalDock
+          approvals={pendingApprovals}
+          onDecision={(approval, approved) => {
+            void onApproval(approval, approved);
+          }}
+        />
         <form className="composer" onSubmit={submit}>
           <textarea
             ref={textareaRef}

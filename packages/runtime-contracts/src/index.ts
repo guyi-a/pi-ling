@@ -39,19 +39,22 @@ export interface RuntimePermissionOption {
 }
 
 export type RuntimeEvent =
-  | { type: "run_start"; runId: string }
+  | { type: "run_start"; sessionId: string; runId: string }
   | {
       type: "assistant_text";
+      sessionId: string;
       runId: string;
       delta: string;
     }
   | {
       type: "assistant_thought";
+      sessionId: string;
       runId: string;
       delta: string;
     }
   | {
       type: "tool";
+      sessionId: string;
       runId: string;
       callId: string;
       title: string;
@@ -62,6 +65,7 @@ export type RuntimeEvent =
     }
   | {
       type: "permission";
+      sessionId: string;
       runId: string;
       permissionId: string;
       callId: string;
@@ -72,18 +76,21 @@ export type RuntimeEvent =
     }
   | {
       type: "usage";
+      sessionId: string;
       runId: string;
       used: number;
       size: number;
     }
   | {
       type: "run_end";
+      sessionId: string;
       runId: string;
       status: "completed" | "cancelled" | "error";
       error?: string;
     }
   | {
       type: "runtime_error";
+      sessionId?: string;
       error: string;
       exitCode?: number;
     };

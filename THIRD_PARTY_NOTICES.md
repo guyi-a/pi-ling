@@ -27,3 +27,13 @@ The optional DSH Runtime integrates DeepSeek Harness `0.1.3-alpha.1`
 - https://github.com/deepseek-ai/deepseek-harness
 
 ACP transport uses `@agentclientprotocol/sdk` 1.4.0 under Apache-2.0.
+
+## Claude Agent SDK
+
+The Claude Runtime proof of concept uses
+`@anthropic-ai/claude-agent-sdk` 0.3.263 and its bundled Claude Code executable:
+
+- https://github.com/anthropics/claude-agent-sdk-typescript
+
+Use and redistribution are subject to the license and service terms shipped
+with the installed Anthropic packages.

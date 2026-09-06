@@ -7,26 +7,25 @@
 - Pi：`E:\pi`
   - 远程仓库：`https://github.com/earendil-works/pi.git`
   - 当前本地版本信息：monorepo `0.0.3`，交接记录中的 Pi 版本为 `0.85.0`。
-  - 重点参考：`packages/coding-agent`、`packages/ai`、`packages/agent`、协议和 session backend。
+  - 重点参考：`packages/coding-agentpackages/ai`、`packages/agent`、协议和 session backend。
   - `packages/ai` 的源码快照已复制到本项目 `vendor/pi-ai`，版本和提交信息见其 `UPSTREAM.md`。
   - `packages/agent` 的源码快照已复制到本项目 `vendor/pi-agent-core`，版本和提交信息见其 `UPSTREAM.md`。
-
 - LingCoWork：`E:\LingCoWork`
   - 远程仓库：`https://github.com/guyi-a/LingCoWork.git`
   - 重点参考：Workspace、Diff、Problems、Terminal、effect-based approval、SSE 事件、会话恢复和 `internal/codingeval`。
   - 仅作为需求、设计和评测参考，不修改或复制主工程。
-
 - KlingWork App：`E:\klingwork-app`
   - 远程仓库：`https://git.corp.kuaishou.com/kling-agent/kling-work/klingwork-app.git`
   - 重点参考：pnpm monorepo、Electron + React + TypeScript、`electron-vite`、Main/Preload/Renderer 分层、桌面打包。
   - 参考当前技术版本时，应先检查其 `package.json` 和实际构建配置。
-
 - DeepSeek Harness：`E:\deepseek-harness`
   - 官方仓库：`https://github.com/deepseek-ai/deepseek-harness`
   - 固定 tag：`dsh-v0.1.3-alpha.1`
   - 固定 commit：`d347e703908d0406b7a7ef80e3a0e594d86b2215`
   - 当前为 developer preview，接入使用 ACP profile 并隔离版本。
   - `E:\dsh-for-humans` 是教程仓库，不是 DeepSeek Harness 源码，不得作为 SDK 源码依赖。
+
+
 
 ## 选型原则
 
@@ -35,6 +34,8 @@
 - 遇到 effect 审批、崩溃恢复、事件持久化和黑盒评测问题，优先对照 LingCoWork。
 - 遇到 DSH/Cordis 插件边界时，只参考官方 DeepSeek Harness 源码；教程用于理解概念，不替代源码验证。
 - 参考项目中的实现不能自动视为适合 pi-ling；采用前应核对许可证、安全边界、当前版本和 RuntimeAdapter 约束。
+
+
 
 ## 当前实施顺序
 

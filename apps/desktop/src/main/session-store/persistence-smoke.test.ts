@@ -9,6 +9,9 @@ describe("real persistence smoke", () => {
       const result = await runPersistenceSmoke();
       expect(result.answer.toLowerCase()).toContain("durable-kiwi");
       expect(result.messages).toBe(4);
+      expect(result.persistedDeltas).toBe(0);
+      expect(result.canonicalMessages).toBe(4);
+      expect(result.liveUserMessages).toBe(2);
     },
     60_000,
   );

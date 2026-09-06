@@ -8,14 +8,19 @@ import type {
   AgentPromptRequest,
   AgentStatus,
   AppInfo,
+  AppTheme,
   ApprovalMode,
   ApprovalDecisionRequest,
   ChangedFile,
   CreateSessionRequest,
   FileDiff,
+  SessionArchiveResult,
   SessionActivation,
   SessionSummary,
+  StreamFrameEnvelope,
   TimelineSnapshot,
+  WorkspaceListEntry,
+  WorkspaceSummary,
 } from "@pi-ling/contracts";
 import { DshRuntimeAdapter } from "@pi-ling/dsh-runtime";
 import {
@@ -24,6 +29,7 @@ import {
   dialog,
   ipcMain,
   Menu,
+  nativeTheme,
   shell,
   type WebContents,
 } from "electron";
@@ -37,6 +43,7 @@ const AGENT_STATUS_CHANNEL = "agent:get-status";
 const AGENT_SEND_CHANNEL = "agent:send";
 const AGENT_CANCEL_CHANNEL = "agent:cancel";
 const TIMELINE_EVENT_CHANNEL = "timeline:event";
+const TIMELINE_FRAME_CHANNEL = "timeline:frame";
 const TIMELINE_SNAPSHOT_CHANNEL = "timeline:snapshot";
 const WORKSPACE_SELECT_CHANNEL = "workspace:select";
 const APPROVAL_RESOLVE_CHANNEL = "approval:resolve";
@@ -46,8 +53,22 @@ const SESSIONS_LIST_CHANNEL = "sessions:list";
 const SESSIONS_CREATE_CHANNEL = "sessions:create";
 const SESSIONS_SWITCH_CHANNEL = "sessions:switch";
 const SESSIONS_DELETE_CHANNEL = "sessions:delete";
+const SESSIONS_PIN_CHANNEL = "sessions:pin";
+const SESSIONS_ARCHIVE_CHANNEL = "sessions:archive";
+const SESSIONS_RESTORE_CHANNEL = "sessions:restore";
+const WORKSPACES_LIST_CHANNEL = "workspaces:list";
+const WORKSPACES_ADD_CHANNEL = "workspaces:add";
 const SESSION_APPROVAL_MODE_CHANNEL = "session:approval-mode";
 const SESSION_RUNTIME_CHANNEL = "session:runtime";
+const THEME_SET_CHANNEL = "theme:set";
+
+const windowThemeColors: Record<
+  AppTheme,
+  { background: string; symbols: string }
+> = {
+  dark: { background: "#181818", symbols: "#CCCCCC" },
+  light: { background: "#F3F3F3", symbols: "#333333" },
+};
 
 try {
   process.loadEnvFile(join(__dirname, "../../../../.env"));
@@ -80,6 +101,9 @@ function parsePromptRequest(value: unknown): AgentPromptRequest {
   return {
     requestId: value.requestId,
     prompt: value.prompt.trim(),
+    ...("sessionId" in value && typeof value.sessionId === "string"
+      ? { sessionId: value.sessionId }
+      : {}),
   };
 }
 
@@ -110,14 +134,28 @@ function parseCreateSession(value: unknown): CreateSessionRequest {
   if (
     typeof value !== "object" ||
     value === null ||
-    !("workspaceRoot" in value) ||
-    typeof value.workspaceRoot !== "string" ||
-    !value.workspaceRoot.trim()
+    !(
+      ("workspaceId" in value &&
+        typeof value.workspaceId === "string" &&
+        value.workspaceId.trim()) ||
+      ("workspaceRoot" in value &&
+        typeof value.workspaceRoot === "string" &&
+        value.workspaceRoot.trim())
+    )
   ) {
     throw new Error("Invalid session request");
   }
   return {
-    workspaceRoot: value.workspaceRoot,
+    ...("workspaceId" in value &&
+    typeof value.workspaceId === "string" &&
+    value.workspaceId.trim()
+      ? { workspaceId: value.workspaceId.trim() }
+      : {}),
+    ...("workspaceRoot" in value &&
+    typeof value.workspaceRoot === "string" &&
+    value.workspaceRoot.trim()
+      ? { workspaceRoot: value.workspaceRoot.trim() }
+      : {}),
     ...("title" in value && typeof value.title === "string"
       ? { title: value.title }
       : {}),
@@ -146,6 +184,11 @@ async function getSupervisor(
         webContents.send(TIMELINE_EVENT_CHANNEL, envelope);
       }
     },
+    (frame) => {
+      if (!webContents.isDestroyed()) {
+        webContents.send(TIMELINE_FRAME_CHANNEL, frame);
+      }
+    },
     dshRuntime,
   );
   const entry = { supervisor, ready: supervisor.initialize() };
@@ -165,15 +208,15 @@ function createWindow(): BrowserWindow {
     minWidth: 900,
     minHeight: 620,
     show: false,
-    backgroundColor: "#121317",
+    backgroundColor: windowThemeColors.dark.background,
     title: "pi-ling",
     ...(process.platform === "win32"
       ? {
           titleBarStyle: "hidden" as const,
           titleBarOverlay: {
-            color: "#121317",
-            symbolColor: "#8B8F9A",
-            height: 44,
+            color: windowThemeColors.dark.background,
+            symbolColor: windowThemeColors.dark.symbols,
+            height: 30,
           },
         }
       : { titleBarStyle: "hiddenInset" as const }),
@@ -207,13 +250,48 @@ function createWindow(): BrowserWindow {
   window.webContents.on("will-navigate", (event) => event.preventDefault());
 
   const fixture = process.env["PI_LING_UI_FIXTURE"];
+  const fixtureTheme = process.env["PI_LING_UI_THEME"];
+  const fixtureView = process.env["PI_LING_UI_VIEW"];
+  const fixtureSidebar = process.env["PI_LING_UI_SIDEBAR"];
+  const fixtureSidebarView = process.env["PI_LING_UI_SIDEBAR_VIEW"];
   if (process.env["ELECTRON_RENDERER_URL"]) {
     const url = new URL(process.env["ELECTRON_RENDERER_URL"]);
     if (fixture) url.searchParams.set("fixture", fixture);
+    if (fixtureTheme === "dark" || fixtureTheme === "light") {
+      url.searchParams.set("theme", fixtureTheme);
+    }
+    if (fixtureView === "settings") url.searchParams.set("view", fixtureView);
+    if (fixtureSidebar === "collapsed") {
+      url.searchParams.set("sidebar", fixtureSidebar);
+    }
+    if (fixtureSidebarView === "archived") {
+      url.searchParams.set("sidebar-view", fixtureSidebarView);
+    }
     void window.loadURL(url.toString());
   } else {
     void window.loadFile(join(__dirname, "../renderer/index.html"), {
-      ...(fixture ? { query: { fixture } } : {}),
+      ...((fixture ||
+      fixtureTheme === "dark" ||
+      fixtureTheme === "light" ||
+      fixtureView === "settings" ||
+      fixtureSidebar === "collapsed" ||
+      fixtureSidebarView === "archived")
+        ? {
+            query: {
+              ...(fixture ? { fixture } : {}),
+              ...(fixtureTheme === "dark" || fixtureTheme === "light"
+                ? { theme: fixtureTheme }
+                : {}),
+              ...(fixtureView === "settings" ? { view: fixtureView } : {}),
+              ...(fixtureSidebar === "collapsed"
+                ? { sidebar: fixtureSidebar }
+                : {}),
+              ...(fixtureSidebarView === "archived"
+                ? { "sidebar-view": fixtureSidebarView }
+                : {}),
+            },
+          }
+        : {}),
     });
   }
   return window;
@@ -238,6 +316,7 @@ ipcMain.handle(
     (await getSupervisor(event.sender)).startPrompt(
       request.requestId,
       request.prompt,
+      request.sessionId,
     );
     return { requestId: request.requestId };
   },
@@ -253,8 +332,10 @@ ipcMain.handle(
 
 ipcMain.handle(
   TIMELINE_SNAPSHOT_CHANNEL,
-  async (event): Promise<TimelineSnapshot> =>
-    (await getSupervisor(event.sender)).snapshot(),
+  async (event, sessionId: unknown): Promise<TimelineSnapshot> =>
+    (await getSupervisor(event.sender)).snapshot(
+      typeof sessionId === "string" ? sessionId : undefined,
+    ),
 );
 
 ipcMain.handle(
@@ -279,6 +360,35 @@ ipcMain.handle(
       workspaceRoot: root,
       runtimeKind: runtimeKind === "dsh" ? "dsh" : "native",
     });
+  },
+);
+
+ipcMain.handle(
+  WORKSPACES_LIST_CHANNEL,
+  async (
+    event,
+    includeArchived: unknown,
+  ): Promise<WorkspaceListEntry[]> =>
+    (await getSupervisor(event.sender)).listWorkspaces(
+      includeArchived === true,
+    ),
+);
+
+ipcMain.handle(
+  WORKSPACES_ADD_CHANNEL,
+  async (event): Promise<WorkspaceSummary | undefined> => {
+    const parent = BrowserWindow.fromWebContents(event.sender);
+    const options: Electron.OpenDialogOptions = {
+      title: "Add repository",
+      properties: ["openDirectory"],
+    };
+    const result = parent
+      ? await dialog.showOpenDialog(parent, options)
+      : await dialog.showOpenDialog(options);
+    const root = result.filePaths[0];
+    return result.canceled || !root
+      ? undefined
+      : (await getSupervisor(event.sender)).addWorkspace(root);
   },
 );
 
@@ -342,6 +452,43 @@ ipcMain.handle(
 );
 
 ipcMain.handle(
+  SESSIONS_PIN_CHANNEL,
+  async (
+    event,
+    sessionId: unknown,
+    pinned: unknown,
+  ): Promise<SessionSummary> => {
+    if (typeof sessionId !== "string" || typeof pinned !== "boolean") {
+      throw new Error("Invalid pin request");
+    }
+    return (await getSupervisor(event.sender)).setSessionPinned(
+      sessionId,
+      pinned,
+    );
+  },
+);
+
+ipcMain.handle(
+  SESSIONS_ARCHIVE_CHANNEL,
+  async (event, sessionId: unknown): Promise<SessionArchiveResult> => {
+    if (typeof sessionId !== "string" || !sessionId) {
+      throw new Error("Invalid session id");
+    }
+    return (await getSupervisor(event.sender)).archiveSession(sessionId);
+  },
+);
+
+ipcMain.handle(
+  SESSIONS_RESTORE_CHANNEL,
+  async (event, sessionId: unknown): Promise<SessionSummary> => {
+    if (typeof sessionId !== "string" || !sessionId) {
+      throw new Error("Invalid session id");
+    }
+    return (await getSupervisor(event.sender)).restoreSession(sessionId);
+  },
+);
+
+ipcMain.handle(
   SESSION_APPROVAL_MODE_CHANNEL,
   async (event, mode: unknown): Promise<SessionSummary> => {
     if (
@@ -364,6 +511,27 @@ ipcMain.handle(
       throw new Error("Invalid runtime");
     }
     return (await getSupervisor(event.sender)).switchRuntime(runtimeKind);
+  },
+);
+
+ipcMain.handle(
+  THEME_SET_CHANNEL,
+  (event, theme: unknown): void => {
+    if (theme !== "dark" && theme !== "light") {
+      throw new Error("Invalid theme");
+    }
+    const appTheme = theme as AppTheme;
+    const colors = windowThemeColors[appTheme];
+    nativeTheme.themeSource = appTheme;
+    const window = BrowserWindow.fromWebContents(event.sender);
+    window?.setBackgroundColor(colors.background);
+    if (process.platform === "win32") {
+      window?.setTitleBarOverlay({
+        color: colors.background,
+        symbolColor: colors.symbols,
+        height: 30,
+      });
+    }
   },
 );
 

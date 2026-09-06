@@ -5,11 +5,18 @@ import {
   type CodingAgentEvent,
   type FileBaseline,
 } from "@pi-ling/coding-agent";
-import { createModels, type Message, type ToolCall } from "@pi-ling/ai";
+import {
+  createModels,
+  emptyUsage,
+  type AssistantMessage,
+  type Message,
+  type ToolCall,
+} from "@pi-ling/ai";
 import { deepseekProvider } from "@pi-ling/ai/providers/deepseek";
 import type {
   AgentStatus,
   AgentUsage,
+  CanonicalMessage,
   ChangedFile,
   FileDiff,
   SessionSummary,
@@ -18,8 +25,14 @@ import type {
   TimelineEvent,
   TimelineSnapshot,
 } from "@pi-ling/contracts";
-
 import {
+  projectCanonicalMessages,
+  projectTimelineSnapshot,
+} from "@pi-ling/session-events";
+
+import { RunMessageBuffer } from "./run-message-buffer.js";
+import {
+  canonicalFromMessage,
   SessionStore,
   type RunCheckpoint,
 } from "./session-store/session-store.js";
@@ -33,12 +46,88 @@ function turnNumber(turnId: string): number {
   return Number.isFinite(value) && value > 0 ? value : 1;
 }
 
+function diffLineStats(patch: string): {
+  additions: number;
+  deletions: number;
+} {
+  let additions = 0;
+  let deletions = 0;
+  for (const line of patch.split(/\r?\n/)) {
+    if (line.startsWith("+") && !line.startsWith("+++")) additions += 1;
+    if (line.startsWith("-") && !line.startsWith("---")) deletions += 1;
+  }
+  return { additions, deletions };
+}
+
+function nativeMessages(
+  canonical: readonly CanonicalMessage[],
+): Message[] {
+  const toolNames = new Map<string, string>();
+  const output: Message[] = [];
+  for (const message of canonical) {
+    if (message.role === "user") {
+      output.push({
+        role: "user",
+        content: message.content
+          .filter((block) => block.type === "text")
+          .map((block) => block.text)
+          .join("\n"),
+        timestamp: message.createdAt,
+      });
+    } else if (message.role === "assistant") {
+      const content: AssistantMessage["content"] = [];
+      for (const block of message.content) {
+        if (block.type === "text") {
+          content.push({ type: "text", text: block.text });
+        } else if (block.type === "reasoning") {
+          content.push({ type: "thinking", thinking: block.text });
+        } else if (block.type === "tool-call") {
+          toolNames.set(block.toolCallId, block.name);
+          content.push({
+            type: "toolCall",
+            id: block.toolCallId,
+            name: block.name,
+            arguments: block.input,
+          });
+        }
+      }
+      output.push({
+        role: "assistant",
+        content,
+        api: "openai-completions",
+        provider: "deepseek",
+        model: MODEL,
+        usage: emptyUsage(),
+        stopReason: content.some((block) => block.type === "toolCall")
+          ? "toolUse"
+          : "stop",
+        timestamp: message.createdAt,
+      });
+    } else {
+      for (const block of message.content) {
+        if (block.type !== "tool-result") continue;
+        output.push({
+          role: "toolResult",
+          toolCallId: block.toolCallId,
+          toolName: toolNames.get(block.toolCallId) ?? "unknown",
+          content: [{ type: "text", text: block.content }],
+          isError: block.isError,
+          timestamp: message.createdAt,
+        });
+      }
+    }
+  }
+  return output;
+}
+
 export class PiAgentSession {
   readonly #store: SessionStore;
   readonly #session: SessionSummary;
   readonly #emit: (envelope: TimelineEnvelope) => void;
   readonly #agent: CodingAgent;
   readonly #availableRuntimes: RuntimeKind[];
+  readonly #buffer: RunMessageBuffer;
+  #projectedSeq: number;
   #activeRunId: string | null = null;
   #runOutcome: "completed" | "cancelled" | "error" = "completed";
 
@@ -48,12 +137,18 @@ export class PiAgentSession {
     emit: (envelope: TimelineEnvelope) => void,
     agent: CodingAgent,
     availableRuntimes: RuntimeKind[],
+    buffer: RunMessageBuffer,
   ) {
     this.#store = store;
     this.#session = session;
     this.#emit = emit;
     this.#agent = agent;
     this.#availableRuntimes = availableRuntimes;
+    this.#buffer = buffer;
+    this.#projectedSeq = projectTimelineSnapshot(
+      session.id,
+      store.loadSessionEvents(session.id),
+    ).lastSeq;
   }
 
   static async open(options: {
@@ -61,6 +156,7 @@ export class PiAgentSession {
     session: SessionSummary;
     emit: (envelope: TimelineEnvelope) => void;
     availableRuntimes?: RuntimeKind[];
+    buffer?: RunMessageBuffer;
   }): Promise<PiAgentSession> {
     const model = models.getModel(PROVIDER, MODEL);
     if (!model) {
@@ -74,11 +170,17 @@ export class PiAgentSession {
         ? [checkpoint.pendingApproval]
         : [];
     let instance!: PiAgentSession;
+    const canonical = projectCanonicalMessages(
+      options.store.loadSessionEvents(options.session.id),
+    );
     const agent = await CodingAgent.create({
       workspaceRoot: options.session.workspace.root,
       model,
       streamFn: models.stream.bind(models),
-      messages: options.store.loadMessages(options.session.id),
+      messages:
+        canonical.length > 0
+          ? nativeMessages(canonical)
+          : options.store.loadMessages(options.session.id),
       baselines: options.store.loadBaselines(
         options.session.id,
       ) as FileBaseline[],
@@ -94,6 +196,7 @@ export class PiAgentSession {
       options.emit,
       agent,
       options.availableRuntimes ?? ["native"],
+      options.buffer ?? new RunMessageBuffer(() => {}),
     );
     instance.#recover(checkpoint);
     return instance;
@@ -117,7 +220,10 @@ export class PiAgentSession {
   }
 
   snapshot(): TimelineSnapshot {
-    return this.#store.loadSnapshot(this.#session.id);
+    return projectTimelineSnapshot(
+      this.#session.id,
+      this.#store.loadSessionEvents(this.#session.id),
+    );
   }
 
   startPrompt(runId: string, prompt: string): void {
@@ -127,10 +233,27 @@ export class PiAgentSession {
     this.#activeRunId = runId;
     this.#runOutcome = "completed";
     this.#store.setLifecycle(this.#session.id, "running", runId);
+    const userMessage: CanonicalMessage = {
+      id: `${runId}:user`,
+      role: "user",
+      content: [{ type: "text", text: prompt }],
+      sourceRuntime: "native",
+      createdAt: Date.now(),
+    };
+    const started = this.#store.appendSessionEvent({
+      sessionId: this.#session.id,
+      runtimeKind: "native",
+      runId,
+      messageId: userMessage.id,
+      idempotencyKey: `run:${runId}:start`,
+      event: { kind: "run.started", userMessage },
+    });
     this.#store.setCheckpoint({
       sessionId: this.#session.id,
       runId,
       phase: "started",
+      runtimeKind: "native",
+      lastDurableSeq: started.seq,
       updatedAt: Date.now(),
     });
     this.#publish(runId, {
@@ -196,7 +319,11 @@ export class PiAgentSession {
       runId,
       event,
     );
-    this.#emit(envelope);
+    const projected = this.snapshot();
+    for (const next of projected.events.slice(this.#projectedSeq)) {
+      this.#emit(next);
+    }
+    this.#projectedSeq = projected.lastSeq;
     return envelope;
   }
 
@@ -223,6 +350,14 @@ export class PiAgentSession {
   async #handleCodingEvent(event: CodingAgentEvent): Promise<void> {
     if (event.type === "approval_requested") {
       const approval = event.approval;
+      const productApproval = {
+        callId: approval.callId,
+        tool: approval.tool,
+        arguments: approval.arguments,
+        effect: { ...approval.effect },
+        effectDigest: approval.effectDigest,
+        reason: approval.reason,
+      };
       const pendingTool: ToolCall = {
         type: "toolCall",
         id: approval.callId,
@@ -230,6 +365,19 @@ export class PiAgentSession {
         arguments: approval.arguments,
       };
       this.#store.savePendingApproval(this.#session.id, approval);
+      const durable = this.#store.appendSessionEvent({
+        sessionId: this.#session.id,
+        runtimeKind: "native",
+        runId: approval.runId,
+        turnId: approval.turnId,
+        toolCallId: approval.callId,
+        idempotencyKey: `approval:${approval.callId}:requested`,
+        event: {
+          kind: "approval.requested",
+          toolItemId: approval.callId,
+          approval: productApproval,
+        },
+      });
       this.#store.setCheckpoint({
         sessionId: this.#session.id,
         runId: approval.runId,
@@ -238,6 +386,8 @@ export class PiAgentSession {
         pendingCallId: approval.callId,
         pendingTool,
         pendingApproval: approval,
+        runtimeKind: "native",
+        lastDurableSeq: durable.seq,
         updatedAt: Date.now(),
       });
       this.#store.setLifecycle(
@@ -250,14 +400,7 @@ export class PiAgentSession {
         turnId: approval.turnId,
         itemId: `${approval.callId}:approval`,
         toolItemId: approval.callId,
-        approval: {
-          callId: approval.callId,
-          tool: approval.tool,
-          arguments: approval.arguments,
-          effect: { ...approval.effect },
-          effectDigest: approval.effectDigest,
-          reason: approval.reason,
-        },
+        approval: productApproval,
       });
       return;
     }
@@ -266,6 +409,20 @@ export class PiAgentSession {
         this.#session.id,
         event.runId,
       );
+      const durable = this.#store.appendSessionEvent({
+        sessionId: this.#session.id,
+        runtimeKind: "native",
+        runId: event.runId,
+        turnId: event.turnId,
+        toolCallId: event.callId,
+        idempotencyKey: `approval:${event.callId}:resolved`,
+        event: {
+          kind: "approval.resolved",
+          toolItemId: event.callId,
+          callId: event.callId,
+          approved: event.approved,
+        },
+      });
       this.#store.setCheckpoint({
         sessionId: this.#session.id,
         runId: event.runId,
@@ -278,6 +435,8 @@ export class PiAgentSession {
         ...(checkpoint?.pendingApproval
           ? { pendingApproval: checkpoint.pendingApproval }
           : {}),
+        runtimeKind: "native",
+        lastDurableSeq: durable.seq,
         updatedAt: Date.now(),
       });
       this.#store.deletePendingApproval(this.#session.id, event.callId);
@@ -296,12 +455,32 @@ export class PiAgentSession {
       for (const baseline of this.#agent.baselines()) {
         this.#store.saveBaseline(this.#session.id, baseline);
       }
+      const files = await Promise.all(
+        event.files.map(async (file) => {
+          if (file.binary || file.sensitive || file.tooLarge) return file;
+          const diff = await this.#agent.diff(file.path);
+          return diff ? { ...file, ...diffLineStats(diff.patch) } : file;
+        }),
+      );
+      this.#store.appendSessionEvent({
+        sessionId: this.#session.id,
+        runtimeKind: "native",
+        runId: event.runId,
+        turnId: event.turnId,
+        toolCallId: event.callId,
+        idempotencyKey: `changes:${event.callId}`,
+        event: {
+          kind: "changes.committed",
+          callId: event.callId,
+          files,
+        },
+      });
       this.#publish(event.runId, {
         type: "changes",
         turnId: event.turnId,
         itemId: `${event.callId}:changes`,
         callId: event.callId,
-        files: event.files,
+        files,
       });
       return;
     }
@@ -312,11 +491,22 @@ export class PiAgentSession {
       case "agent_start":
         break;
       case "turn_start":
+        {
+          const durable = this.#store.appendSessionEvent({
+            sessionId: this.#session.id,
+            runtimeKind: "native",
+            runId,
+            turnId: agentEvent.turnId,
+            idempotencyKey: `turn:${agentEvent.turnId}:start`,
+            event: { kind: "turn.started", turn: agentEvent.turn },
+          });
         this.#store.setCheckpoint({
           sessionId: this.#session.id,
           runId,
           phase: "streaming",
           turnId: agentEvent.turnId,
+          runtimeKind: "native",
+          lastDurableSeq: durable.seq,
           updatedAt: Date.now(),
         });
         this.#publish(runId, {
@@ -324,19 +514,32 @@ export class PiAgentSession {
           turnId: agentEvent.turnId,
           turn: agentEvent.turn,
         });
+        }
         break;
       case "turn_end":
+        {
+          const durable = this.#store.appendSessionEvent({
+            sessionId: this.#session.id,
+            runtimeKind: "native",
+            runId,
+            turnId: agentEvent.turnId,
+            idempotencyKey: `turn:${agentEvent.turnId}:end`,
+            event: { kind: "turn.ended" },
+          });
         this.#store.setCheckpoint({
           sessionId: this.#session.id,
           runId,
           phase: "between_turns",
           turnId: agentEvent.turnId,
+          runtimeKind: "native",
+          lastDurableSeq: durable.seq,
           updatedAt: Date.now(),
         });
         this.#publish(runId, {
           type: "turn_end",
           turnId: agentEvent.turnId,
         });
+        }
         break;
       case "message_start":
         if (
@@ -352,20 +555,30 @@ export class PiAgentSession {
         break;
       case "message_update":
         if (agentEvent.assistantMessageEvent.type === "text_delta") {
-          this.#publish(runId, {
-            type: "assistant_text_delta",
+          this.#buffer.ingest({
+            sessionId: this.#session.id,
+            runId,
             turnId: agentEvent.turnId,
-            itemId: `${agentEvent.turnId}:assistant`,
-            delta: agentEvent.assistantMessageEvent.delta,
+            messageId: `${agentEvent.turnId}:assistant`,
+            emittedAt: Date.now(),
+            frame: {
+              kind: "assistant.text.delta",
+              delta: agentEvent.assistantMessageEvent.delta,
+            },
           });
         } else if (
           agentEvent.assistantMessageEvent.type === "thinking_delta"
         ) {
-          this.#publish(runId, {
-            type: "assistant_thinking_delta",
+          this.#buffer.ingest({
+            sessionId: this.#session.id,
+            runId,
             turnId: agentEvent.turnId,
-            itemId: `${agentEvent.turnId}:assistant`,
-            delta: agentEvent.assistantMessageEvent.delta,
+            messageId: `${agentEvent.turnId}:assistant`,
+            emittedAt: Date.now(),
+            frame: {
+              kind: "assistant.reasoning.delta",
+              delta: agentEvent.assistantMessageEvent.delta,
+            },
           });
         }
         break;
@@ -388,6 +601,31 @@ export class PiAgentSession {
           if (agentEvent.message.usage.reasoning !== undefined) {
             usage.reasoning = agentEvent.message.usage.reasoning;
           }
+          const messageId = `${agentEvent.turnId}:assistant`;
+          const canonical = canonicalFromMessage(
+            agentEvent.message,
+            messageId,
+            "native",
+            agentEvent.message.timestamp,
+          );
+          const committed = this.#store.appendSessionEvent({
+            sessionId: this.#session.id,
+            runtimeKind: "native",
+            runId,
+            turnId: agentEvent.turnId,
+            messageId,
+            idempotencyKey: `assistant:${agentEvent.turnId}`,
+            event: {
+              kind: "message.assistant.committed",
+              message: canonical,
+              stopReason: agentEvent.message.stopReason,
+              usage,
+              ...(agentEvent.message.errorMessage
+                ? { error: agentEvent.message.errorMessage }
+                : {}),
+            },
+          });
+          this.#buffer.commitMessage(this.#session.id, runId, messageId);
           this.#publish(runId, {
             type: "assistant_end",
             turnId: agentEvent.turnId,
@@ -400,6 +638,22 @@ export class PiAgentSession {
           });
           for (const block of agentEvent.message.content) {
             if (block.type === "toolCall") {
+              this.#store.appendSessionEvent({
+                sessionId: this.#session.id,
+                runtimeKind: "native",
+                runId,
+                turnId: agentEvent.turnId,
+                toolCallId: block.id,
+                idempotencyKey: `tool:${block.id}:call`,
+                event: {
+                  kind: "tool.call.committed",
+                  toolCall: {
+                    id: block.id,
+                    name: block.name,
+                    input: block.arguments,
+                  },
+                },
+              });
               this.#publish(runId, {
                 type: "tool_requested",
                 turnId: agentEvent.turnId,
@@ -410,6 +664,18 @@ export class PiAgentSession {
               });
             }
           }
+          this.#store.setCheckpoint({
+            sessionId: this.#session.id,
+            runId,
+            phase:
+              agentEvent.message.stopReason === "toolUse"
+                ? "between_turns"
+                : "streaming",
+            turnId: agentEvent.turnId,
+            runtimeKind: "native",
+            lastDurableSeq: committed.seq,
+            updatedAt: Date.now(),
+          });
           if (agentEvent.message.stopReason === "error") {
             this.#runOutcome = "error";
           } else if (agentEvent.message.stopReason === "aborted") {
@@ -418,23 +684,39 @@ export class PiAgentSession {
         }
         break;
       case "tool_execution_start":
-        this.#store.setCheckpoint({
-          sessionId: this.#session.id,
-          runId,
-          phase: "executing_tool",
-          turnId: agentEvent.turnId,
-          pendingCallId: agentEvent.toolCall.id,
-          pendingTool: agentEvent.toolCall,
-          updatedAt: Date.now(),
-        });
-        this.#publish(runId, {
-          type: "tool_start",
-          turnId: agentEvent.turnId,
-          itemId: agentEvent.toolCall.id,
-          callId: agentEvent.toolCall.id,
-          tool: agentEvent.toolCall.name,
-          arguments: agentEvent.toolCall.arguments,
-        });
+        {
+          const durable = this.#store.appendSessionEvent({
+            sessionId: this.#session.id,
+            runtimeKind: "native",
+            runId,
+            turnId: agentEvent.turnId,
+            toolCallId: agentEvent.toolCall.id,
+            idempotencyKey: `tool:${agentEvent.toolCall.id}:start`,
+            event: {
+              kind: "tool.execution.started",
+              toolCallId: agentEvent.toolCall.id,
+            },
+          });
+          this.#store.setCheckpoint({
+            sessionId: this.#session.id,
+            runId,
+            phase: "executing_tool",
+            turnId: agentEvent.turnId,
+            pendingCallId: agentEvent.toolCall.id,
+            pendingTool: agentEvent.toolCall,
+            updatedAt: Date.now(),
+            runtimeKind: "native",
+            lastDurableSeq: durable.seq,
+          });
+          this.#publish(runId, {
+            type: "tool_start",
+            turnId: agentEvent.turnId,
+            itemId: agentEvent.toolCall.id,
+            callId: agentEvent.toolCall.id,
+            tool: agentEvent.toolCall.name,
+            arguments: agentEvent.toolCall.arguments,
+          });
+        }
         break;
       case "tool_execution_end":
         this.#persistMessage(
@@ -442,6 +724,29 @@ export class PiAgentSession {
           agentEvent.turnId,
           agentEvent.result,
         );
+        {
+          const output = agentEvent.result.content
+            .filter((block) => block.type === "text")
+            .map((block) => block.text)
+            .join("\n");
+          const durable = this.#store.appendSessionEvent({
+            sessionId: this.#session.id,
+            runtimeKind: "native",
+            runId,
+            turnId: agentEvent.turnId,
+            messageId: `tool:${agentEvent.toolCall.id}`,
+            toolCallId: agentEvent.toolCall.id,
+            idempotencyKey: `tool:${agentEvent.toolCall.id}:result`,
+            event: {
+              kind: "tool.result.committed",
+              result: {
+                toolCallId: agentEvent.toolCall.id,
+                content: output,
+                isError: agentEvent.result.isError,
+                rawPayload: { native: agentEvent.result },
+              },
+            },
+          });
         this.#publish(runId, {
           type: "tool_end",
           turnId: agentEvent.turnId,
@@ -449,20 +754,28 @@ export class PiAgentSession {
           callId: agentEvent.toolCall.id,
           tool: agentEvent.toolCall.name,
           isError: agentEvent.result.isError,
-          output: agentEvent.result.content
-            .filter((block) => block.type === "text")
-            .map((block) => block.text)
-            .join("\n"),
+          output,
         });
         this.#store.setCheckpoint({
           sessionId: this.#session.id,
           runId,
           phase: "between_turns",
           turnId: agentEvent.turnId,
+          runtimeKind: "native",
+          lastDurableSeq: durable.seq,
           updatedAt: Date.now(),
         });
+        }
         break;
       case "agent_end":
+        {
+          const durable = this.#store.appendSessionEvent({
+            sessionId: this.#session.id,
+            runtimeKind: "native",
+            runId,
+            idempotencyKey: `run:${runId}:end`,
+            event: { kind: "run.ended", status: this.#runOutcome },
+          });
         this.#publish(runId, {
           type: "run_end",
           status: this.#runOutcome,
@@ -472,9 +785,13 @@ export class PiAgentSession {
           runId,
           phase: "terminal",
           terminalStatus: this.#runOutcome,
+          runtimeKind: "native",
+          lastDurableSeq: durable.seq,
           updatedAt: Date.now(),
         });
         this.#store.setLifecycle(this.#session.id, "idle");
+        this.#buffer.endRun(this.#session.id, runId);
+        }
         break;
     }
   }
@@ -598,6 +915,13 @@ export class PiAgentSession {
   }
 
   #markCrashed(checkpoint: RunCheckpoint): void {
+    const durable = this.#store.appendSessionEvent({
+      sessionId: this.#session.id,
+      runtimeKind: "native",
+      runId: checkpoint.runId,
+      idempotencyKey: `run:${checkpoint.runId}:end`,
+      event: { kind: "run.ended", status: "crashed" },
+    });
     this.#publish(checkpoint.runId, {
       type: "run_end",
       status: "crashed",
@@ -606,22 +930,35 @@ export class PiAgentSession {
       ...checkpoint,
       phase: "terminal",
       terminalStatus: "crashed",
+      runtimeKind: "native",
+      lastDurableSeq: durable.seq,
       updatedAt: Date.now(),
     });
     this.#store.setLifecycle(this.#session.id, "crashed");
+    this.#buffer.endRun(this.#session.id, checkpoint.runId);
   }
 
   #failRun(runId: string, error: unknown): void {
     this.#runOutcome = "error";
+    const durable = this.#store.appendSessionEvent({
+      sessionId: this.#session.id,
+      runtimeKind: "native",
+      runId,
+      idempotencyKey: `run:${runId}:end`,
+      event: { kind: "run.ended", status: "error" },
+    });
     this.#publish(runId, { type: "run_end", status: "error" });
     this.#store.setCheckpoint({
       sessionId: this.#session.id,
       runId,
       phase: "terminal",
       terminalStatus: "error",
+      runtimeKind: "native",
+      lastDurableSeq: durable.seq,
       updatedAt: Date.now(),
     });
     this.#store.setLifecycle(this.#session.id, "idle");
+    this.#buffer.endRun(this.#session.id, runId);
     console.error("Coding agent run failed", error);
   }
 }

@@ -16,7 +16,7 @@
 - Native/DSH 在同一个产品 Session 内原地切换，不再创建新的用户可见对话。
 - Windows 源码运行使用系统 `node.exe`；`fs-ext` 未使用的 POSIX 静态导入通过隔离 hook 处理，未修改 DSH 源码。
 
-## P0：ACP 不提供 token 级流式输出
+## P0：DSH ACP 当前没有转发 token 级流式输出
 
 当前 DSH ACP 只监听 durable `session/event`。完整 `assistant/message`
 提交后，才按 content block 发出 `agent_message_chunk`。
@@ -30,14 +30,20 @@
 → pi-ling 一次渲染整段
 ```
 
-这不是 `DshRuntimeAdapter` 漏转 delta。实时 token 位于 DSH
-`agent/assistant-stream`，标准 ACP v1 当前没有暴露。
+这不是 `DshRuntimeAdapter` 漏转 delta。实时 token 位于 DSH 进程内的
+`agent/assistant-stream`。`@agentclientprotocol/sdk` 1.4.0 已定义标准
+`agent_message_chunk` 和 `agent_thought_chunk`，但 DSH ACP 当前只订阅
+durable `session/event`，没有订阅 live stream。
 
 待决定：
 
-1. 接受 ACP 的 committed-message 语义；或
-2. 增加固定版本的 DSH live-stream bridge，把
-   `agent/assistant-stream` 通过私有 side channel 转发给 Main。
+1. 接受 DSH 当前的 committed-message 语义；或
+2. 对固定版本 DSH ACP plugin 增加 `agent/assistant-stream` 订阅，将
+   text/reasoning delta 映射到标准 ACP chunk update。
+
+第二种方案不需要修改 Agent Loop、不需要自定义 ACP extension，也不需要
+额外 side channel。实现时必须处理 live delta 与最终 committed block
+去重、`messageId`、tool update 顺序、取消后的 partial message 和背压。
 
 ## P0：DSH timeline 投影过度切分
 
@@ -99,18 +105,31 @@ input/output usage。
 - `@pi-ling/dsh-llm` 已实现 DSH Context、text/reasoning/tool/usage/finish
   到 `@pi-ling/ai` 的转换。
 - 编译和转换单测通过。
-- 外部 Cordis bundle 挂入当前 alpha ACP profile 后，DSH
-  `session/new` 返回 `cannot create effect on inactive context`。
+- 已定位此前 `session/new` 返回
+  `cannot create effect on inactive context` 的原因：使用 `file:` 安装本地
+  bundle 后，profile 中复制出的包无法解析其 `link:` 依赖
+  `@pi-ling/ai`，Cordis loader tree 先加载失败并被 dispose，随后
+  `session/new` 只暴露了二次生命周期错误。
+- 在隔离 ACP profile 中改用
+  `dsh plugin --profile acp add link:E:/pi-ling/packages/dsh-llm`
+  后，plugin tree、`session/new` 和真实模型 Prompt 均成功；Prompt
+  返回了预期的 `dsh-bridge-ok`。
 - bundle 默认禁用；产品 DSH Runtime 暂时使用已验证的
   `deepseek-official` route。
-- 在解决上游 external adapter activation 问题前，不启用该 bundle。
+- 正式启用前仍需决定可分发的依赖打包方式，不能依赖开发机绝对 `link:`
+  路径。
+- `@pi-ling/dsh-transcript` Seed Plugin PoC 已验证
+  `Canonical → SessionEvent[] → agents.create({ seed })`。导入包含
+  `ORANGE-42` 的历史后，下一轮真实模型成功回答该代号，证明 DSH 可以消费
+  pi-ling 共享历史。
 
-## 明日建议顺序
+## 后续实施顺序
 
-1. 先确定 DSH token streaming 方案。
-2. 修正 RuntimeEvent 的 `messageId` 与 `contextUsage`。
-3. 重写 DSH execution-group 投影，解决多段“执行过程”。
-4. 优化 DSH tool title/summary。
-5. 验证真实 ACP permission 三档策略。
-6. 清理或增加删除失败 Session 的 UI。
-7. 完成全量测试、Electron smoke、本地提交；不 push。
+研究与 PoC 结论已收敛到 `runtime-architecture-decision.md`。DSH 后续工作：
+
+1. 将 LLM/Transcript PoC 合并为可分发 `@pi-ling/dsh-bridge` bundle。
+2. 扩展固定版本 ACP plugin，转发 `agent/assistant-stream`。
+3. 补完整 Tool/Reasoning/Attachment Canonical Seed。
+4. 修正 RuntimeEvent 的 `messageId` 与 `contextUsage`。
+5. 重写 Run activity 投影，解决多段“执行过程”。
+6. 验证真实 ACP permission 三档策略。

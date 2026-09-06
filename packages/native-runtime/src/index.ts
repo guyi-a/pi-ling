@@ -74,7 +74,7 @@ export class NativeRuntimeAdapter implements RuntimeAdapter {
   ): Promise<void> {
     const agent = this.#sessions.get(sessionId);
     if (!agent) throw new Error(`Native session not found: ${sessionId}`);
-    await this.#emit({ type: "run_start", runId });
+    await this.#emit({ type: "run_start", sessionId, runId });
     await agent.prompt(prompt, runId);
   }
 
@@ -129,6 +129,7 @@ export class NativeRuntimeAdapter implements RuntimeAdapter {
       });
       await this.#emit({
         type: "permission",
+        sessionId,
         runId: event.approval.runId,
         permissionId: event.approval.callId,
         callId: event.approval.callId,
@@ -149,6 +150,7 @@ export class NativeRuntimeAdapter implements RuntimeAdapter {
     ) {
       await this.#emit({
         type: "assistant_text",
+        sessionId,
         runId: value.runId,
         delta: value.assistantMessageEvent.delta,
       });
@@ -158,12 +160,14 @@ export class NativeRuntimeAdapter implements RuntimeAdapter {
     ) {
       await this.#emit({
         type: "assistant_thought",
+        sessionId,
         runId: value.runId,
         delta: value.assistantMessageEvent.delta,
       });
     } else if (value.type === "tool_execution_start") {
       await this.#emit({
         type: "tool",
+        sessionId,
         runId: value.runId,
         callId: value.toolCall.id,
         title: value.toolCall.name,
@@ -173,6 +177,7 @@ export class NativeRuntimeAdapter implements RuntimeAdapter {
     } else if (value.type === "tool_execution_end") {
       await this.#emit({
         type: "tool",
+        sessionId,
         runId: value.runId,
         callId: value.toolCall.id,
         title: value.toolCall.name,
@@ -185,6 +190,7 @@ export class NativeRuntimeAdapter implements RuntimeAdapter {
     } else if (value.type === "agent_end") {
       await this.#emit({
         type: "run_end",
+        sessionId,
         runId: value.runId,
         status: agent.messages.some(
           (message) =>

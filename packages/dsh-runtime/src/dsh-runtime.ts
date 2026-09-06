@@ -158,7 +158,7 @@ export class DshRuntimeAdapter implements RuntimeAdapter {
     const remoteSessionId = this.#requireRemoteSession(sessionId);
     const agent = await this.#agent();
     this.#runByRemoteSession.set(remoteSessionId, runId);
-    await this.#emit({ type: "run_start", runId });
+    await this.#emit({ type: "run_start", sessionId, runId });
     try {
       const response = await agent.request(methods.agent.session.prompt, {
         sessionId: remoteSessionId,
@@ -166,6 +166,7 @@ export class DshRuntimeAdapter implements RuntimeAdapter {
       });
       await this.#emit({
         type: "run_end",
+        sessionId,
         runId,
         status:
           response.stopReason === "cancelled"
@@ -181,6 +182,7 @@ export class DshRuntimeAdapter implements RuntimeAdapter {
     } catch (error) {
       await this.#emit({
         type: "run_end",
+        sessionId,
         runId,
         status: "error",
         error: error instanceof Error ? error.message : String(error),
@@ -337,6 +339,7 @@ export class DshRuntimeAdapter implements RuntimeAdapter {
           });
           void this.#emit({
             type: "permission",
+            sessionId: this.#productSession(params.sessionId),
             runId,
             permissionId,
             callId: params.toolCall.toolCallId,
@@ -387,18 +390,29 @@ export class DshRuntimeAdapter implements RuntimeAdapter {
   ): Promise<void> {
     const runId = this.#runByRemoteSession.get(remoteSessionId);
     if (!runId) return;
+    const sessionId = this.#productSession(remoteSessionId);
     if (update.sessionUpdate === "agent_message_chunk") {
       const delta = textContent(update.content);
-      if (delta) await this.#emit({ type: "assistant_text", runId, delta });
+      if (delta) {
+        await this.#emit({ type: "assistant_text", sessionId, runId, delta });
+      }
     } else if (update.sessionUpdate === "agent_thought_chunk") {
       const delta = textContent(update.content);
-      if (delta) await this.#emit({ type: "assistant_thought", runId, delta });
+      if (delta) {
+        await this.#emit({
+          type: "assistant_thought",
+          sessionId,
+          runId,
+          delta,
+        });
+      }
     } else if (
       update.sessionUpdate === "tool_call" ||
       update.sessionUpdate === "tool_call_update"
     ) {
       await this.#emit({
         type: "tool",
+        sessionId,
         runId,
         callId: update.toolCallId,
         title: update.title ?? update.name ?? "DSH tool",
@@ -417,6 +431,7 @@ export class DshRuntimeAdapter implements RuntimeAdapter {
     } else if (update.sessionUpdate === "usage_update") {
       await this.#emit({
         type: "usage",
+        sessionId,
         runId,
         used: update.used,
         size: update.size,
@@ -434,6 +449,13 @@ export class DshRuntimeAdapter implements RuntimeAdapter {
     const remote = this.#sessions.get(sessionId);
     if (!remote) throw new Error(`DSH session not found: ${sessionId}`);
     return remote;
+  }
+
+  #productSession(remoteSessionId: string): string {
+    for (const [productSessionId, remote] of this.#sessions) {
+      if (remote === remoteSessionId) return productSessionId;
+    }
+    throw new Error(`Unknown DSH remote session: ${remoteSessionId}`);
   }
 
   async #emit(event: RuntimeEvent): Promise<void> {

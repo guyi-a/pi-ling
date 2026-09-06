@@ -5,7 +5,7 @@ import type { TimelineItem } from "../../timeline/reducer";
 import { ChatView } from "./ChatView";
 
 describe("ChatView", () => {
-  it("renders execution, approval and the next assistant turn in timeline order", () => {
+  it("renders pending approval inside its run activity", () => {
     const items: TimelineItem[] = [
       {
         kind: "assistant",
@@ -46,22 +46,15 @@ describe("ChatView", () => {
           reason: "write a.txt",
         },
       },
-      {
-        kind: "assistant",
-        id: "turn-2:assistant",
-        runId: "run-1",
-        turnId: "turn-2",
-        createdSeq: 4,
-        text: "done",
-        thinking: "",
-        status: "completed",
-        stopReason: "stop",
-      },
     ];
 
     const html = renderToStaticMarkup(
       <ChatView
+        sessionId="session"
         items={items}
+        runs={{ "run-1": { id: "run-1", status: "running" } }}
+        liveMessageIds={new Set()}
+        onMessagePresented={() => {}}
         modelLabel="model"
         workspaceReady
         activeRunId={null}
@@ -76,11 +69,68 @@ describe("ChatView", () => {
       />,
     );
 
-    expect(html.indexOf("执行过程")).toBeLessThan(
-      html.indexOf("需要确认"),
+    expect(html.indexOf("Run activity")).toBeLessThan(
+      html.indexOf("Approval required"),
     );
-    expect(html.indexOf("需要确认")).toBeLessThan(
-      html.indexOf("done"),
+  });
+
+  it("keeps tool preambles inside collapsed activity details", () => {
+    const items: TimelineItem[] = [
+      {
+        kind: "assistant",
+        id: "preamble",
+        runId: "run",
+        turnId: "turn-1",
+        createdSeq: 1,
+        text: "I will inspect the project.",
+        thinking: "",
+        status: "completed",
+        stopReason: "toolUse",
+      },
+      {
+        kind: "tool",
+        id: "read",
+        runId: "run",
+        turnId: "turn-1",
+        createdSeq: 2,
+        callId: "read",
+        tool: "read_file",
+        arguments: { path: "agent.md" },
+        status: "completed",
+      },
+      {
+        kind: "assistant",
+        id: "final",
+        runId: "run",
+        turnId: "turn-2",
+        createdSeq: 3,
+        text: "This is the final answer.",
+        thinking: "",
+        status: "completed",
+        stopReason: "stop",
+      },
+    ];
+    const html = renderToStaticMarkup(
+      <ChatView
+        sessionId="session"
+        items={items}
+        runs={{ run: { id: "run", status: "completed" } }}
+        liveMessageIds={new Set()}
+        onMessagePresented={() => {}}
+        modelLabel="model"
+        workspaceReady
+        activeRunId={null}
+        approvalMode="manual"
+        runtimeKind="native"
+        availableRuntimes={["native"]}
+        onSend={async () => {}}
+        onCancel={() => {}}
+        onApproval={async () => {}}
+        onApprovalModeChange={async () => {}}
+        onRuntimeChange={() => {}}
+      />,
     );
+    expect(html).not.toContain("I will inspect the project.");
+    expect(html).toContain("This is the final answer.");
   });
 });

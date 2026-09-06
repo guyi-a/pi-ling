@@ -46,6 +46,7 @@ describe("DshRuntimeAdapter", () => {
     ]);
     expect(events).toContainEqual({
       type: "assistant_text",
+      sessionId: "local",
       runId: "run-1",
       delta: "hello",
     });

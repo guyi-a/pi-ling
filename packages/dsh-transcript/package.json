@@ -1,0 +1,33 @@
+{
+  "name": "@pi-ling/dsh-transcript",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "link:E:/deepseek-harness/vendor/cordis",
+    "@deepseek-ai/dsh-agent": "link:E:/deepseek-harness/packages/core/agent",
+    "@deepseek-ai/dsh-llm": "link:E:/deepseek-harness/packages/llm/llm",
+    "@deepseek-ai/dsh-session": "link:E:/deepseek-harness/packages/core/session"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-agent-loop": "link:E:/deepseek-harness/packages/core/agent-loop",
+    "@deepseek-ai/dsh-session-projection": "link:E:/deepseek-harness/packages/session/session-projection",
+    "@deepseek-ai/dsh-system-prompt": "link:E:/deepseek-harness/packages/core/system-prompt",
+    "@deepseek-ai/dsh-tools": "link:E:/deepseek-harness/packages/core/tools",
+    "@pi-ling/dsh-llm": "workspace:*",
+    "@types/node": "24.10.1",
+    "typescript": "7.0.2",
+    "vitest": "4.1.9"
+  }
+}

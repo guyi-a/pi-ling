@@ -11,9 +11,11 @@ import type {
   RuntimeSessionHandle,
   RuntimeSessionOptions,
 } from "@pi-ling/runtime-contracts";
+import type { TimelineEnvelope } from "@pi-ling/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { DshAgentSession } from "./dsh-agent-session.js";
+import { RunMessageBuffer } from "./run-message-buffer.js";
 import { SessionStore } from "./session-store/session-store.js";
 
 class FakeDshRuntime implements RuntimeAdapter {
@@ -31,11 +33,17 @@ class FakeDshRuntime implements RuntimeAdapter {
   resumeSession(options: RuntimeSessionOptions) {
     return this.createSession(options);
   }
-  async send(_sessionId: string, runId: string) {
-    await this.emit({ type: "run_start", runId });
-    await this.emit({ type: "assistant_thought", runId, delta: "think" });
+  async send(sessionId: string, runId: string) {
+    await this.emit({ type: "run_start", sessionId, runId });
+    await this.emit({
+      type: "assistant_thought",
+      sessionId,
+      runId,
+      delta: "think",
+    });
     await this.emit({
       type: "tool",
+      sessionId,
       runId,
       callId: "call-1",
       title: "Read file",
@@ -45,14 +53,25 @@ class FakeDshRuntime implements RuntimeAdapter {
     });
     await this.emit({
       type: "tool",
+      sessionId,
       runId,
       callId: "call-1",
       title: "Read file",
       status: "completed",
       output: "ok",
     });
-    await this.emit({ type: "assistant_text", runId, delta: "done" });
-    await this.emit({ type: "run_end", runId, status: "completed" });
+    await this.emit({
+      type: "assistant_text",
+      sessionId,
+      runId,
+      delta: "done",
+    });
+    await this.emit({
+      type: "run_end",
+      sessionId,
+      runId,
+      status: "completed",
+    });
   }
   async cancel() {}
   async resolvePermission(decision: RuntimePermissionDecision) {
@@ -91,11 +110,14 @@ describe("DshAgentSession", () => {
       runtimeVersion: "0.1.3-alpha.1",
     });
     const runtime = new FakeDshRuntime();
+    const buffer = new RunMessageBuffer(() => {});
+    const emitted: TimelineEnvelope[] = [];
     const session = await DshAgentSession.open({
       store,
       session: summary,
       runtime,
-      emit: () => {},
+      emit: (event) => emitted.push(event),
+      buffer,
       availableRuntimes: ["native", "dsh"],
     });
     session.startPrompt("run-1", "inspect");
@@ -119,6 +141,25 @@ describe("DshAgentSession", () => {
       "assistant_end",
       "run_end",
     ]);
+    expect(
+      store
+        .loadSnapshot(summary.id)
+        .events.some(
+          ({ event }) =>
+            event.type === "assistant_text_delta" ||
+            event.type === "assistant_thinking_delta",
+        ),
+    ).toBe(false);
+    expect(JSON.stringify(store.loadSessionEvents(summary.id))).toContain(
+      "done",
+    );
+    expect(emitted[0]?.event).toMatchObject({
+      type: "run_start",
+      prompt: "inspect",
+    });
+    expect(emitted.map(({ seq }) => seq)).toEqual(
+      emitted.map((_, index) => index + 1),
+    );
     await session.dispose();
   });
 });
