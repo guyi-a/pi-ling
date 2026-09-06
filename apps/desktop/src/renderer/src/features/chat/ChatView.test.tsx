@@ -66,10 +66,13 @@ describe("ChatView", () => {
         workspaceReady
         activeRunId={null}
         approvalMode="manual"
+        runtimeKind="native"
+        availableRuntimes={["native", "dsh"]}
         onSend={async () => {}}
         onCancel={() => {}}
         onApproval={async () => {}}
         onApprovalModeChange={async () => {}}
+        onRuntimeChange={() => {}}
       />,
     );
 

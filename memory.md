@@ -21,11 +21,12 @@
   - 重点参考：pnpm monorepo、Electron + React + TypeScript、`electron-vite`、Main/Preload/Renderer 分层、桌面打包。
   - 参考当前技术版本时，应先检查其 `package.json` 和实际构建配置。
 
-- DeepSeek Harness 源码：路径待确认
+- DeepSeek Harness：`E:\deepseek-harness`
   - 官方仓库：`https://github.com/deepseek-ai/deepseek-harness`
-  - 当前在 `E:\` 顶层 Git 仓库中未发现对应源码 checkout。
+  - 固定 tag：`dsh-v0.1.3-alpha.1`
+  - 固定 commit：`d347e703908d0406b7a7ef80e3a0e594d86b2215`
+  - 当前为 developer preview，接入使用 ACP profile 并隔离版本。
   - `E:\dsh-for-humans` 是教程仓库，不是 DeepSeek Harness 源码，不得作为 SDK 源码依赖。
-  - 找到或补充本地源码后，应在此处记录准确路径和固定版本。
 
 ## 选型原则
 
@@ -43,3 +44,4 @@
 4. `packages/ai` 实现 DeepSeek 与 Anthropic Claude Provider。
 5. `packages/agent-core` 实现 Agent 状态、事件、上下文和 ReAct 循环。
 6. `packages/coding-agent` 实现 Workspace、内置工具、effect 审批和 Diff。
+7. `packages/dsh-runtime` 通过 ACP 接入固定版本 DSH sidecar。

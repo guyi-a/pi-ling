@@ -1,5 +1,5 @@
 import { ArrowUp, Bot, Square } from "lucide-react";
-import type { ApprovalMode } from "@pi-ling/contracts";
+import type { ApprovalMode, RuntimeKind } from "@pi-ling/contracts";
 import {
   useEffect,
   useLayoutEffect,
@@ -16,6 +16,7 @@ import type {
 import { ApprovalModePicker } from "./ApprovalModePicker";
 import { ExecutionTimeline } from "./ExecutionTimeline";
 import { MessageItem } from "./MessageItem";
+import { RuntimePicker } from "./RuntimePicker";
 import { ToolCard } from "./ToolCard";
 
 export function shouldSubmitComposer(input: {
@@ -32,6 +33,8 @@ export function ChatView(props: {
   workspaceReady: boolean;
   activeRunId: string | null;
   approvalMode: ApprovalMode;
+  runtimeKind: RuntimeKind;
+  availableRuntimes: RuntimeKind[];
   onSend: (prompt: string) => Promise<void>;
   onCancel: (runId: string) => void;
   onApproval: (
@@ -39,6 +42,7 @@ export function ChatView(props: {
     approved: boolean,
   ) => Promise<void>;
   onApprovalModeChange: (mode: ApprovalMode) => Promise<void>;
+  onRuntimeChange: (runtime: RuntimeKind) => void;
 }) {
   const {
     items,
@@ -46,10 +50,13 @@ export function ChatView(props: {
     workspaceReady,
     activeRunId,
     approvalMode,
+    runtimeKind,
+    availableRuntimes,
     onSend,
     onCancel,
     onApproval,
     onApprovalModeChange,
+    onRuntimeChange,
   } = props;
   const [prompt, setPrompt] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
@@ -192,6 +199,12 @@ export function ChatView(props: {
           {sendError ? <div className="message-error">{sendError}</div> : null}
           <div className="composer-footer">
             <div className="composer-controls">
+              <RuntimePicker
+                value={runtimeKind}
+                available={availableRuntimes}
+                disabled={Boolean(activeRunId)}
+                onChange={onRuntimeChange}
+              />
               <ApprovalModePicker
                 value={approvalMode}
                 disabled={!workspaceReady}

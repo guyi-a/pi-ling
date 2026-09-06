@@ -14,6 +14,7 @@ describe("Sidebar", () => {
             workspace: { root: "E:\\project", name: "project" },
             lifecycle: "awaiting_approval",
             approvalMode: "manual",
+            runtimeKind: "native",
             createdAt: Date.now(),
             updatedAt: Date.now(),
           },

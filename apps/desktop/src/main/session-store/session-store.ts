@@ -8,6 +8,7 @@ import type {
   ApprovalMode,
   SessionLifecycle,
   SessionSummary,
+  RuntimeKind,
   TimelineEnvelope,
   TimelineEvent,
   TimelineSnapshot,
@@ -53,6 +54,9 @@ interface SessionRow {
   title: string;
   lifecycle: SessionLifecycle;
   approval_mode: ApprovalMode;
+  runtime_kind: RuntimeKind;
+  runtime_version: string | null;
+  runtime_session_id: string | null;
   active_run_id: string | null;
   last_seq: number;
   created_at: number;
@@ -69,6 +73,8 @@ function sessionFromRow(row: SessionRow): SessionSummary {
     },
     lifecycle: row.lifecycle,
     approvalMode: row.approval_mode,
+    runtimeKind: row.runtime_kind,
+    ...(row.runtime_version ? { runtimeVersion: row.runtime_version } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -88,6 +94,21 @@ export class SessionStore {
         "ALTER TABLE sessions ADD COLUMN approval_mode TEXT NOT NULL DEFAULT 'manual'",
       );
     }
+    if (!columns.some((column) => column.name === "runtime_kind")) {
+      this.#db.exec(
+        "ALTER TABLE sessions ADD COLUMN runtime_kind TEXT NOT NULL DEFAULT 'native'",
+      );
+    }
+    if (!columns.some((column) => column.name === "runtime_version")) {
+      this.#db.exec(
+        "ALTER TABLE sessions ADD COLUMN runtime_version TEXT",
+      );
+    }
+    if (!columns.some((column) => column.name === "runtime_session_id")) {
+      this.#db.exec(
+        "ALTER TABLE sessions ADD COLUMN runtime_session_id TEXT",
+      );
+    }
   }
 
   close(): void {
@@ -98,6 +119,8 @@ export class SessionStore {
     id?: string;
     workspaceRoot: string;
     title?: string;
+    runtimeKind?: RuntimeKind;
+    runtimeVersion?: string;
   }): SessionSummary {
     const id = input.id ?? randomUUID();
     const now = Date.now();
@@ -105,10 +128,19 @@ export class SessionStore {
     this.#db
       .prepare(
         `INSERT INTO sessions
-          (session_id, workspace_root, title, lifecycle, created_at, updated_at)
-         VALUES (?, ?, ?, 'idle', ?, ?)`,
+          (session_id, workspace_root, title, lifecycle, runtime_kind,
+           runtime_version, created_at, updated_at)
+         VALUES (?, ?, ?, 'idle', ?, ?, ?, ?)`,
       )
-      .run(id, path.resolve(input.workspaceRoot), title, now, now);
+      .run(
+        id,
+        path.resolve(input.workspaceRoot),
+        title,
+        input.runtimeKind ?? "native",
+        input.runtimeVersion ?? null,
+        now,
+        now,
+      );
     return this.getSession(id)!;
   }
 
@@ -284,6 +316,41 @@ export class SessionStore {
     if (!session) {
       throw new Error(`Session not found: ${sessionId}`);
     }
+    return session;
+  }
+
+  setRuntimeSessionId(sessionId: string, runtimeSessionId: string): void {
+    this.#db
+      .prepare(
+        `UPDATE sessions SET runtime_session_id = ?, updated_at = ?
+         WHERE session_id = ?`,
+      )
+      .run(runtimeSessionId, Date.now(), sessionId);
+  }
+
+  getRuntimeSessionId(sessionId: string): string | undefined {
+    const row = this.#db
+      .prepare(
+        "SELECT runtime_session_id FROM sessions WHERE session_id = ?",
+      )
+      .get(sessionId) as { runtime_session_id: string | null } | undefined;
+    return row?.runtime_session_id ?? undefined;
+  }
+
+  setRuntime(
+    sessionId: string,
+    runtimeKind: RuntimeKind,
+    runtimeVersion: string,
+  ): SessionSummary {
+    this.#db
+      .prepare(
+        `UPDATE sessions
+         SET runtime_kind = ?, runtime_version = ?, updated_at = ?
+         WHERE session_id = ?`,
+      )
+      .run(runtimeKind, runtimeVersion, Date.now(), sessionId);
+    const session = this.getSession(sessionId);
+    if (!session) throw new Error(`Session not found: ${sessionId}`);
     return session;
   }
 

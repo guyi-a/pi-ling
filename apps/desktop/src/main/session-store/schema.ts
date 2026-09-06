@@ -11,6 +11,10 @@ CREATE TABLE IF NOT EXISTS sessions (
     CHECK (lifecycle IN ('idle', 'running', 'awaiting_approval', 'crashed')),
   approval_mode TEXT NOT NULL DEFAULT 'manual'
     CHECK (approval_mode IN ('manual', 'accept-write', 'auto')),
+  runtime_kind TEXT NOT NULL DEFAULT 'native'
+    CHECK (runtime_kind IN ('native', 'dsh')),
+  runtime_version TEXT,
+  runtime_session_id TEXT,
   active_run_id TEXT,
   last_seq INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,

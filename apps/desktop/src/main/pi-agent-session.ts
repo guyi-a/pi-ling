@@ -13,6 +13,7 @@ import type {
   ChangedFile,
   FileDiff,
   SessionSummary,
+  RuntimeKind,
   TimelineEnvelope,
   TimelineEvent,
   TimelineSnapshot,
@@ -37,6 +38,7 @@ export class PiAgentSession {
   readonly #session: SessionSummary;
   readonly #emit: (envelope: TimelineEnvelope) => void;
   readonly #agent: CodingAgent;
+  readonly #availableRuntimes: RuntimeKind[];
   #activeRunId: string | null = null;
   #runOutcome: "completed" | "cancelled" | "error" = "completed";
 
@@ -45,17 +47,20 @@ export class PiAgentSession {
     session: SessionSummary,
     emit: (envelope: TimelineEnvelope) => void,
     agent: CodingAgent,
+    availableRuntimes: RuntimeKind[],
   ) {
     this.#store = store;
     this.#session = session;
     this.#emit = emit;
     this.#agent = agent;
+    this.#availableRuntimes = availableRuntimes;
   }
 
   static async open(options: {
     store: SessionStore;
     session: SessionSummary;
     emit: (envelope: TimelineEnvelope) => void;
+    availableRuntimes?: RuntimeKind[];
   }): Promise<PiAgentSession> {
     const model = models.getModel(PROVIDER, MODEL);
     if (!model) {
@@ -88,6 +93,7 @@ export class PiAgentSession {
       options.session,
       options.emit,
       agent,
+      options.availableRuntimes ?? ["native"],
     );
     instance.#recover(checkpoint);
     return instance;
@@ -100,6 +106,8 @@ export class PiAgentSession {
   get status(): AgentStatus {
     return {
       sessionId: this.#session.id,
+      runtimeKind: "native",
+      availableRuntimes: this.#availableRuntimes,
       provider: PROVIDER,
       model: MODEL,
       configured: Boolean(process.env["DEEPSEEK_API_KEY"]?.trim()),

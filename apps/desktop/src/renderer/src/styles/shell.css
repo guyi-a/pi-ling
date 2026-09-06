@@ -75,3 +75,67 @@
 .diff-panel {
   display: none;
 }
+
+.safety-backdrop {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(5 6 8 / 68%);
+  backdrop-filter: blur(5px);
+}
+
+.safety-dialog {
+  width: min(460px, 100%);
+  padding: 22px;
+  color: var(--text-soft);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: #1a1b20;
+  box-shadow: 0 24px 70px rgb(0 0 0 / 48%);
+}
+
+.experimental-label {
+  color: var(--warning);
+  font-size: 11px;
+}
+
+.safety-dialog h2 {
+  margin: 7px 0 13px;
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 620;
+}
+
+.safety-dialog p {
+  margin: 8px 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.safety-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.safety-actions button {
+  height: 32px;
+  padding: 0 12px;
+  color: var(--text-soft);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface-2);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.safety-actions .primary {
+  color: #191b24;
+  border-color: var(--accent);
+  background: var(--accent);
+}

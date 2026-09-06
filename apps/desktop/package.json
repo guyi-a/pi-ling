@@ -16,6 +16,8 @@
     "@pi-ling/ai": "workspace:*",
     "@pi-ling/coding-agent": "workspace:*",
     "@pi-ling/contracts": "workspace:*",
+    "@pi-ling/dsh-runtime": "workspace:*",
+    "@pi-ling/runtime-contracts": "workspace:*",
     "lucide-react": "1.27.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",

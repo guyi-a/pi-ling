@@ -1,6 +1,7 @@
 import type {
   AgentStatus,
   ApprovalMode,
+  RuntimeKind,
   SessionActivation,
   SessionSummary,
   TimelineEnvelope,
@@ -39,6 +40,7 @@ export function App() {
     fixture?.sessions ?? [],
   );
   const [pendingRunId, setPendingRunId] = useState<string | null>(null);
+  const [showDshNotice, setShowDshNotice] = useState(false);
   const queueRef = useRef<TimelineEnvelope[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -100,8 +102,10 @@ export function App() {
     void window.piLing.listSessions().then(setSessions);
   }
 
-  async function chooseWorkspace() {
-    const activation = await window.piLing.selectWorkspace();
+  async function chooseWorkspace(
+    runtimeKind: RuntimeKind = status?.runtimeKind ?? "native",
+  ) {
+    const activation = await window.piLing.selectWorkspace(runtimeKind);
     if (!activation) {
       return;
     }
@@ -141,6 +145,7 @@ export function App() {
     applyActivation(
       await window.piLing.createSession({
         workspaceRoot: root,
+        runtimeKind: status?.runtimeKind ?? "native",
       }),
     );
   }
@@ -162,6 +167,22 @@ export function App() {
         session.id === updated.id ? updated : session,
       ),
     );
+  }
+
+  async function activateRuntime(runtimeKind: RuntimeKind) {
+    if (runtimeKind === status?.runtimeKind) return;
+    if (
+      runtimeKind === "dsh" &&
+      localStorage.getItem("pi-ling.dsh-safety-accepted") !== "1"
+    ) {
+      setShowDshNotice(true);
+      return;
+    }
+    if (!status?.workspace) {
+      await chooseWorkspace(runtimeKind);
+      return;
+    }
+    applyActivation(await window.piLing.switchRuntime(runtimeKind));
   }
 
   const modelLabel = !status?.configured
@@ -208,14 +229,52 @@ export function App() {
           workspaceReady={Boolean(status?.workspace)}
           activeRunId={activeRunId}
           approvalMode={status?.approvalMode ?? "manual"}
+          runtimeKind={status?.runtimeKind ?? "native"}
+          availableRuntimes={status?.availableRuntimes ?? ["native"]}
           onSend={sendPrompt}
           onCancel={(runId) => {
             void window.piLing.cancelPrompt(runId);
           }}
           onApproval={decide}
           onApprovalModeChange={changeApprovalMode}
+          onRuntimeChange={(runtime) => {
+            void activateRuntime(runtime);
+          }}
         />
       </section>
+      {showDshNotice ? (
+        <div className="safety-backdrop" role="presentation">
+          <section
+            className="safety-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="dsh-safety-title"
+          >
+            <span className="experimental-label">Experimental Runtime</span>
+            <h2 id="dsh-safety-title">启用 DeepSeek Harness</h2>
+            <p>
+              DSH 目前是 developer preview，尚未经过安全审计。它可以执行模型生成的命令并访问工作区文件，审批和沙箱不能保证完全隔离。
+            </p>
+            <p>仅在有备份、可恢复的工作区中使用。</p>
+            <div className="safety-actions">
+              <button type="button" onClick={() => setShowDshNotice(false)}>
+                取消
+              </button>
+              <button
+                className="primary"
+                type="button"
+                onClick={() => {
+                  localStorage.setItem("pi-ling.dsh-safety-accepted", "1");
+                  setShowDshNotice(false);
+                  void activateRuntime("dsh");
+                }}
+              >
+                我了解风险，继续
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }

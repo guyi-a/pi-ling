@@ -24,6 +24,7 @@ export function createUiFixture(name: UiFixtureName): UiFixture {
     workspace: { root: "E:\\pi-ling", name: "pi-ling" },
     lifecycle: name === "approval" ? "awaiting_approval" : "idle",
     approvalMode: "manual",
+    runtimeKind: "native",
     createdAt: now - 3_600_000,
     updatedAt: now - 120_000,
   };
@@ -37,6 +38,8 @@ export function createUiFixture(name: UiFixtureName): UiFixture {
   const status: AgentStatus = {
     sessionId: session.id,
     provider: "deepseek",
+    runtimeKind: "native",
+    availableRuntimes: ["native", "dsh"],
     model: "deepseek-v4-flash",
     configured: true,
     approvalMode: "manual",

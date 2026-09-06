@@ -3,9 +3,42 @@ import os from "node:os";
 import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type {
+  RuntimeAdapter,
+  RuntimeCapabilities,
+  RuntimeEventListener,
+  RuntimeSessionOptions,
+} from "@pi-ling/runtime-contracts";
 
 import { SessionStore } from "./session-store/session-store.js";
 import { SessionSupervisor } from "./session-supervisor.js";
+
+class FakeDshRuntime implements RuntimeAdapter {
+  readonly kind = "dsh" as const;
+  readonly capabilities = {} as RuntimeCapabilities;
+  readonly listeners = new Set<RuntimeEventListener>();
+  async initialize() {}
+  async createSession(options: RuntimeSessionOptions) {
+    return {
+      sessionId: options.sessionId,
+      externalSessionId: "remote-session",
+    };
+  }
+  resumeSession(options: RuntimeSessionOptions) {
+    return this.createSession(options);
+  }
+  async send() {}
+  async cancel() {}
+  async resolvePermission() {
+    return true;
+  }
+  async closeSession() {}
+  subscribe(listener: RuntimeEventListener) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+  async dispose() {}
+}
 
 describe("SessionSupervisor", () => {
   let root = "";
@@ -51,5 +84,23 @@ describe("SessionSupervisor", () => {
       type: "run_start",
       prompt: "first",
     });
+  });
+
+  it("switches runtime in place without creating another session", async () => {
+    await supervisor.dispose();
+    supervisor = new SessionSupervisor(
+      store,
+      () => {},
+      new FakeDshRuntime(),
+    );
+    const created = await supervisor.create({
+      workspaceRoot: root,
+      runtimeKind: "native",
+    });
+    const switched = await supervisor.switchRuntime("dsh");
+
+    expect(switched.session.id).toBe(created.session.id);
+    expect(switched.session.runtimeKind).toBe("dsh");
+    expect(supervisor.list()).toHaveLength(1);
   });
 });

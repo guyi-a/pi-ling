@@ -30,10 +30,12 @@ Electron Main Supervisor
   ├─ Effect approval policy
   └─ Worker lifecycle
         ↓ RuntimeAdapter
-        └─ PiLingRuntime Worker
-              └─ @pi-ling/coding-agent
-                    ├─ @pi-ling/agent-core
-                    └─ @pi-ling/ai
+        ├─ NativeRuntime
+        │     └─ @pi-ling/coding-agent
+        │           ├─ @pi-ling/agent-core
+        │           └─ @pi-ling/ai
+        └─ DshRuntime
+              └─ ACP stdio → DSH sidecar
 ```
 
 ## Runtime 规划
@@ -44,8 +46,17 @@ Electron Main Supervisor
 - `@pi-ling/agent-core` 负责状态、事件、上下文、取消和 ReAct 工具循环。
 - `@pi-ling/coding-agent` 负责 Coding Harness 和全部产品内置 Agent 能力。
 - `vendor/pi-ai` 与 `vendor/pi-agent-core` 保留为 MIT 源码参考，不作为运行依赖。
-- Claude Agent SDK、DeepSeek Harness 和其他模型 Provider 不在当前实现范围。
+- DeepSeek Harness 通过固定版本的 ACP sidecar 作为 Experimental Runtime 接入。
+- Claude Agent SDK 和其他模型 Provider 不在当前实现范围。
 - 产品层继续负责 effect 审批、权限边界、沙箱、持久化和恢复。
+
+### DSH Runtime
+
+- 固定 `dsh-v0.1.3-alpha.1` / `d347e703908d0406b7a7ef80e3a0e594d86b2215`，不跟随 latest。
+- Electron Main 使用 `@agentclientprotocol/sdk` 驱动 `dsh --profile acp`，不嵌入 Cordis。
+- DSH_HOME 按版本隔离，DSH 原生 session id 与产品 session id 分开持久化。
+- 产品审批模式映射 ACP one-shot permission；未知、删除和破坏性执行不自动允许。
+- DSH developer preview 未经安全审计，只能在 feature flag 和首次安全确认后启用。
 
 ## Coding Harness
 
@@ -164,6 +175,7 @@ Renderer 输入 Prompt
 - `E:\LingCoWork`：Go + Eino + Electron 工作站，仅供参考。
 - `E:\pi`：Pi 0.85.0，MIT。
 - `E:\claude-agent-sdk-python`：Python SDK 参考。
+- `E:\deepseek-harness`：DSH 0.1.3-alpha.1 官方源码。
 - `E:\dsh-for-humans`：DSH 教程，不是源码。
 
 ## 开发约束
@@ -172,4 +184,4 @@ Renderer 输入 Prompt
 - Phase 1 范围内优先完成可运行的纵向闭环，再扩展 UI 和工具能力。
 - 修改公共协议时同步检查 Main、Preload、Renderer 和 Runtime Worker。
 - 提交前运行项目已有的格式化、类型检查和测试命令。
-- 未经明确要求，不引入 Claude 或 DSH 的运行时依赖。
+- DSH 依赖必须固定版本并通过 ACP 契约测试；未经明确要求不引入 Claude Runtime。

@@ -89,6 +89,7 @@ export const Sidebar = memo(function Sidebar(props: {
                     className="session-time"
                     dateTime={new Date(session.updatedAt).toISOString()}
                   >
+                    {session.runtimeKind === "dsh" ? "DSH · " : ""}
                     {relativeTime(session.updatedAt)}
                   </time>
                 </button>

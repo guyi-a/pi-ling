@@ -4,6 +4,7 @@ import type {
   AgentPromptRequest,
   CreateSessionRequest,
   DesktopApi,
+  RuntimeKind,
   TimelineEnvelope,
 } from "@pi-ling/contracts";
 import { contextBridge, ipcRenderer } from "electron";
@@ -23,6 +24,7 @@ const SESSIONS_CREATE_CHANNEL = "sessions:create";
 const SESSIONS_SWITCH_CHANNEL = "sessions:switch";
 const SESSIONS_DELETE_CHANNEL = "sessions:delete";
 const SESSION_APPROVAL_MODE_CHANNEL = "session:approval-mode";
+const SESSION_RUNTIME_CHANNEL = "session:runtime";
 
 const desktopApi: DesktopApi = {
   getAppInfo: () => ipcRenderer.invoke(APP_INFO_CHANNEL),
@@ -31,7 +33,8 @@ const desktopApi: DesktopApi = {
     ipcRenderer.invoke(AGENT_SEND_CHANNEL, request),
   cancelPrompt: (requestId: string) =>
     ipcRenderer.invoke(AGENT_CANCEL_CHANNEL, requestId),
-  selectWorkspace: () => ipcRenderer.invoke(WORKSPACE_SELECT_CHANNEL),
+  selectWorkspace: (runtimeKind?: RuntimeKind) =>
+    ipcRenderer.invoke(WORKSPACE_SELECT_CHANNEL, runtimeKind),
   resolveApproval: (decision: ApprovalDecisionRequest) =>
     ipcRenderer.invoke(APPROVAL_RESOLVE_CHANNEL, decision),
   getChanges: () => ipcRenderer.invoke(CHANGES_GET_CHANNEL),
@@ -46,6 +49,8 @@ const desktopApi: DesktopApi = {
     ipcRenderer.invoke(SESSIONS_DELETE_CHANNEL, sessionId),
   setApprovalMode: (mode: ApprovalMode) =>
     ipcRenderer.invoke(SESSION_APPROVAL_MODE_CHANNEL, mode),
+  switchRuntime: (runtimeKind: RuntimeKind) =>
+    ipcRenderer.invoke(SESSION_RUNTIME_CHANNEL, runtimeKind),
   onTimelineEvent: (listener: (event: TimelineEnvelope) => void) => {
     const handler = (
       _event: Electron.IpcRendererEvent,

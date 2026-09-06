@@ -1,0 +1,27 @@
+{
+  "name": "@pi-ling/native-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pi-ling/ai": "workspace:*",
+    "@pi-ling/coding-agent": "workspace:*",
+    "@pi-ling/runtime-contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "typescript": "7.0.2",
+    "vitest": "4.1.9"
+  }
+}

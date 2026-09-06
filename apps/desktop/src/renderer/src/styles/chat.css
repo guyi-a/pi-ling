@@ -273,6 +273,98 @@
   font-size: 11px;
 }
 
+.runtime-picker {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.runtime-picker > summary {
+  height: 25px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 6px;
+  color: var(--muted);
+  border-radius: 5px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 11px;
+}
+
+.runtime-picker > summary::-webkit-details-marker {
+  display: none;
+}
+
+.runtime-picker > summary:hover {
+  color: var(--text-soft);
+  background: var(--surface-hover);
+}
+
+.runtime-picker > summary svg {
+  width: 12px;
+  height: 12px;
+}
+
+.runtime-menu {
+  position: absolute;
+  z-index: 20;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: 230px;
+  padding: 5px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: #1b1c21;
+  box-shadow: 0 14px 34px rgb(0 0 0 / 38%);
+}
+
+.runtime-menu button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  color: var(--muted);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.runtime-menu button:hover,
+.runtime-menu button.selected {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.runtime-menu button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.runtime-menu button > svg {
+  width: 14px;
+  height: 14px;
+}
+
+.runtime-menu button > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.runtime-menu strong {
+  font-size: 12px;
+  font-weight: 570;
+}
+
+.runtime-menu small {
+  color: var(--muted-2);
+  font-size: 11px;
+}
+
 .model-status {
   min-width: 0;
   display: flex;

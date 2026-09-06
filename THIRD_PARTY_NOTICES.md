@@ -18,3 +18,12 @@ commit metadata in `UPSTREAM.md`.
 The model transports use the OpenAI JavaScript library and the Anthropic
 TypeScript SDK. Their package licenses and notices remain available with the
 installed dependencies.
+
+## DeepSeek Harness
+
+The optional DSH Runtime integrates DeepSeek Harness `0.1.3-alpha.1`
+(`d347e703908d0406b7a7ef80e3a0e594d86b2215`) under the MIT License:
+
+- https://github.com/deepseek-ai/deepseek-harness
+
+ACP transport uses `@agentclientprotocol/sdk` 1.4.0 under Apache-2.0.

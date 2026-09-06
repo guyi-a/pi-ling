@@ -1,5 +1,6 @@
 import { promises as fs } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type {
@@ -16,6 +17,7 @@ import type {
   SessionSummary,
   TimelineSnapshot,
 } from "@pi-ling/contracts";
+import { DshRuntimeAdapter } from "@pi-ling/dsh-runtime";
 import {
   app,
   BrowserWindow,
@@ -45,6 +47,7 @@ const SESSIONS_CREATE_CHANNEL = "sessions:create";
 const SESSIONS_SWITCH_CHANNEL = "sessions:switch";
 const SESSIONS_DELETE_CHANNEL = "sessions:delete";
 const SESSION_APPROVAL_MODE_CHANNEL = "session:approval-mode";
+const SESSION_RUNTIME_CHANNEL = "session:runtime";
 
 try {
   process.loadEnvFile(join(__dirname, "../../../../.env"));
@@ -55,6 +58,7 @@ try {
 }
 
 let sessionStore: SessionStore | undefined;
+let dshRuntime: DshRuntimeAdapter | undefined;
 const supervisors = new Map<
   number,
   { supervisor: SessionSupervisor; ready: Promise<void> }
@@ -117,6 +121,10 @@ function parseCreateSession(value: unknown): CreateSessionRequest {
     ...("title" in value && typeof value.title === "string"
       ? { title: value.title }
       : {}),
+    ...("runtimeKind" in value &&
+    (value.runtimeKind === "native" || value.runtimeKind === "dsh")
+      ? { runtimeKind: value.runtimeKind }
+      : {}),
   };
 }
 
@@ -131,11 +139,15 @@ async function getSupervisor(
   if (!sessionStore) {
     throw new Error("Session store is not ready");
   }
-  const supervisor = new SessionSupervisor(sessionStore, (envelope) => {
-    if (!webContents.isDestroyed()) {
-      webContents.send(TIMELINE_EVENT_CHANNEL, envelope);
-    }
-  });
+  const supervisor = new SessionSupervisor(
+    sessionStore,
+    (envelope) => {
+      if (!webContents.isDestroyed()) {
+        webContents.send(TIMELINE_EVENT_CHANNEL, envelope);
+      }
+    },
+    dshRuntime,
+  );
   const entry = { supervisor, ready: supervisor.initialize() };
   supervisors.set(webContents.id, entry);
   webContents.once("destroyed", () => {
@@ -247,7 +259,10 @@ ipcMain.handle(
 
 ipcMain.handle(
   WORKSPACE_SELECT_CHANNEL,
-  async (event): Promise<SessionActivation | undefined> => {
+  async (
+    event,
+    runtimeKind: unknown,
+  ): Promise<SessionActivation | undefined> => {
     const parent = BrowserWindow.fromWebContents(event.sender);
     const options: Electron.OpenDialogOptions = {
       title: "Select coding workspace",
@@ -262,6 +277,7 @@ ipcMain.handle(
     }
     return (await getSupervisor(event.sender)).create({
       workspaceRoot: root,
+      runtimeKind: runtimeKind === "dsh" ? "dsh" : "native",
     });
   },
 );
@@ -341,8 +357,47 @@ ipcMain.handle(
   },
 );
 
+ipcMain.handle(
+  SESSION_RUNTIME_CHANNEL,
+  async (event, runtimeKind: unknown): Promise<SessionActivation> => {
+    if (runtimeKind !== "native" && runtimeKind !== "dsh") {
+      throw new Error("Invalid runtime");
+    }
+    return (await getSupervisor(event.sender)).switchRuntime(runtimeKind);
+  },
+);
+
 void app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
+  const defaultDshBin =
+    "E:\\deepseek-harness\\apps\\cli\\lib\\bin.js";
+  const dshBin = process.env["PI_LING_DSH_BIN"] ?? defaultDshBin;
+  if (
+    process.env["PI_LING_DSH_ENABLED"] === "true" &&
+    existsSync(dshBin)
+  ) {
+    const sourceRoot = resolve(dirname(dshBin), "../../..");
+    const configuredNode = process.env["PI_LING_NODE_BIN"] ?? "E:\\node.exe";
+    dshRuntime = new DshRuntimeAdapter({
+      dshBin,
+      command: existsSync(configuredNode)
+        ? configuredNode
+        : process.execPath,
+      dshHome: join(
+        app.getPath("userData"),
+        "dsh",
+        "0.1.3-alpha.1-d347e703",
+      ),
+      cwd: existsSync(join(sourceRoot, "package.json"))
+        ? sourceRoot
+        : app.getPath("userData"),
+      env: {
+        ...(process.env["DEEPSEEK_API_KEY"]
+          ? { DEEPSEEK_API_KEY: process.env["DEEPSEEK_API_KEY"] }
+          : {}),
+      },
+    });
+  }
   sessionStore = new SessionStore(
     join(app.getPath("userData"), "pi-ling.db"),
   );
@@ -360,6 +415,7 @@ app.on("window-all-closed", () => {
     void entry.supervisor.dispose();
   }
   supervisors.clear();
+  void dshRuntime?.dispose();
   if (process.platform !== "darwin") {
     app.quit();
   }

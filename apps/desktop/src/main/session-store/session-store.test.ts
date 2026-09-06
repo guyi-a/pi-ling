@@ -37,6 +37,23 @@ describe("SessionStore", () => {
     expect(store.listSessions()).toHaveLength(0);
   });
 
+  it("persists runtime identity and external session mapping", () => {
+    const session = store.createSession({
+      id: "dsh-session",
+      workspaceRoot: directory,
+      runtimeKind: "dsh",
+      runtimeVersion: "0.1.3-alpha.1",
+    });
+    store.setRuntimeSessionId(session.id, "remote-dsh-session");
+    expect(store.getSession(session.id)).toMatchObject({
+      runtimeKind: "dsh",
+      runtimeVersion: "0.1.3-alpha.1",
+    });
+    expect(store.getRuntimeSessionId(session.id)).toBe(
+      "remote-dsh-session",
+    );
+  });
+
   it("allocates monotonic timeline sequence values transactionally", () => {
     store.createSession({ id: "session-1", workspaceRoot: directory });
     const first = store.appendTimeline("session-1", "run-1", {
