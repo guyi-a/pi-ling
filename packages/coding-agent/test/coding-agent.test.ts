@@ -72,6 +72,57 @@ describe("CodingAgent", () => {
     await fs.rm(root, { recursive: true, force: true });
   });
 
+  it("returns effect derivation failures to the model without ending the run", async () => {
+    const responses = [
+      responseWithTool({
+        type: "toolCall",
+        id: "absolute-list",
+        name: "list_files",
+        arguments: { path: path.join(root, "src") },
+      }),
+      responseWithText("I will use a relative path instead."),
+    ];
+    const observed: CodingAgentEvent[] = [];
+    const agent = await CodingAgent.create({
+      workspaceRoot: root,
+      model,
+      streamFn: () => responses.shift()!,
+      emit: (event) => {
+        observed.push(event);
+      },
+    });
+
+    await expect(agent.prompt("inspect src", "path-error-run")).resolves.toBeUndefined();
+
+    const failed = observed.find(
+      (event) =>
+        event.type === "agent" &&
+        event.event.type === "tool_execution_end" &&
+        event.event.toolCall.id === "absolute-list",
+    );
+    expect(failed).toMatchObject({
+      type: "agent",
+      event: {
+        type: "tool_execution_end",
+        result: {
+          isError: true,
+          content: [{ text: "Absolute paths are not allowed" }],
+        },
+      },
+    });
+    expect(
+      agent.messages.some(
+        (message) =>
+          message.role === "assistant" &&
+          message.content.some(
+            (block) =>
+              block.type === "text" &&
+              block.text === "I will use a relative path instead.",
+          ),
+      ),
+    ).toBe(true);
+  });
+
   it("pauses a write for approval, executes it, and continues", async () => {
     const responses = [
       responseWithTool({

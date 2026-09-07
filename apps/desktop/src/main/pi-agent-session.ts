@@ -939,20 +939,26 @@ export class PiAgentSession {
   }
 
   #failRun(runId: string, error: unknown): void {
-    this.#runOutcome = "error";
+    const cancelled =
+      this.#runOutcome === "cancelled" ||
+      (error instanceof Error && error.name === "AbortError");
+    this.#runOutcome = cancelled ? "cancelled" : "error";
     const durable = this.#store.appendSessionEvent({
       sessionId: this.#session.id,
       runtimeKind: "native",
       runId,
       idempotencyKey: `run:${runId}:end`,
-      event: { kind: "run.ended", status: "error" },
+      event: { kind: "run.ended", status: this.#runOutcome },
     });
-    this.#publish(runId, { type: "run_end", status: "error" });
+    this.#publish(runId, {
+      type: "run_end",
+      status: this.#runOutcome,
+    });
     this.#store.setCheckpoint({
       sessionId: this.#session.id,
       runId,
       phase: "terminal",
-      terminalStatus: "error",
+      terminalStatus: this.#runOutcome,
       runtimeKind: "native",
       lastDurableSeq: durable.seq,
       updatedAt: Date.now(),

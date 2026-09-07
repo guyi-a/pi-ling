@@ -51,6 +51,37 @@ function validationError(tool: AgentTool, arguments_: unknown): string {
     .join("; ");
 }
 
+function failedToolResult(
+  call: ToolCall,
+  error: unknown,
+): ToolResultMessage {
+  return {
+    role: "toolResult",
+    toolCallId: call.id,
+    toolName: call.name,
+    content: [
+      {
+        type: "text",
+        text: error instanceof Error ? error.message : String(error),
+      },
+    ],
+    isError: true,
+    timestamp: Date.now(),
+  };
+}
+
+function rethrowCancellation(
+  error: unknown,
+  signal: AbortSignal,
+): void {
+  if (signal.aborted) {
+    throw signal.reason instanceof Error ? signal.reason : error;
+  }
+  if (error instanceof Error && error.name === "AbortError") {
+    throw error;
+  }
+}
+
 async function executeTool(
   call: ToolCall,
   tools: readonly AgentTool[],
@@ -61,66 +92,43 @@ async function executeTool(
   beforeToolCall: BeforeToolCall | undefined,
   onStart: () => void | Promise<void>,
 ): Promise<ToolResultMessage> {
+  signal.throwIfAborted();
   const tool = tools.find((candidate) => candidate.name === call.name);
   if (!tool) {
-    return {
-      role: "toolResult",
-      toolCallId: call.id,
-      toolName: call.name,
-      content: [{ type: "text", text: `Unknown tool: ${call.name}` }],
-      isError: true,
-      timestamp: Date.now(),
-    };
-  }
-
-  const arguments_ = structuredClone(call.arguments);
-  Value.Convert(tool.parameters, arguments_);
-  if (!Value.Check(tool.parameters, arguments_)) {
-    return {
-      role: "toolResult",
-      toolCallId: call.id,
-      toolName: call.name,
-      content: [
-        {
-          type: "text",
-          text: validationError(tool, arguments_),
-        },
-      ],
-      isError: true,
-      timestamp: Date.now(),
-    };
-  }
-
-  if (beforeToolCall) {
-    const decision = await beforeToolCall(
-      {
-        runId,
-        turnId,
-        toolCall: call,
-        tool,
-        arguments: arguments_,
-        context,
-      },
-      signal,
-    );
-    if (!decision.allow) {
-      return {
-        role: "toolResult",
-        toolCallId: call.id,
-        toolName: call.name,
-        content: [
-          {
-            type: "text",
-            text: decision.reason ?? "Tool call denied by user",
-          },
-        ],
-        isError: true,
-        timestamp: Date.now(),
-      };
-    }
+    return failedToolResult(call, `Unknown tool: ${call.name}`);
   }
 
   try {
+    const arguments_ = structuredClone(call.arguments);
+    Value.Convert(tool.parameters, arguments_);
+    if (!Value.Check(tool.parameters, arguments_)) {
+      return failedToolResult(
+        call,
+        validationError(tool, arguments_),
+      );
+    }
+
+    if (beforeToolCall) {
+      const decision = await beforeToolCall(
+        {
+          runId,
+          turnId,
+          toolCall: call,
+          tool,
+          arguments: arguments_,
+          context,
+        },
+        signal,
+      );
+      signal.throwIfAborted();
+      if (!decision.allow) {
+        return failedToolResult(
+          call,
+          decision.reason ?? "Tool call denied by user",
+        );
+      }
+    }
+
     await onStart();
     const result = await tool.execute(call.id, arguments_ as never, signal);
     return {
@@ -132,19 +140,8 @@ async function executeTool(
       timestamp: Date.now(),
     };
   } catch (error) {
-    return {
-      role: "toolResult",
-      toolCallId: call.id,
-      toolName: call.name,
-      content: [
-        {
-          type: "text",
-          text: error instanceof Error ? error.message : String(error),
-        },
-      ],
-      isError: true,
-      timestamp: Date.now(),
-    };
+    rethrowCancellation(error, signal);
+    return failedToolResult(call, error);
   }
 }
 

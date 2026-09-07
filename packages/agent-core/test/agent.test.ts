@@ -60,22 +60,30 @@ function textResponse(text: string): AssistantMessageEventStream {
 }
 
 function toolResponse(call: ToolCall): AssistantMessageEventStream {
+  return toolCallsResponse([call]);
+}
+
+function toolCallsResponse(
+  calls: ToolCall[],
+): AssistantMessageEventStream {
   const stream = new AssistantMessageEventStream();
   const message = createAssistantMessage(model);
-  message.content.push(call);
+  message.content.push(...calls);
   message.stopReason = "toolUse";
   queueMicrotask(() => {
     stream.push({ type: "start", partial: message });
-    stream.push({
-      type: "toolcall_start",
-      contentIndex: 0,
-      partial: message,
-    });
-    stream.push({
-      type: "toolcall_end",
-      contentIndex: 0,
-      toolCall: call,
-      partial: message,
+    calls.forEach((call, contentIndex) => {
+      stream.push({
+        type: "toolcall_start",
+        contentIndex,
+        partial: message,
+      });
+      stream.push({
+        type: "toolcall_end",
+        contentIndex,
+        toolCall: call,
+        partial: message,
+      });
     });
     stream.push({ type: "done", reason: "toolUse", message });
   });
@@ -211,6 +219,203 @@ describe("Agent", () => {
       isError: true,
       content: [{ text: "User denied this write" }],
     });
+  });
+
+  it("returns preflight failures to the model and continues later tools", async () => {
+    const contexts: Context[] = [];
+    const executed: string[] = [];
+    const parameters = Type.Object({ path: Type.String() });
+    const calls: ToolCall[] = [
+      {
+        type: "toolCall",
+        id: "bad-path",
+        name: "read_file",
+        arguments: { path: "E:\\outside.txt" },
+      },
+      {
+        type: "toolCall",
+        id: "good-path",
+        name: "read_file",
+        arguments: { path: "agent.md" },
+      },
+    ];
+    const responses = [
+      toolCallsResponse(calls),
+      textResponse("I corrected the path."),
+    ];
+    const agent = new Agent({
+      initialState: {
+        model,
+        tools: [
+          {
+            name: "read_file",
+            label: "Read file",
+            description: "Read a file",
+            parameters,
+            execute: async (callId) => {
+              executed.push(callId);
+              return { content: [{ type: "text", text: "contents" }] };
+            },
+          },
+        ],
+      },
+      streamFn: (_model, context) => {
+        contexts.push({
+          ...context,
+          messages: structuredClone(context.messages),
+          tools: [],
+        });
+        return responses.shift()!;
+      },
+      beforeToolCall: async ({ toolCall }) => {
+        if (toolCall.id === "bad-path") {
+          throw new Error("Absolute paths are not allowed");
+        }
+        return { allow: true };
+      },
+    });
+    const events: AgentEvent[] = [];
+    agent.subscribe((event) => {
+      events.push(event);
+    });
+
+    await agent.prompt("read both files");
+
+    expect(executed).toEqual(["good-path"]);
+    const failed = agent.state.messages.find(
+      (message) =>
+        message.role === "toolResult" &&
+        message.toolCallId === "bad-path",
+    );
+    expect(failed).toMatchObject({
+      role: "toolResult",
+      isError: true,
+      content: [{ text: "Absolute paths are not allowed" }],
+    });
+    expect(
+      events.some(
+        (event) =>
+          event.type === "tool_execution_start" &&
+          event.toolCall.id === "bad-path",
+      ),
+    ).toBe(false);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "tool_execution_end" &&
+          event.toolCall.id === "bad-path" &&
+          event.result.isError,
+      ),
+    ).toBe(true);
+    expect(contexts[1]?.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "toolResult",
+          toolCallId: "bad-path",
+          isError: true,
+        }),
+        expect.objectContaining({
+          role: "toolResult",
+          toolCallId: "good-path",
+          isError: false,
+        }),
+      ]),
+    );
+  });
+
+  it("returns execution failures to the next model turn", async () => {
+    const contexts: Context[] = [];
+    const parameters = Type.Object({});
+    const responses = [
+      toolResponse({
+        type: "toolCall",
+        id: "failing-call",
+        name: "explode",
+        arguments: {},
+      }),
+      textResponse("Recovered from the tool failure."),
+    ];
+    const agent = new Agent({
+      initialState: {
+        model,
+        tools: [
+          {
+            name: "explode",
+            label: "Explode",
+            description: "Always fails",
+            parameters,
+            execute: async () => {
+              throw new Error("tool exploded");
+            },
+          },
+        ],
+      },
+      streamFn: (_model, context) => {
+        contexts.push({
+          ...context,
+          messages: structuredClone(context.messages),
+          tools: [],
+        });
+        return responses.shift()!;
+      },
+    });
+
+    await agent.prompt("run it");
+
+    expect(contexts[1]?.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "toolResult",
+          toolCallId: "failing-call",
+          isError: true,
+          content: [{ type: "text", text: "tool exploded" }],
+        }),
+      ]),
+    );
+    expect(agent.state.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: [{ type: "text", text: "Recovered from the tool failure." }],
+    });
+  });
+
+  it("does not convert AbortError into a tool result", async () => {
+    const parameters = Type.Object({});
+    const agent = new Agent({
+      initialState: {
+        model,
+        tools: [
+          {
+            name: "abort",
+            label: "Abort",
+            description: "Aborts",
+            parameters,
+            execute: async () => {
+              const error = new Error("cancelled");
+              error.name = "AbortError";
+              throw error;
+            },
+          },
+        ],
+      },
+      streamFn: () =>
+        toolResponse({
+          type: "toolCall",
+          id: "abort-call",
+          name: "abort",
+          arguments: {},
+        }),
+    });
+
+    await expect(agent.prompt("abort")).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    expect(
+      agent.state.messages.some(
+        (message) =>
+          message.role === "toolResult" &&
+          message.toolCallId === "abort-call",
+      ),
+    ).toBe(false);
   });
 
   it("resumes pending tool calls without repeating completed calls", async () => {
