@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { Readable, Writable } from "node:stream";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   client as createAcpClientApp,
@@ -20,6 +21,8 @@ import type {
   RuntimeEventListener,
   RuntimePermissionDecision,
   RuntimeSessionHandle,
+  RuntimeSessionImportOptions,
+  RuntimeSessionImportResult,
   RuntimeSessionOptions,
   RuntimeToolStatus,
 } from "@pi-ling/runtime-contracts";
@@ -39,6 +42,12 @@ export interface DshRuntimeOptions {
 interface PendingPermission {
   resolve: (response: RequestPermissionResponse) => void;
   options: Array<{ optionId: string; kind: string }>;
+}
+
+interface ToolDetails {
+  title: string;
+  kind: string;
+  input?: unknown;
 }
 
 const ALLOWED_ENV = [
@@ -81,16 +90,72 @@ function toolStatus(status: unknown): RuntimeToolStatus {
   return "requested";
 }
 
+function productToolKind(name: string, kind: string | undefined): string {
+  const normalized = name.trim().toLowerCase();
+  if (["read", "read_image"].includes(normalized)) return "read";
+  if (["glob", "grep", "search"].includes(normalized)) return "search";
+  if (["write", "edit", "str_replace_editor"].includes(normalized)) {
+    return "edit";
+  }
+  if (["bash", "pwsh", "run_code", "run_command"].includes(normalized)) {
+    return "execute";
+  }
+  if (["delete", "remove"].includes(normalized)) return "delete";
+  return kind && kind !== "other" ? kind : "other";
+}
+
+function toolKey(remoteSessionId: string, callId: string): string {
+  return `${remoteSessionId}\0${callId}`;
+}
+
+function executionGroupId(runId: string): string {
+  return `${runId}:exec`;
+}
+
+function optionalMessageId(update: SessionUpdate): string | undefined {
+  const messageId = Reflect.get(update, "messageId");
+  return typeof messageId === "string" && messageId.trim()
+    ? messageId
+    : undefined;
+}
+
+function withMessageId<T extends Record<string, unknown>>(
+  value: T,
+  messageId?: string,
+): T | (T & { messageId: string }) {
+  return messageId ? { ...value, messageId } : value;
+}
+
+async function waitForFile(
+  file: string,
+  timeoutMs: number,
+  intervalMs = 50,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (true) {
+    try {
+      await fs.access(file);
+      return;
+    } catch {
+      // fall through to poll again
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`timed out waiting for ${file}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
+
 export class DshRuntimeAdapter implements RuntimeAdapter {
   readonly kind = "dsh" as const;
   readonly capabilities: RuntimeCapabilities = {
-    modelSwitching: true,
-    partialStreaming: true,
+    modelSwitching: false,
+    partialStreaming: false,
     toolApproval: true,
-    mcp: true,
+    mcp: false,
     hooks: false,
     sandbox: true,
-    subagents: true,
+    subagents: false,
     resume: true,
     fork: false,
     fileCheckpoint: false,
@@ -100,6 +165,7 @@ export class DshRuntimeAdapter implements RuntimeAdapter {
   readonly #sessions = new Map<string, string>();
   readonly #runByRemoteSession = new Map<string, string>();
   readonly #permissions = new Map<string, PendingPermission>();
+  readonly #tools = new Map<string, ToolDetails>();
   #child: ChildProcessWithoutNullStreams | undefined;
   #connection: ClientConnection | undefined;
   #initializing: Promise<void> | undefined;
@@ -150,6 +216,35 @@ export class DshRuntimeAdapter implements RuntimeAdapter {
       sessionId: options.sessionId,
       externalSessionId: options.externalSessionId,
     };
+  }
+
+  async importSession(
+    options: RuntimeSessionImportOptions,
+  ): Promise<RuntimeSessionImportResult> {
+    await this.initialize();
+    const importDir = resolve(this.#options.dshHome, "pi-ling-import");
+    await fs.mkdir(importDir, { recursive: true });
+    const requestId = randomUUID();
+    const requestPath = resolve(importDir, `${requestId}.json`);
+    const donePath = resolve(importDir, `${requestId}.done`);
+    const append = options.appendToExternalSessionId;
+    const mode = append ? "append" : "import";
+    await fs.writeFile(
+      requestPath,
+      JSON.stringify({
+        mode,
+        sessionId: append ?? options.sessionId,
+        cwd: options.workspaceRoot,
+        provider: options.provider ?? "deepseek",
+        model: options.model ?? "deepseek-v4-flash",
+        canonicalMessages: options.canonicalMessages,
+        ...(mode === "append" ? { startTurn: options.startTurn ?? 1 } : {}),
+        doneFile: donePath,
+      }),
+      "utf8",
+    );
+    await waitForFile(donePath, this.#options.initializeTimeoutMs ?? 30_000);
+    return { externalSessionId: append ?? options.sessionId };
   }
 
   async send(
@@ -231,6 +326,9 @@ export class DshRuntimeAdapter implements RuntimeAdapter {
     await this.#connection.agent.request(methods.agent.session.close, {
       sessionId: remoteSessionId,
     });
+    for (const key of this.#tools.keys()) {
+      if (key.startsWith(`${remoteSessionId}\0`)) this.#tools.delete(key);
+    }
     this.#sessions.delete(sessionId);
   }
 
@@ -270,6 +368,7 @@ export class DshRuntimeAdapter implements RuntimeAdapter {
       }
     }
     this.#sessions.clear();
+    this.#tools.clear();
     this.#listeners.clear();
   }
 
@@ -335,6 +434,14 @@ export class DshRuntimeAdapter implements RuntimeAdapter {
         const runId =
           this.#runByRemoteSession.get(params.sessionId) ?? randomUUID();
         const permissionId = randomUUID();
+        const cached = this.#tools.get(
+          toolKey(params.sessionId, params.toolCall.toolCallId),
+        );
+        const toolKind = params.toolCall.kind ?? cached?.kind;
+        const input =
+          params.toolCall.rawInput !== undefined
+            ? params.toolCall.rawInput
+            : cached?.input;
         return new Promise<RequestPermissionResponse>((resolve) => {
           this.#permissions.set(permissionId, {
             resolve,
@@ -347,15 +454,12 @@ export class DshRuntimeAdapter implements RuntimeAdapter {
             type: "permission",
             sessionId: this.#productSession(params.sessionId),
             runId,
+            executionGroupId: executionGroupId(runId),
             permissionId,
             callId: params.toolCall.toolCallId,
-            title: params.toolCall.title ?? "DSH permission",
-            ...(params.toolCall.kind
-              ? { toolKind: params.toolCall.kind }
-              : {}),
-            ...(params.toolCall.rawInput !== undefined
-              ? { input: params.toolCall.rawInput }
-              : {}),
+            title: params.toolCall.title ?? cached?.title ?? "DSH permission",
+            ...(toolKind ? { toolKind } : {}),
+            ...(input !== undefined ? { input } : {}),
             options: params.options.map((option) => ({
               optionId: option.optionId,
               label: option.name,
@@ -397,34 +501,68 @@ export class DshRuntimeAdapter implements RuntimeAdapter {
     const runId = this.#runByRemoteSession.get(remoteSessionId);
     if (!runId) return;
     const sessionId = this.#productSession(remoteSessionId);
+    const groupId = executionGroupId(runId);
     if (update.sessionUpdate === "agent_message_chunk") {
       const delta = textContent(update.content);
       if (delta) {
-        await this.#emit({ type: "assistant_text", sessionId, runId, delta });
+        await this.#emit(
+          withMessageId(
+            {
+              type: "assistant_text",
+              sessionId,
+              runId,
+              executionGroupId: groupId,
+              delta,
+            },
+            optionalMessageId(update),
+          ),
+        );
       }
     } else if (update.sessionUpdate === "agent_thought_chunk") {
       const delta = textContent(update.content);
       if (delta) {
-        await this.#emit({
-          type: "assistant_thought",
-          sessionId,
-          runId,
-          delta,
-        });
+        await this.#emit(
+          withMessageId(
+            {
+              type: "assistant_thought",
+              sessionId,
+              runId,
+              executionGroupId: groupId,
+              delta,
+            },
+            optionalMessageId(update),
+          ),
+        );
       }
     } else if (
       update.sessionUpdate === "tool_call" ||
       update.sessionUpdate === "tool_call_update"
     ) {
+      const key = toolKey(remoteSessionId, update.toolCallId);
+      const previous = this.#tools.get(key);
+      const title = update.title ?? update.name ?? previous?.title ?? "DSH tool";
+      const kind = productToolKind(
+        title,
+        update.kind ?? previous?.kind,
+      );
+      const input =
+        update.rawInput !== undefined ? update.rawInput : previous?.input;
+      this.#tools.set(key, {
+        title,
+        kind,
+        ...(input !== undefined ? { input } : {}),
+      });
+      const status = toolStatus(update.status);
       await this.#emit({
         type: "tool",
         sessionId,
         runId,
+        executionGroupId: groupId,
         callId: update.toolCallId,
-        title: update.title ?? update.name ?? "DSH tool",
-        ...(update.kind ? { kind: update.kind } : {}),
-        status: toolStatus(update.status),
-        ...(update.rawInput !== undefined ? { input: update.rawInput } : {}),
+        title,
+        kind,
+        status,
+        ...(input !== undefined ? { input } : {}),
         ...(update.rawOutput !== undefined
           ? {
               output:
@@ -434,9 +572,12 @@ export class DshRuntimeAdapter implements RuntimeAdapter {
             }
           : {}),
       });
+      if (status === "completed" || status === "failed") {
+        this.#tools.delete(key);
+      }
     } else if (update.sessionUpdate === "usage_update") {
       await this.#emit({
-        type: "usage",
+        type: "context_usage",
         sessionId,
         runId,
         used: update.used,
@@ -489,7 +630,25 @@ export class DshRuntimeAdapter implements RuntimeAdapter {
   async #writeProfilePatch(content: string): Promise<string> {
     await fs.mkdir(this.#options.dshHome, { recursive: true });
     const path = resolve(this.#options.dshHome, "pi-ling-acp.patch.yml");
-    await fs.writeFile(path, content, "utf8");
+    const approvalPlugin = new URL(
+      "./dsh-approval-policy.js",
+      import.meta.url,
+    ).href;
+    const sessionImportPlugin = pathToFileURL(
+      resolve(
+        dirname(fileURLToPath(import.meta.url)),
+        "../../dsh-transcript/dist/dsh-session-import.js",
+      ),
+    ).href;
+    const combined = `${content.trimEnd()}
+
+- insert:
+    - id: pi-ling-approval-policy
+      name: ${JSON.stringify(approvalPlugin)}
+    - id: pi-ling-session-import
+      name: ${JSON.stringify(sessionImportPlugin)}
+`;
+    await fs.writeFile(path, combined, "utf8");
     return path;
   }
 

@@ -1,6 +1,7 @@
 import type {
   AgentStatus,
   ApprovalMode,
+  ChangedFile,
   RuntimeKind,
   SessionActivation,
   StreamFrameEnvelope,
@@ -23,6 +24,11 @@ import {
 } from "./features/shell/WorkbenchChrome";
 import { SettingsView } from "./features/settings/SettingsView";
 import { Sidebar } from "./features/threads/Sidebar";
+import {
+  DEFAULT_CHANGES_SOURCE,
+  type ChangesSourceId,
+} from "./features/details/changes-source";
+import { lastAgentTurnChanges } from "./run-activity/run-changes";
 import { applyTheme, readInitialTheme } from "./theme";
 import type { ApprovalTimelineItem } from "./timeline/reducer";
 import {
@@ -88,6 +94,20 @@ export function App() {
     () => new Set(),
   );
   const [showDshNotice, setShowDshNotice] = useState(false);
+  const [changesSource, setChangesSource] = useState<ChangesSourceId>(
+    DEFAULT_CHANGES_SOURCE,
+  );
+  const [changesFiles, setChangesFiles] = useState<ChangedFile[]>([]);
+  const [rightPanelWidth, setRightPanelWidth] = useState<number | null>(() => {
+    const stored = localStorage.getItem("pi-ling.workbench.width");
+    if (!stored) return null;
+    const parsed = Number(stored);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  });
+  const resizeRef = useRef<{
+    startX: number;
+    startWidth: number;
+  } | null>(null);
   const timelineCacheRef = useRef(new Map<string, typeof timeline>());
   const selectedSessionRef = useRef<string | null>(
     fixture?.status.sessionId ?? null,
@@ -127,7 +147,8 @@ export function App() {
       if (
         envelope.event.type === "run_end" ||
         envelope.event.type === "approval_requested" ||
-        envelope.event.type === "approval_resolved"
+        envelope.event.type === "approval_resolved" ||
+        envelope.event.type === "changes"
       ) {
         void window.piLing.listWorkspaces(true).then(setWorkspaces);
       }
@@ -185,6 +206,16 @@ export function App() {
     }
   }, [pendingRunId, timeline.runs]);
 
+  useEffect(() => {
+    if (changesSource === "last-agent-turn") {
+      setChangesFiles(
+        lastAgentTurnChanges(timeline.items, timeline.runs),
+      );
+    } else {
+      void window.piLing.getChanges().then(setChangesFiles);
+    }
+  }, [changesSource, timeline]);
+
   const activeRunId =
     pendingRunId ??
     Object.values(timeline.runs).find((run) => run.status === "running")?.id ??
@@ -197,6 +228,38 @@ export function App() {
       return next;
     });
   }, []);
+
+  function refreshChanges(source: ChangesSourceId = changesSource) {
+    if (source === "last-agent-turn") {
+      setChangesFiles(
+        lastAgentTurnChanges(timeline.items, timeline.runs),
+      );
+      return;
+    }
+    void window.piLing.getChanges().then(setChangesFiles);
+  }
+
+  function startResize(event: React.PointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = rightPanelWidth ?? parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue("--workbench-width"),
+    );
+    resizeRef.current = { startX, startWidth };
+    const onMove = (moveEvent: PointerEvent) => {
+      const ref = resizeRef.current;
+      if (!ref) return;
+      const delta = ref.startX - moveEvent.clientX;
+      setRightPanelWidth(Math.max(320, Math.min(980, ref.startWidth + delta)));
+    };
+    const onUp = () => {
+      resizeRef.current = null;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
 
   function applyActivation(activation: SessionActivation): boolean {
     if (activation.activationRevision < activationRevisionRef.current) {
@@ -216,6 +279,7 @@ export function App() {
       dispatch({ type: "frame", frame });
     }
     void window.piLing.listWorkspaces(true).then(setWorkspaces);
+    refreshChanges();
     return true;
   }
 
@@ -370,6 +434,11 @@ export function App() {
     <main className="shell">
       <AppTitleBar />
       <section
+        style={
+          rightPanelWidth
+            ? ({ "--workbench-width": `${rightPanelWidth}px` } as React.CSSProperties)
+            : undefined
+        }
         className={`workspace ${
           activeView === "settings"
             ? "settings-workspace"
@@ -450,7 +519,33 @@ export function App() {
               />
             </section>
             {rightPanelOpen ? (
-              <WorkbenchPanel onClose={() => setRightPanelOpen(false)} />
+              <div
+                className="workbench-resize-handle"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize workbench"
+                onPointerDown={startResize}
+              />
+            ) : null}
+            {rightPanelOpen ? (
+              <WorkbenchPanel
+                onClose={() => {
+                  setRightPanelOpen(false);
+                  if (rightPanelWidth) {
+                    localStorage.setItem(
+                      "pi-ling.workbench.width",
+                      String(rightPanelWidth),
+                    );
+                  }
+                }}
+                changesSource={changesSource}
+                changesFiles={changesFiles}
+                onChangeSource={(source) => {
+                  setChangesSource(source);
+                  refreshChanges(source);
+                }}
+                onLoadDiff={(path) => window.piLing.getDiff(path)}
+              />
             ) : null}
           </>
         )}

@@ -6,9 +6,11 @@ export const DSH_PI_AI_PROFILE_PATCH = `
       deepseek:
         apiKeyEnv: DEEPSEEK_API_KEY
         baseURL: !!js "process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com'"
+        reasoning: high
       anthropic:
         apiKeyEnv: ANTHROPIC_API_KEY
         baseURL: !!js "process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com'"
+        reasoning: high
 
 - id: acp
   name: '@deepseek-ai/dsh-acp'

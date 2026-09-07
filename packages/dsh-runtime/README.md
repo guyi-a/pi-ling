@@ -49,9 +49,10 @@ PI_LING_DSH_ENABLED=true
 PI_LING_DSH_BIN=/absolute/path/to/deepseek-harness-d347e703/apps/cli/lib/bin.js
 ```
 
-`PI_LING_NODE_BIN` is optional and defaults to the current Node executable.
-The desktop app checks the CLI and root package versions before registering the
-runtime; a missing path or version mismatch leaves DSH disabled.
+`PI_LING_NODE_BIN` is optional. The Electron desktop defaults to `node` from
+`PATH`; non-Electron callers default to `process.execPath`. The desktop app
+checks the CLI and root package versions before registering the runtime; a
+missing configured path or version mismatch leaves DSH disabled.
 
 The desktop writes a deterministic profile overlay into the versioned
 `DSH_HOME`. It activates the pinned DSH `@deepseek-ai/dsh-llm-pi-ai` adapter
@@ -65,6 +66,7 @@ server, so they exercise ACP and persistence without network credentials:
 ```sh
 RUN_REAL_DSH_UNIFIED_SMOKE=1 pnpm --filter @pi-ling/desktop test
 RUN_REAL_DSH_LIFECYCLE_SMOKE=1 pnpm --filter @pi-ling/desktop test
+RUN_REAL_DSH_APPROVAL_SMOKE=1 pnpm --filter @pi-ling/desktop test
 ```
 
 Provider tests that contact a real model remain separate and require

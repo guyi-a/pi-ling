@@ -190,7 +190,22 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: link:../../.dsh-source/packages/core/session
         version: link:../../.dsh-source/packages/core/session
+      '@pi-ling/contracts':
+        specifier: workspace:*
+        version: link:../contracts
     devDependencies:
+      '@agentclientprotocol/sdk':
+        specifier: 1.4.0
+        version: 1.4.0(zod@4.5.4)
+      '@deepseek-ai/dsh-llm-mock-server':
+        specifier: link:../../.dsh-source/packages/test-support/llm-mock-server
+        version: link:../../.dsh-source/packages/test-support/llm-mock-server
+      '@pi-ling/dsh-runtime':
+        specifier: workspace:*
+        version: link:../dsh-runtime
+      '@pi-ling/runtime-contracts':
+        specifier: workspace:*
+        version: link:../runtime-contracts
       '@types/node':
         specifier: 24.10.1
         version: 24.10.1

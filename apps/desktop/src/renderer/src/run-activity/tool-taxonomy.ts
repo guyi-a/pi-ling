@@ -7,7 +7,7 @@ function normalizedName(name: string): string {
 }
 
 export function toolTarget(tool: ToolTimelineItem): string {
-  for (const key of ["path", "file", "command", "pattern", "query", "url"]) {
+  for (const key of ["path", "file", "file_path", "filePath", "command", "pattern", "query", "url"]) {
     const value = tool.arguments[key];
     if (typeof value === "string" && value.trim()) return value.trim();
   }

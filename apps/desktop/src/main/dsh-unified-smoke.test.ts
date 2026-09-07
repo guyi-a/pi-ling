@@ -275,4 +275,90 @@ describe.sequential("real DSH unified session smoke", () => {
     },
     180_000,
   );
+
+  it.skipIf(process.env["RUN_REAL_DSH_APPROVAL_SMOKE"] !== "1")(
+    "gates a real DSH write through pi-ling approval",
+    async () => {
+      const directory = await fs.mkdtemp(
+        path.join(os.tmpdir(), "pi-ling-dsh-approval-"),
+      );
+      const model = await startMockLlmServer({
+        sequence: ["tool_call_success", "success"],
+        apiKey: "mock-key",
+        toolName: "write",
+        toolArguments: JSON.stringify({
+          file_path: "approval.txt",
+          content: "approved",
+        }),
+        successText: "write-complete",
+      });
+      const runtime = new DshRuntimeAdapter(
+        realDshOptions(path.join(directory, "dsh-home"), {
+          baseURL: model.baseURL,
+          apiKey: "mock-key",
+        }),
+      );
+      let pending:
+        | { callId: string; effectDigest: string }
+        | undefined;
+      const store = new SessionStore(path.join(directory, "pi-ling.db"));
+      const supervisor = new SessionSupervisor(
+        store,
+        (envelope) => {
+          if (envelope.event.type === "approval_requested") {
+            pending = {
+              callId: envelope.event.approval.callId,
+              effectDigest: envelope.event.approval.effectDigest,
+            };
+          }
+        },
+        () => {},
+        runtime,
+      );
+      try {
+        const activation = await supervisor.create({
+          workspaceRoot: directory,
+          runtimeKind: "dsh",
+        });
+        supervisor.startPrompt(
+          "real-dsh-approval",
+          "Write approval.txt with the exact text approved, then reply briefly.",
+          activation.session.id,
+        );
+        const deadline = Date.now() + 30_000;
+        while (!pending) {
+          if (Date.now() > deadline) {
+            throw new Error("DSH approval request timed out");
+          }
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        expect(existsSync(path.join(directory, "approval.txt"))).toBe(false);
+        const decision = pending;
+        await expect(
+          supervisor.resolveApproval(decision.callId, {
+            approved: true,
+            effectDigest: decision.effectDigest,
+          }),
+        ).resolves.toBe(true);
+        while (
+          store.getSession(activation.session.id)?.lifecycle !== "idle"
+        ) {
+          if (Date.now() > deadline) {
+            throw new Error("DSH approved write timed out");
+          }
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        await expect(
+          fs.readFile(path.join(directory, "approval.txt"), "utf8"),
+        ).resolves.toBe("approved");
+      } finally {
+        await supervisor.dispose();
+        await runtime.dispose();
+        store.close();
+        await model.close();
+        await fs.rm(directory, { recursive: true, force: true });
+      }
+    },
+    120_000,
+  );
 });

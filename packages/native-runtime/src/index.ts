@@ -17,6 +17,10 @@ import type {
 const models = createModels();
 models.setProvider(deepseekProvider());
 
+function executionGroupId(runId: string): string {
+  return `${runId}:exec`;
+}
+
 export class NativeRuntimeAdapter implements RuntimeAdapter {
   readonly kind = "native" as const;
   readonly capabilities: RuntimeCapabilities = {
@@ -132,6 +136,7 @@ export class NativeRuntimeAdapter implements RuntimeAdapter {
         type: "permission",
         sessionId,
         runId: event.approval.runId,
+        executionGroupId: executionGroupId(event.approval.runId),
         permissionId: event.approval.callId,
         callId: event.approval.callId,
         title: event.approval.tool,
@@ -153,6 +158,7 @@ export class NativeRuntimeAdapter implements RuntimeAdapter {
         type: "assistant_text",
         sessionId,
         runId: value.runId,
+        executionGroupId: executionGroupId(value.runId),
         delta: value.assistantMessageEvent.delta,
       });
     } else if (
@@ -163,6 +169,7 @@ export class NativeRuntimeAdapter implements RuntimeAdapter {
         type: "assistant_thought",
         sessionId,
         runId: value.runId,
+        executionGroupId: executionGroupId(value.runId),
         delta: value.assistantMessageEvent.delta,
       });
     } else if (value.type === "tool_execution_start") {
@@ -170,6 +177,7 @@ export class NativeRuntimeAdapter implements RuntimeAdapter {
         type: "tool",
         sessionId,
         runId: value.runId,
+        executionGroupId: executionGroupId(value.runId),
         callId: value.toolCall.id,
         title: value.toolCall.name,
         status: "running",
@@ -180,6 +188,7 @@ export class NativeRuntimeAdapter implements RuntimeAdapter {
         type: "tool",
         sessionId,
         runId: value.runId,
+        executionGroupId: executionGroupId(value.runId),
         callId: value.toolCall.id,
         title: value.toolCall.name,
         status: value.result.isError ? "failed" : "completed",

@@ -1,7 +1,7 @@
 # DSH ACP 接入执行计划
 
 记录时间：2026-09-07
-状态：Phase 0 与官方 LLM Adapter 接入已完成；安全与事件合约仍待实施
+状态：Phase 0、官方 LLM Adapter 与 PR2A 审批对齐已完成；PR2B 待实施
 固定 DSH：`dsh-v0.1.3-alpha.1` / `d347e703908d0406b7a7ef80e3a0e594d86b2215`
 固定 ACP SDK：`@agentclientprotocol/sdk@1.4.0`
 
@@ -302,14 +302,20 @@ Spike 必须给出：
 
 目标：先让现有 ACP 接入语义正确、安全且可测试。
 
-工作：
+PR2A 审批行为对齐已完成：
 
-- unknown/missing effect 在所有模式下强制询问。
-- 为 `manual`、`accept-write`、`auto` 和 destructive/unknown 建立测试矩阵。
+- Native 与 DSH 共用 Effect/`approvalReason` 产品规则，各自保留门控实现。
+- DSH 通过内置 `tools/pre-execute` 模块调用官方 `dsh-user-approval` 与 ACP。
+- unknown/missing、敏感写入和破坏性命令在所有模式下强制询问。
+- `manual`、`accept-write`、`auto` 的确定性行为矩阵与真实 DSH 写入审批
+  Smoke 已通过。
+
+PR2B 已完成：
+
 - 将 `usage_update` 表达为 `contextUsage { used, size }`。
 - 不再伪造 DSH per-turn input/output usage。
 - 在 Runtime Event 中传递 ACP `messageId`。
-- 定义一个 ACP Prompt 对应的稳定 `executionGroupId`。
+- 为一个 ACP Prompt 定义稳定的 `executionGroupId`（`${runId}:exec`）。
 - 核对并收紧 DSH Runtime capabilities。
 - 验证 `session/close` 后使用原 external id `session/resume` 的行为。
 
@@ -324,7 +330,7 @@ Spike 必须给出：
 
 验收：
 
-- 缺少 `toolKind` 的真实形态不会自动允许。
+- 缺少 `toolKind` 的真实形态不会自动允许（已完成）。
 - Context Usage 在协议、持久化和 UI 中含义一致。
 - committed message 使用 ACP 提供的 identity。
 - capability 每一项都有代码和测试证据。
@@ -553,12 +559,12 @@ DSH 固定接口、Bridge package 和真实 Smoke 使用独立显式命令，不
 ## 8. 建议 PR 拆分
 
 - [x] PR1：固定版本开发环境、跨平台路径和真实 ACP 基线 Smoke。
-- [ ] PR2：Permission fail-closed、contextUsage、messageId 和 truthful
-  capabilities。
+- [x] PR2A：Native/DSH 三档审批行为、unknown fail-closed 与真实写入 Smoke。
+- [x] PR2B：contextUsage、messageId、execution group 和 truthful capabilities。
 - [x] PR3：采用固定 DSH 官方 `dsh-llm-pi-ai` 并完成 Profile Smoke。
-- [ ] PR4：Canonical Seed 接入 Spike，记录 import 与 persistence 决策。
-- [ ] PR5：Canonical Session Bridge text/tool/reasoning MVP 与幂等水位。
-- [ ] PR6：Attachment、Compaction、Runtime projection 与跨 Runtime handoff。
+- [x] PR4：Canonical Seed 接入 Spike，记录 import 与 persistence 决策。
+- [x] PR5：Canonical Session Bridge text/tool/reasoning MVP 与幂等水位。
+- [ ] PR6：Attachment、Compaction、Runtime projection 与跨 Runtime handoff。（跨 Runtime handoff 增量 delta 同步已完成；Attachment/Compaction 待有真实数据流）
 - [ ] PR7：ACP live stream、Main Buffer 去重与取消语义。
 - [ ] PR8：稳定 Run Activity、Tool 摘要、durable Approval 和 Changes/Diff。
 - [ ] PR9：恢复矩阵、真实 Smoke、Eval、分发和升级回滚。
@@ -587,6 +593,7 @@ DSH 固定接口、Bridge package 和真实 Smoke 使用独立显式命令，不
 - [x] 固定 commit 的真实 ACP Prompt/Cancel/Close/Resume Smoke。
 - [x] 固定 DSH 事件进入产品 Canonical Session Event Log。
 - [x] 官方 `dsh-llm-pi-ai` 通过本地 mock Provider 的真实 ACP Smoke。
+- [x] 真实 DSH 写工具经过官方审批链并在允许后继续执行。
 
 尚待当前环境重新验证：
 
@@ -596,12 +603,12 @@ DSH 固定接口、Bridge package 和真实 Smoke 使用独立显式命令，不
 
 尚未实现：
 
-- [ ] unknown permission fail-closed。
-- [ ] 正确 contextUsage。
-- [ ] ACP message identity。
-- [ ] Stable execution group。
+- [x] 正确 contextUsage。
+- [x] ACP message identity。
+- [x] Stable execution group。
 - [ ] 完整 Canonical Session Bridge。
-- [ ] Seed 产品接线与增量水位。
+- [x] Seed 产品接线（首次完整导入 + 幂等水位）。
+- [x] Seed 增量水位（已存在 session 的 delta 同步）。
 - [ ] live token stream。
 - [ ] DSH Changes/Diff。
 - [ ] DSH durable approval recovery。

@@ -1,14 +1,31 @@
 .message-list {
+  position: relative;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+
+.message-list::before {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 14px;
+  content: "";
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    var(--editor-bg),
+    transparent
+  );
 }
 
 .message-list-inner {
   width: min(var(--content-width), calc(100% - 48px));
   min-height: 100%;
   margin: 0 auto;
-  padding: 26px 0 22px;
+  padding: 14px 0 22px;
 }
 
 .message {

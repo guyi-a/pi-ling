@@ -98,7 +98,11 @@ function nativeMessages(
         if (block.type === "text") {
           content.push({ type: "text", text: block.text });
         } else if (block.type === "reasoning") {
-          content.push({ type: "thinking", thinking: block.text });
+          content.push({
+            type: "thinking",
+            thinking: block.text,
+            thinkingSignature: block.signature ?? "reasoning_content",
+          });
         } else if (block.type === "tool-call") {
           toolNames.set(block.toolCallId, block.name);
           content.push({

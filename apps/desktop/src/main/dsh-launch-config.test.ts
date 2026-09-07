@@ -104,4 +104,21 @@ describe("resolveDshLaunchConfig", () => {
       },
     });
   });
+
+  it("allows Electron to launch DSH with Node from PATH", async () => {
+    const { bin } = await installation();
+    expect(
+      resolveDshLaunchConfig(
+        {
+          PI_LING_DSH_ENABLED: "true",
+          PI_LING_DSH_BIN: bin,
+        },
+        "/user-data",
+        "node",
+      ),
+    ).toMatchObject({
+      enabled: true,
+      options: { command: "node" },
+    });
+  });
 });

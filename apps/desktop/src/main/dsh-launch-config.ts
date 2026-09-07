@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 
 import type { DshRuntimeOptions } from "@pi-ling/dsh-runtime";
 
@@ -32,7 +32,7 @@ function manifestVersion(path: string): string | undefined {
 export function resolveDshLaunchConfig(
   env: NodeJS.ProcessEnv,
   userDataPath: string,
-  nodeExecutable = process.execPath,
+  nodeExecutable = process.versions.electron ? "node" : process.execPath,
 ): DshLaunchResolution {
   if (env["PI_LING_DSH_ENABLED"] !== "true") {
     return { enabled: false };
@@ -73,7 +73,7 @@ export function resolveDshLaunchConfig(
 
   const configuredNode = env["PI_LING_NODE_BIN"]?.trim();
   const command = configuredNode ? resolve(configuredNode) : nodeExecutable;
-  if (!existsSync(command)) {
+  if (isAbsolute(command) && !existsSync(command)) {
     return {
       enabled: true,
       reason: `Node executable does not exist: ${command}`,

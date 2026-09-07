@@ -59,24 +59,16 @@ durable `session/event`，没有订阅 live stream。
 
 需要调整：
 
-- 保留 ACP `messageId` 并加入 RuntimeEvent。
-- 为一个 ACP prompt 建立稳定的 execution group。
-- 同一 run 中连续 thinking/tool 进入同一执行时间线。
+- 保留 ACP `messageId` 并加入 RuntimeEvent。（已完成）
+- 为一个 ACP prompt 建立稳定的 execution group。（已完成：`${runId}:exec`）
+- 同一 run 中连续 thinking/tool 进入同一执行时间线。（已完成）
 - 只有最终 committed assistant text 独立成为回答。
 - permission 继续绑定对应 `toolCallId`，不额外产生执行分组。
 
-## P1：Usage 语义错误
+## P1：Usage 语义
 
-ACP `usage_update` 的 `used/size` 表示当前上下文占用与窗口容量，不是本轮
-input/output usage。
-
-当前 UI 把 `used` 映射成 input、output 显示为 0，含义错误。
-
-修正方向：
-
-- Runtime 协议增加 `contextUsage { used, size }`。
-- DSH UI 显示 `8.7k / 1m context`。
-- 不伪造 DSH 本轮 input/output。
+已修正：ACP `usage_update` 现映射为 `contextUsage { used, size }`，UI 显示
+`8.7k / 1m context`，不再伪造 input/output。
 
 ## P1：工具展示信息不足
 
@@ -93,13 +85,17 @@ input/output usage。
 - 切换回 DSH 应恢复原 DSH session，而不是再创建一个。
 - Runtime 切换失败时继续保留原 Native Runtime 和 timeline。
 
-## P1：审批映射待实机覆盖
+## 审批映射状态
 
-- fake ACP permission allow/reject 已通过。
-- 真实 worktree 写入由 DSH 自身策略直接允许，没有触发 ACP permission。
-- 需要构造真实 destructive/execute 场景，确认
-  `manual / accept-write / auto` 与 ACP option 的映射。
-- `delete`、`other`、无法解析的执行和破坏性命令始终人工确认。
+- Native 与 DSH 共用 `approvalReason`/Effect 产品规则，但保留各自门控实现。
+- DSH 内置 pi-ling `tools/pre-execute` 模块：只读工具继续，写入、命令和
+  unknown 进入官方 `dsh-user-approval`，再由 ACP 转发。
+- ACP permission 只携带 callId 时，`DshRuntimeAdapter` 从之前的
+  `tool_call` 补齐工具名和 rawInput。
+- 三档确定性行为矩阵已通过；unknown、敏感写入和破坏性命令始终询问。
+- 真实固定 DSH 写工具已经验证“执行前询问 → pi-ling allow → 继续写入”。
+- destructive/execute 的真实 ACP 场景仍可补充，但不阻塞已完成的 PR2A
+  行为对齐。
 
 ## DSH LLM Adapter 状态
 

@@ -184,7 +184,13 @@ export function canonicalFromMessage(
       if (block.type === "text") {
         content.push({ type: "text", text: block.text });
       } else if (block.type === "thinking") {
-        content.push({ type: "reasoning", text: block.thinking });
+        content.push({
+          type: "reasoning",
+          text: block.thinking,
+          ...(block.thinkingSignature
+            ? { signature: block.thinkingSignature }
+            : {}),
+        });
       } else {
         content.push({
           type: "tool-call",
@@ -909,6 +915,28 @@ export class SessionStore {
     });
   }
 
+  setRuntimeImport(
+    sessionId: string,
+    externalSessionId: string,
+    lastSyncedCanonicalSeq: number,
+  ): void {
+    const session = this.getSession(sessionId);
+    if (!session) throw new Error(`Session not found: ${sessionId}`);
+    this.#db
+      .prepare(
+        `UPDATE sessions SET runtime_session_id = ?, updated_at = ?
+         WHERE session_id = ?`,
+      )
+      .run(externalSessionId, Date.now(), sessionId);
+    this.upsertRuntimeSession({
+      sessionId,
+      runtimeKind: session.runtimeKind,
+      externalSessionId,
+      lastSyncedCanonicalSeq,
+      runtimeStatus: "idle",
+    });
+  }
+
   getRuntimeSessionId(sessionId: string): string | undefined {
     const session = this.getSession(sessionId);
     if (session) {
@@ -1452,7 +1480,16 @@ export class SessionStore {
               kind: "message.assistant.committed",
               message,
               stopReason: event.stopReason,
-              usage: event.usage,
+              usage:
+                event.usage ?? {
+                  input: 0,
+                  output: 0,
+                  totalTokens: 0,
+                  cost: 0,
+                },
+              ...(event.contextUsage
+                ? { contextUsage: event.contextUsage }
+                : {}),
               ...(event.error ? { error: event.error } : {}),
             },
           });

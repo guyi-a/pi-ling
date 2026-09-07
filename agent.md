@@ -63,7 +63,9 @@ Electron Main Supervisor
 - DSH 使用固定版本自带的 `@deepseek-ai/dsh-llm-pi-ai` 调用模型，只配置
   DeepSeek 与 Anthropic 路由；pi-ling Bridge 仅承担 Canonical Transcript
   Seed、Runtime projection 和 ACP live stream 扩展。
-- 产品审批模式映射 ACP one-shot permission；未知、删除和破坏性执行不自动允许。
+- DSH 通过内置 `tools/pre-execute` 适配模块触发官方
+  `dsh-user-approval`，再由 ACP one-shot permission 映射产品三档审批；
+  Native 与 DSH 共用 Effect 决策规则，但保留各自门控实现。
 - DSH developer preview 未经安全审计，只能在 feature flag 和首次安全确认后启用。
 
 ### Claude Runtime
@@ -250,8 +252,16 @@ Renderer 输入 Prompt
   产品定制。长期方向是将审批策略迁到 `coding-agent`，将事件标识、checkpoint
   和恢复编排迁到 Runtime/Main Session 层，再以薄 Adapter 评估接入上游
   `pi-agent-core`。
-- DSH Phase 1 的审批、contextUsage、messageId、执行分组和 capability 修正
-  尚未实施；不要把固定基线通过误认为这些产品语义已经完成。
+- DSH PR2A 已对齐 Native/DSH 的三档审批行为，并通过真实 DSH 写工具 ACP
+  审批 Smoke；PR2B 已修正 contextUsage、ACP messageId、执行分组和
+  capabilities 声明。
+- DSH PR4 Spike 已选定方案 B（预物化后 resume）；PR5 已落地 Canonical
+  Session Bridge MVP：`toDshSeed` 支持 text/reasoning/tool-call/tool-result，
+  首次切 DSH 完整导入历史并记录幂等水位，含真实 DSH recall Smoke。
+- DSH PR6 已落地跨 Runtime handoff 增量同步：`toDshSeed` 支持 delta 偏移，
+  sidecar 插件支持 append 模式（open write + append + flush），切回 DSH 时
+  按 `lastSyncedCanonicalSeq` 水位追平新增历史；Attachment/Compaction 待有
+  真实数据流后再做。
 
 ## 开发约束
 

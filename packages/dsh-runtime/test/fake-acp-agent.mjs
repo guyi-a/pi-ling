@@ -40,16 +40,32 @@ createAgent({ name: "pi-ling-fake-dsh" })
   .onRequest(methods.agent.session.prompt, async ({ params, client }) => {
     if (process.env.FAKE_CRASH === "1") process.exit(17);
     if (process.env.FAKE_PERMISSION === "1") {
+      if (process.env.FAKE_PERMISSION_SPARSE === "1") {
+        await client.notify(methods.client.session.update, {
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "call-1",
+            title: "write",
+            kind: "other",
+            status: "in_progress",
+            rawInput: { file_path: ".env", content: "API_KEY=secret" },
+          },
+        });
+      }
       const decision = await client.request(
         methods.client.session.requestPermission,
         {
           sessionId: params.sessionId,
-          toolCall: {
-            toolCallId: "call-1",
-            title: "Write file",
-            kind: "edit",
-            rawInput: { path: "a.txt" },
-          },
+          toolCall:
+            process.env.FAKE_PERMISSION_SPARSE === "1"
+              ? { toolCallId: "call-1" }
+              : {
+                  toolCallId: "call-1",
+                  title: "Write file",
+                  kind: "edit",
+                  rawInput: { path: "a.txt" },
+                },
           options: [
             { optionId: "allow", name: "Allow", kind: "allow_once" },
             { optionId: "reject", name: "Reject", kind: "reject_once" },
@@ -64,6 +80,7 @@ createAgent({ name: "pi-ling-fake-dsh" })
       sessionId: params.sessionId,
       update: {
         sessionUpdate: "agent_thought_chunk",
+        messageId: "msg-thought-1",
         content: { type: "text", text: "thinking" },
       },
     });
@@ -91,7 +108,16 @@ createAgent({ name: "pi-ling-fake-dsh" })
       sessionId: params.sessionId,
       update: {
         sessionUpdate: "agent_message_chunk",
+        messageId: "msg-answer-1",
         content: { type: "text", text: process.env.FAKE_TEXT ?? "done" },
+      },
+    });
+    await client.notify(methods.client.session.update, {
+      sessionId: params.sessionId,
+      update: {
+        sessionUpdate: "usage_update",
+        used: 8700,
+        size: 1_000_000,
       },
     });
     if (process.env.FAKE_HANG === "1") {

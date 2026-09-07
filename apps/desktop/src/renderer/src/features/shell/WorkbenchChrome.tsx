@@ -1,12 +1,15 @@
+import type { ChangedFile, FileDiff } from "@pi-ling/contracts";
 import type { RuntimeKind } from "@pi-ling/contracts";
 import {
   ChevronsRight,
-  MoreHorizontal,
   PanelLeftOpen,
   PanelRight,
   Plus,
 } from "lucide-react";
 import { useState } from "react";
+
+import type { ChangesSourceId } from "../details/changes-source";
+import { ChangesView } from "../details/ChangesView";
 
 export function AppTitleBar() {
   return (
@@ -52,12 +55,6 @@ export function AgentPaneToolbar(props: {
         {props.title ?? "New agent"}
       </div>
       <div className="toolbar-actions">
-        <span className="runtime-indicator">
-          {props.runtimeKind === "dsh" ? "DSH" : "Native"}
-        </span>
-        <button className="icon-button" type="button" disabled aria-label="More">
-          <MoreHorizontal />
-        </button>
         <button
           className={`icon-button ${props.rightPanelOpen ? "selected" : ""}`}
           type="button"
@@ -104,9 +101,22 @@ const workbenchTabs = [
 
 type WorkbenchTab = (typeof workbenchTabs)[number]["id"];
 
-export function WorkbenchPanel(props: { onClose: () => void }) {
-  const [activeTab, setActiveTab] = useState<WorkbenchTab>("files");
+export function WorkbenchPanel(props: {
+  onClose: () => void;
+  changesSource?: ChangesSourceId;
+  changesFiles?: ChangedFile[];
+  onChangeSource?: (source: ChangesSourceId) => void;
+  onLoadDiff?: (path: string) => Promise<FileDiff | undefined>;
+}) {
+  const [activeTab, setActiveTab] = useState<WorkbenchTab>("changes");
   const active = workbenchTabs.find((tab) => tab.id === activeTab)!;
+
+  const renderChanges =
+    activeTab === "changes" &&
+    props.changesSource &&
+    props.changesFiles &&
+    props.onChangeSource &&
+    props.onLoadDiff;
 
   return (
     <aside className="workbench-panel" aria-label="Workbench">
@@ -140,11 +150,20 @@ export function WorkbenchPanel(props: { onClose: () => void }) {
         </button>
       </header>
       <div className="workbench-body" role="tabpanel">
-        <div className="workbench-empty">
-          <span className="empty-pane-mark">{active.label.slice(0, 1)}</span>
-          <strong>{active.label}</strong>
-          <p>{active.description}</p>
-        </div>
+        {renderChanges ? (
+          <ChangesView
+            source={props.changesSource!}
+            files={props.changesFiles!}
+            onSourceChange={props.onChangeSource!}
+            getDiff={props.onLoadDiff!}
+          />
+        ) : (
+          <div className="workbench-empty">
+            <span className="empty-pane-mark">{active.label.slice(0, 1)}</span>
+            <strong>{active.label}</strong>
+            <p>{active.description}</p>
+          </div>
+        )}
       </div>
     </aside>
   );
