@@ -3,11 +3,12 @@ import os from "node:os";
 import path from "node:path";
 
 import {
-  AssistantMessageEventStream,
-  createAssistantMessage,
+  type AssistantMessage,
+  type Api,
   type Model,
   type ToolCall,
-} from "@pi-ling/ai";
+} from "@earendil-works/pi-ai";
+import { AssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-stream";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -18,7 +19,7 @@ import {
   Workspace,
 } from "../src/index.js";
 
-const model: Model = {
+const model: Model<Api> = {
   id: "test-model",
   name: "Test Model",
   api: "openai-completions",
@@ -30,6 +31,32 @@ const model: Model = {
   contextWindow: 1000,
   maxTokens: 100,
 };
+
+function createAssistantMessage(value: Model<Api>): AssistantMessage {
+  return {
+    role: "assistant",
+    content: [],
+    api: value.api,
+    provider: value.provider,
+    model: value.id,
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        total: 0,
+      },
+    },
+    stopReason: "pending",
+    timestamp: Date.now(),
+  };
+}
 
 function responseWithTool(call: ToolCall): AssistantMessageEventStream {
   const stream = new AssistantMessageEventStream();

@@ -48,6 +48,7 @@
 }
 
 .workspace {
+  position: relative;
   min-width: 0;
   min-height: 0;
   display: grid;
@@ -67,6 +68,31 @@
 
 .workspace.sidebar-collapsed.right-panel-open {
   grid-template-columns: minmax(390px, 1fr) var(--workbench-width);
+}
+
+.workbench-resize-handle {
+  position: absolute;
+  z-index: 10;
+  top: var(--titlebar-height);
+  right: var(--workbench-width);
+  bottom: 0;
+  width: 4px;
+  cursor: col-resize;
+}
+
+.workbench-resize-handle::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 1px;
+  width: 1px;
+  content: "";
+  background: transparent;
+  transition: background 120ms ease;
+}
+
+.workbench-resize-handle:hover::after {
+  background: var(--accent);
 }
 
 .agent-pane {
@@ -103,6 +129,7 @@
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   padding: 0 6px;
+  border-bottom: 0;
 }
 
 .toolbar-leading,

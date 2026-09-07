@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 
 import type {
+  Api,
   Message,
   Model,
-  ThinkingLevel,
+  ModelThinkingLevel,
   UserMessage,
-} from "@pi-ling/ai";
+} from "@earendil-works/pi-ai";
 
 import { resumeAgentLoop, runAgentLoop } from "./agent-loop.js";
 import type {
@@ -19,8 +20,8 @@ import type {
 
 interface MutableAgentState {
   systemPrompt: string;
-  model: Model;
-  thinkingLevel: ThinkingLevel;
+  model: Model<Api>;
+  thinkingLevel: ModelThinkingLevel;
   tools: AgentTool[];
   messages: Message[];
   isStreaming: boolean;
@@ -64,7 +65,7 @@ export class Agent {
     return () => this.#listeners.delete(listener);
   }
 
-  setModel(model: Model): void {
+  setModel(model: Model<Api>): void {
     if (this.#state.isStreaming) {
       throw new Error("Cannot change model while the agent is running");
     }

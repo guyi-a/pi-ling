@@ -6,7 +6,8 @@
 
 ## 已打通
 
-- 官方 DSH 源码已 clone 到 `E:\deepseek-harness` 并完成构建。
+- 官方 DSH 固定源码通过 `pnpm dsh:setup` 准备，并由仓库根目录
+  `.dsh-source` 指向独立 worktree。
 - `DshRuntimeAdapter` 通过 ACP stdio 控制 DSH 子进程。
 - 支持 session create/resume/close、prompt、cancel、semantic update 和 permission request。
 - fake ACP 测试覆盖消息、thinking、tool、permission、cancel 和子进程 crash。
@@ -58,24 +59,16 @@ durable `session/event`，没有订阅 live stream。
 
 需要调整：
 
-- 保留 ACP `messageId` 并加入 RuntimeEvent。
-- 为一个 ACP prompt 建立稳定的 execution group。
-- 同一 run 中连续 thinking/tool 进入同一执行时间线。
+- 保留 ACP `messageId` 并加入 RuntimeEvent。（已完成）
+- 为一个 ACP prompt 建立稳定的 execution group。（已完成：`${runId}:exec`）
+- 同一 run 中连续 thinking/tool 进入同一执行时间线。（已完成）
 - 只有最终 committed assistant text 独立成为回答。
 - permission 继续绑定对应 `toolCallId`，不额外产生执行分组。
 
-## P1：Usage 语义错误
+## P1：Usage 语义
 
-ACP `usage_update` 的 `used/size` 表示当前上下文占用与窗口容量，不是本轮
-input/output usage。
-
-当前 UI 把 `used` 映射成 input、output 显示为 0，含义错误。
-
-修正方向：
-
-- Runtime 协议增加 `contextUsage { used, size }`。
-- DSH UI 显示 `8.7k / 1m context`。
-- 不伪造 DSH 本轮 input/output。
+已修正：ACP `usage_update` 现映射为 `contextUsage { used, size }`，UI 显示
+`8.7k / 1m context`，不再伪造 input/output。
 
 ## P1：工具展示信息不足
 
@@ -92,32 +85,31 @@ input/output usage。
 - 切换回 DSH 应恢复原 DSH session，而不是再创建一个。
 - Runtime 切换失败时继续保留原 Native Runtime 和 timeline。
 
-## P1：审批映射待实机覆盖
+## 审批映射状态
 
-- fake ACP permission allow/reject 已通过。
-- 真实 worktree 写入由 DSH 自身策略直接允许，没有触发 ACP permission。
-- 需要构造真实 destructive/execute 场景，确认
-  `manual / accept-write / auto` 与 ACP option 的映射。
-- `delete`、`other`、无法解析的执行和破坏性命令始终人工确认。
+- Native 与 DSH 共用 `approvalReason`/Effect 产品规则，但保留各自门控实现。
+- DSH 内置 pi-ling `tools/pre-execute` 模块：只读工具继续，写入、命令和
+  unknown 进入官方 `dsh-user-approval`，再由 ACP 转发。
+- ACP permission 只携带 callId 时，`DshRuntimeAdapter` 从之前的
+  `tool_call` 补齐工具名和 rawInput。
+- 三档确定性行为矩阵已通过；unknown、敏感写入和破坏性命令始终询问。
+- 真实固定 DSH 写工具已经验证“执行前询问 → pi-ling allow → 继续写入”。
+- destructive/execute 的真实 ACP 场景仍可补充，但不阻塞已完成的 PR2A
+  行为对齐。
 
-## `@pi-ling/ai` Bridge 状态
+## DSH LLM Adapter 状态
 
-- `@pi-ling/dsh-llm` 已实现 DSH Context、text/reasoning/tool/usage/finish
-  到 `@pi-ling/ai` 的转换。
-- 编译和转换单测通过。
-- 已定位此前 `session/new` 返回
-  `cannot create effect on inactive context` 的原因：使用 `file:` 安装本地
-  bundle 后，profile 中复制出的包无法解析其 `link:` 依赖
-  `@pi-ling/ai`，Cordis loader tree 先加载失败并被 dispose，随后
-  `session/new` 只暴露了二次生命周期错误。
-- 在隔离 ACP profile 中改用
-  `dsh plugin --profile acp add link:E:/pi-ling/packages/dsh-llm`
-  后，plugin tree、`session/new` 和真实模型 Prompt 均成功；Prompt
-  返回了预期的 `dsh-bridge-ok`。
-- bundle 默认禁用；产品 DSH Runtime 暂时使用已验证的
-  `deepseek-official` route。
-- 正式启用前仍需决定可分发的依赖打包方式，不能依赖开发机绝对 `link:`
-  路径。
+- 产品采用固定版本 DSH 自带的 `@deepseek-ai/dsh-llm-pi-ai`，不再维护
+  `@pi-ling/dsh-llm` 和 `@pi-ling/ai`。
+- 固定 Profile 只配置 DeepSeek 与 Anthropic 路由，ACP 默认选择
+  `deepseek/deepseek-v4-flash`。
+- Profile patch 由 `DshRuntimeAdapter` 写入版本化 `DSH_HOME` 后通过
+  `--patch` 加载，不需要额外安装自研模型插件。
+- 真实 DSH ACP 进程已通过本地 mock Provider 验证 Prompt、Cancel、Close、
+  跨进程 Resume 和 Canonical Event 落库。
+- 已退出的 `@pi-ling/dsh-llm` 曾完成真实模型 PoC；此前
+  `cannot create effect on inactive context` 是其 `file:` 安装无法解析
+  workspace/link 依赖后的二次错误，不是官方 Adapter 问题。
 - `@pi-ling/dsh-transcript` Seed Plugin PoC 已验证
   `Canonical → SessionEvent[] → agents.create({ seed })`。导入包含
   `ORANGE-42` 的历史后，下一轮真实模型成功回答该代号，证明 DSH 可以消费
@@ -127,7 +119,7 @@ input/output usage。
 
 研究与 PoC 结论已收敛到 `runtime-architecture-decision.md`。DSH 后续工作：
 
-1. 将 LLM/Transcript PoC 合并为可分发 `@pi-ling/dsh-bridge` bundle。
+1. 将 Transcript PoC 演进为可分发 `@pi-ling/dsh-bridge` bundle。
 2. 扩展固定版本 ACP plugin，转发 `agent/assistant-stream`。
 3. 补完整 Tool/Reasoning/Attachment Canonical Seed。
 4. 修正 RuntimeEvent 的 `messageId` 与 `contextUsage`。

@@ -34,6 +34,32 @@ describe("workbench chrome", () => {
     expect(html).toContain("Eval");
   });
 
+  it("renders ChangesView when changes props are provided", () => {
+    const html = renderToStaticMarkup(
+      <WorkbenchPanel
+        onClose={() => {}}
+        changesSource="uncommitted"
+        changesFiles={[
+          {
+            path: "src/a.ts",
+            status: "modified",
+            binary: false,
+            sensitive: false,
+            tooLarge: false,
+            additions: 3,
+            deletions: 1,
+          },
+        ]}
+        onChangeSource={() => {}}
+        onLoadDiff={() => Promise.resolve(undefined)}
+      />,
+    );
+
+    expect(html).toContain("Uncommitted");
+    expect(html).toContain("src/a.ts");
+    expect(html).toContain("changes-panel");
+  });
+
   it("shows the sidebar restore control only when collapsed", () => {
     const html = renderToStaticMarkup(
       <AgentPaneToolbar

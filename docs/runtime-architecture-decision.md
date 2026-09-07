@@ -27,7 +27,7 @@ Transcript 允许存在，但只能作为 Resume 所需的派生投影。
 
 - `@pi-ling/coding-agent`
 - `@pi-ling/agent-core`
-- `@pi-ling/ai`
+- `@earendil-works/pi-ai@0.85.0`（仅注册 DeepSeek、Anthropic）
 
 短期仍由 Electron Main 管理，长期应迁入 Worker，避免模型流和工具循环扩大
 Main 崩溃半径。
@@ -43,20 +43,19 @@ Main 崩溃半径。
 - DSH 内部已有 `agent/assistant-stream`，扩展 ACP plugin 即可转发 token；
 - DSH SDK 同样没有公开 live token stream；
 - DSH SDK 没有公开 history seed，Session create/resume 能力不优于 ACP；
-- `@pi-ling/dsh-llm` 与 Transcript Seed 已通过真实模型 PoC。
+- 固定版本自带 `@deepseek-ai/dsh-llm-pi-ai`，可直接复用成熟的模型适配。
 
 DSH 使用固定版本自定义 Profile，并加载 pi-ling Cordis bundle：
 
 ```text
 @pi-ling/dsh-bridge
-  ├─ LLM adapter
   ├─ Canonical transcript seed
   ├─ ACP live-stream projection
   └─ Session persistence/projection
 ```
 
-开发期 `link:` 已验证，正式产品必须使用预构建 tarball/package，不能依赖
-开发机绝对路径。
+模型层使用固定 DSH 自带的 `@deepseek-ai/dsh-llm-pi-ai`，Profile 只启用
+DeepSeek 与 Anthropic 路由。
 
 ### Claude
 
@@ -297,7 +296,9 @@ Run 完成后默认压缩为一行；展开显示原始 Tool、Approval、Output
 
 DSH：
 
-- `@pi-ling/dsh-llm` 真实模型调用成功；
+- 官方 `@deepseek-ai/dsh-llm-pi-ai` 已通过真实 DSH ACP 进程与本地 mock
+  Provider 验证；
+- 已退出的 `@pi-ling/dsh-llm` 曾通过真实模型 PoC，仅保留历史结论；
 - `@pi-ling/dsh-transcript` 通过 `agents.create({ seed })`；
 - Seeded DSH 模型正确回忆 `ORANGE-42`；
 - ACP SDK 支持标准 chunk，DSH live event 路径已定位。
@@ -318,8 +319,8 @@ Claude：
 3. 实现 Main `RunMessageBuffer`、16ms merge 与按 Session reconnect。
 4. 解耦 selected Session 和 active Runs。
 5. 让 Native 改用统一 Event Log。
-6. 将 DSH PoC 合并为可分发的 bridge bundle，补 token stream 与完整
-   Tool/Reasoning 映射。
+6. 将 DSH Transcript PoC 合并为可分发的 bridge bundle，补 token stream
+   与完整 Tool/Reasoning 映射。
 7. 实现 Claude Runtime Adapter、SessionStore projection 和 Approval
    mapping。
 8. 实现 Cursor Run Activity projector。

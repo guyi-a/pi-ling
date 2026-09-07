@@ -527,7 +527,7 @@ Transcript projection 必须保留，才能进行准确 Resume。
 - `packages/sdk/server/src/server.ts`
 - `packages/acp/acp/src/session.ts`
 
-以上路径均位于固定源码目录 `E:\deepseek-harness`。
+以上路径均位于 `.dsh-source` 指向的固定 DSH worktree。
 
 ## Claude 官方参考
 

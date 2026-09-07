@@ -1,8 +1,0 @@
-- insert:
-    - id: pi-ling-llm
-      name: '@pi-ling/dsh-llm'
-      disabled: true
-      inject: [llm]
-      config:
-        deepseekRoute: pi-ling-deepseek
-        anthropicRoute: pi-ling-anthropic

@@ -1,12 +1,13 @@
 import {
-  AssistantMessageEventStream,
-  createAssistantMessage,
   Type,
+  type AssistantMessage,
+  type Api,
   type Context,
   type Model,
   type StreamOptions,
   type ToolCall,
-} from "@pi-ling/ai";
+} from "@earendil-works/pi-ai";
+import { AssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-stream";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -16,7 +17,7 @@ import {
   type StreamFunction,
 } from "../src/index.js";
 
-const model: Model = {
+const model: Model<Api> = {
   id: "test-model",
   name: "Test Model",
   api: "openai-completions",
@@ -28,6 +29,32 @@ const model: Model = {
   contextWindow: 1000,
   maxTokens: 100,
 };
+
+function createAssistantMessage(value: Model<Api>): AssistantMessage {
+  return {
+    role: "assistant",
+    content: [],
+    api: value.api,
+    provider: value.provider,
+    model: value.id,
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        total: 0,
+      },
+    },
+    stopReason: "pending",
+    timestamp: Date.now(),
+  };
+}
 
 function textResponse(text: string): AssistantMessageEventStream {
   const stream = new AssistantMessageEventStream();
@@ -483,7 +510,7 @@ describe("Agent", () => {
 
   it("propagates cancellation through the stream signal", async () => {
     const streamFn = (
-      _model: Model,
+      _model: Model<Api>,
       _context: Context,
       options: StreamOptions & { signal: AbortSignal },
     ) => {

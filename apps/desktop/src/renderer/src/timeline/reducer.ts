@@ -26,6 +26,7 @@ export interface AssistantTimelineItem extends ItemBase {
   status: "streaming" | "completed" | "error";
   stopReason?: string;
   usage?: AgentUsage;
+  contextUsage?: { used: number; size: number };
   error?: string;
 }
 
@@ -233,7 +234,8 @@ function applyEvent(
           ...item,
           status: event.error ? "error" : "completed",
           stopReason: event.stopReason,
-          usage: event.usage,
+          ...(event.usage ? { usage: event.usage } : {}),
+          ...(event.contextUsage ? { contextUsage: event.contextUsage } : {}),
           ...(event.error ? { error: event.error } : {}),
         }),
       );

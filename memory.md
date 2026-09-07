@@ -18,12 +18,12 @@
   - 远程仓库：`https://git.corp.kuaishou.com/kling-agent/kling-work/klingwork-app.git`
   - 重点参考：pnpm monorepo、Electron + React + TypeScript、`electron-vite`、Main/Preload/Renderer 分层、桌面打包。
   - 参考当前技术版本时，应先检查其 `package.json` 和实际构建配置。
-- DeepSeek Harness：`E:\deepseek-harness`
+- DeepSeek Harness：通过仓库根目录 `.dsh-source` 指向独立固定版本 worktree
   - 官方仓库：`https://github.com/deepseek-ai/deepseek-harness`
   - 固定 tag：`dsh-v0.1.3-alpha.1`
   - 固定 commit：`d347e703908d0406b7a7ef80e3a0e594d86b2215`
   - 当前为 developer preview，接入使用 ACP profile 并隔离版本。
-  - `E:\dsh-for-humans` 是教程仓库，不是 DeepSeek Harness 源码，不得作为 SDK 源码依赖。
+  - `dsh-for-humans` 是教程仓库，不是 DeepSeek Harness 源码，不得作为 SDK 源码依赖。
 
 
 
@@ -42,7 +42,8 @@
 1. 先建立可运行的 Electron + React + TypeScript 框架。
 2. 打通 Main、Preload、Renderer 的最小类型安全 IPC。
 3. 验证开发启动、类型检查和生产构建。
-4. `packages/ai` 实现 DeepSeek 与 Anthropic Claude Provider。
+4. Native 模型层使用 `@earendil-works/pi-ai@0.85.0`，只注册 DeepSeek 与
+   Anthropic Claude Provider。
 5. `packages/agent-core` 实现 Agent 状态、事件、上下文和 ReAct 循环。
 6. `packages/coding-agent` 实现 Workspace、内置工具、effect 审批和 Diff。
 7. `packages/dsh-runtime` 通过 ACP 接入固定版本 DSH sidecar。

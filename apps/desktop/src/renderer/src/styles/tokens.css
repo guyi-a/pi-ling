@@ -31,7 +31,7 @@
   --shadow: rgb(0 0 0 / 36%);
   --scrollbar: #424242;
   --sidebar-width: 218px;
-  --workbench-width: clamp(350px, 42vw, 660px);
+  --workbench-width: clamp(380px, 46vw, 860px);
   --content-width: 760px;
   --titlebar-height: 30px;
   --pane-toolbar-height: 35px;

@@ -147,6 +147,7 @@ export function projectTimelineSnapshot(
         itemId: messageId,
         stopReason: event.stopReason,
         usage: event.usage,
+        ...(event.contextUsage ? { contextUsage: event.contextUsage } : {}),
         ...(event.error ? { error: event.error } : {}),
       });
     } else if (event.kind === "tool.call.committed") {

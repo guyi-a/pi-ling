@@ -17,12 +17,9 @@ Run the deterministic projection test:
 pnpm --filter @pi-ling/dsh-transcript test
 ```
 
-Run the explicit real-model proof:
-
-```powershell
-$env:RUN_REAL_DSH_SEED_POC = "1"
-pnpm --filter @pi-ling/dsh-transcript test
-```
+The earlier real-model proof used the retired custom LLM adapter. Product-level
+recall will be re-verified through the official `dsh-llm-pi-ai` ACP Profile when
+Canonical Seed is wired into the Runtime.
 
 This is not the production canonical transcript schema. Tool calls, tool
 results, reasoning, attachments, compaction and persistence integration remain

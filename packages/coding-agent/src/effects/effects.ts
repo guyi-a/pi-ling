@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type { ToolCall } from "@pi-ling/ai";
+import type { ToolCall } from "@earendil-works/pi-ai";
 
 import type { Workspace } from "../workspace/workspace.js";
 

@@ -8,5 +8,6 @@ release/
 .env
 .env.*
 !.env.example
+.dsh-source
 .DS_Store
 Thumbs.db

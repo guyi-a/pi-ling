@@ -11,7 +11,10 @@ import type {
   RuntimeSessionHandle,
   RuntimeSessionOptions,
 } from "@pi-ling/runtime-contracts";
-import type { TimelineEnvelope } from "@pi-ling/contracts";
+import type {
+  ApprovalMode,
+  TimelineEnvelope,
+} from "@pi-ling/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { DshAgentSession } from "./dsh-agent-session.js";
@@ -23,6 +26,10 @@ class FakeDshRuntime implements RuntimeAdapter {
   readonly capabilities = {} as RuntimeCapabilities;
   readonly listeners = new Set<RuntimeEventListener>();
   permission?: RuntimePermissionDecision;
+  permissionEvent?: Omit<
+    Extract<RuntimeEvent, { type: "permission" }>,
+    "sessionId" | "runId"
+  >;
 
   async initialize() {}
   async createSession(
@@ -34,17 +41,29 @@ class FakeDshRuntime implements RuntimeAdapter {
     return this.createSession(options);
   }
   async send(sessionId: string, runId: string) {
+    const executionGroupId = `${runId}:exec`;
     await this.emit({ type: "run_start", sessionId, runId });
+    if (this.permissionEvent) {
+      await this.emit({
+        ...this.permissionEvent,
+        sessionId,
+        runId,
+        executionGroupId,
+      });
+      return;
+    }
     await this.emit({
       type: "assistant_thought",
       sessionId,
       runId,
+      executionGroupId,
       delta: "think",
     });
     await this.emit({
       type: "tool",
       sessionId,
       runId,
+      executionGroupId,
       callId: "call-1",
       title: "Read file",
       kind: "read",
@@ -55,6 +74,7 @@ class FakeDshRuntime implements RuntimeAdapter {
       type: "tool",
       sessionId,
       runId,
+      executionGroupId,
       callId: "call-1",
       title: "Read file",
       status: "completed",
@@ -64,7 +84,16 @@ class FakeDshRuntime implements RuntimeAdapter {
       type: "assistant_text",
       sessionId,
       runId,
+      executionGroupId,
+      messageId: "msg-answer-1",
       delta: "done",
+    });
+    await this.emit({
+      type: "context_usage",
+      sessionId,
+      runId,
+      used: 8700,
+      size: 1_000_000,
     });
     await this.emit({
       type: "run_end",
@@ -129,18 +158,40 @@ describe("DshAgentSession", () => {
     ).toEqual([
       "run_start",
       "turn_start",
-      "assistant_start",
-      "assistant_thinking_delta",
-      "assistant_end",
       "tool_requested",
       "tool_start",
       "tool_end",
+      "assistant_start",
+      "assistant_thinking_delta",
+      "assistant_end",
       "turn_start",
       "assistant_start",
       "assistant_text_delta",
       "assistant_end",
       "run_end",
     ]);
+    expect(
+      session
+        .snapshot()
+        .events.find(
+          ({ event }) =>
+            event.type === "assistant_end" &&
+            event.stopReason === "stop",
+        )?.event,
+    ).toMatchObject({
+      itemId: "msg-answer-1",
+      contextUsage: { used: 8700, size: 1_000_000 },
+    });
+    expect(
+      session
+        .snapshot()
+        .events.filter(
+          ({ event }) => event.type === "tool_start",
+        )
+        .map(({ event }) =>
+          event.type === "tool_start" ? event.turnId : "",
+        ),
+    ).toEqual(["run-1:assistant"]);
     expect(
       store
         .loadSnapshot(summary.id)
@@ -161,5 +212,120 @@ describe("DshAgentSession", () => {
       emitted.map((_, index) => index + 1),
     );
     await session.dispose();
+  });
+
+  it("matches Native approval behavior for DSH permissions", async () => {
+    const cases: Array<{
+      name: string;
+      mode: ApprovalMode;
+      toolKind?: string;
+      title: string;
+      input: Record<string, unknown>;
+      asks: boolean;
+    }> = [
+      {
+        name: "unknown-auto",
+        mode: "auto",
+        title: "new-tool",
+        input: {},
+        asks: true,
+      },
+      {
+        name: "sensitive-auto",
+        mode: "auto",
+        toolKind: "edit",
+        title: "write",
+        input: { file_path: ".env", content: "API_KEY=secret" },
+        asks: true,
+      },
+      {
+        name: "write-accept",
+        mode: "accept-write",
+        toolKind: "edit",
+        title: "write",
+        input: { file_path: "file.txt", content: "hello" },
+        asks: false,
+      },
+      {
+        name: "harmless-manual",
+        mode: "manual",
+        toolKind: "execute",
+        title: "bash",
+        input: { command: "git status" },
+        asks: false,
+      },
+      {
+        name: "normal-accept",
+        mode: "accept-write",
+        toolKind: "execute",
+        title: "bash",
+        input: { command: "pnpm test" },
+        asks: true,
+      },
+      {
+        name: "destructive-auto",
+        mode: "auto",
+        toolKind: "execute",
+        title: "bash",
+        input: { command: "git reset --hard" },
+        asks: true,
+      },
+    ];
+
+    for (const testCase of cases) {
+      const created = store.createSession({
+        workspaceRoot: directory,
+        runtimeKind: "dsh",
+        title: testCase.name,
+      });
+      const summary = store.setApprovalMode(created.id, testCase.mode);
+      const runtime = new FakeDshRuntime();
+      runtime.permissionEvent = {
+        type: "permission",
+        executionGroupId: "permission:exec",
+        permissionId: `permission:${testCase.name}`,
+        callId: `call:${testCase.name}`,
+        title: testCase.title,
+        ...(testCase.toolKind ? { toolKind: testCase.toolKind } : {}),
+        input: testCase.input,
+        options: [
+          {
+            optionId: "allow",
+            label: "Allow",
+            kind: "allow_once",
+          },
+          {
+            optionId: "reject",
+            label: "Reject",
+            kind: "reject_once",
+          },
+        ],
+      };
+      const session = await DshAgentSession.open({
+        store,
+        session: summary,
+        runtime,
+        emit: () => {},
+        buffer: new RunMessageBuffer(() => {}),
+        availableRuntimes: ["native", "dsh"],
+      });
+      session.startPrompt(`run:${testCase.name}`, "test");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(
+        session
+          .snapshot()
+          .events.some(({ event }) => event.type === "approval_requested"),
+        testCase.name,
+      ).toBe(testCase.asks);
+      expect(runtime.permission !== undefined, testCase.name).toBe(
+        !testCase.asks,
+      );
+      expect(
+        store.getSession(summary.id)?.lifecycle,
+        testCase.name,
+      ).toBe(testCase.asks ? "awaiting_approval" : "running");
+      await session.dispose();
+    }
   });
 });

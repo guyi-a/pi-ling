@@ -1,5 +1,5 @@
 import type { BeforeToolCallResult } from "@pi-ling/agent-core";
-import type { ToolCall } from "@pi-ling/ai";
+import type { ToolCall } from "@earendil-works/pi-ai";
 
 import type { Effect } from "../effects/effects.js";
 import { effectDigest } from "../effects/effects.js";

@@ -89,7 +89,7 @@ export const SESSION_EVENT_SCHEMA_VERSION = 1;
 
 export type CanonicalContentBlock =
   | { type: "text"; text: string }
-  | { type: "reasoning"; text: string }
+  | { type: "reasoning"; text: string; signature?: string }
   | {
       type: "tool-call";
       toolCallId: string;
@@ -148,6 +148,7 @@ export type SessionEvent =
       message: CanonicalMessage;
       stopReason: string;
       usage: AgentUsage;
+      contextUsage?: { used: number; size: number };
       error?: string;
     }
   | { kind: "tool.call.committed"; toolCall: CanonicalToolCall }
@@ -326,7 +327,8 @@ export type TimelineEvent =
       turnId: string;
       itemId: string;
       stopReason: string;
-      usage: AgentUsage;
+      usage?: AgentUsage;
+      contextUsage?: { used: number; size: number };
       error?: string;
     }
   | {

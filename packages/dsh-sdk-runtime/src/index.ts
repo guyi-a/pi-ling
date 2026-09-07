@@ -1,3 +1,5 @@
+import { dirname, resolve } from "node:path";
+
 import {
   DeepSeekHarness,
   type HarnessNotification,
@@ -46,6 +48,7 @@ export function mapSdkSessionEvent(
   runId: string,
   value: unknown,
 ): RuntimeEvent[] {
+  const executionGroupId = `${runId}:exec`;
   const event = record(value);
   const data = record(event?.["data"]);
   if (!event || !data || typeof event["type"] !== "string") return [];
@@ -62,6 +65,7 @@ export function mapSdkSessionEvent(
           type: "assistant_thought",
           sessionId,
           runId,
+          executionGroupId,
           delta: item["text"],
         });
       } else if (
@@ -72,6 +76,7 @@ export function mapSdkSessionEvent(
           type: "assistant_text",
           sessionId,
           runId,
+          executionGroupId,
           delta: item["text"],
         });
       }
@@ -83,7 +88,7 @@ export function mapSdkSessionEvent(
       typeof usage["outputTokens"] === "number"
     ) {
       output.push({
-        type: "usage",
+        type: "context_usage",
         sessionId,
         runId,
         used: usage["inputTokens"] + usage["outputTokens"],
@@ -106,6 +111,7 @@ export function mapSdkSessionEvent(
         type: "tool",
         sessionId,
         runId,
+        executionGroupId,
         callId,
         title: name,
         status: "running",
@@ -123,6 +129,7 @@ export function mapSdkSessionEvent(
         type: "tool",
         sessionId,
         runId,
+        executionGroupId,
         callId: String(wrapper?.["toolCallId"] ?? ""),
         title: "DSH tool",
         status: data["error"] ? "failed" : "completed",
@@ -292,7 +299,10 @@ export class DshSdkRuntimeAdapter implements RuntimeAdapter {
         ...process.env,
         ...this.#options.env,
         ...(nodeOptions ? { NODE_OPTIONS: nodeOptions } : {}),
-        PI_LING_DSH_MODULE_ROOT: "E:/deepseek-harness/apps/cli/node_modules",
+        PI_LING_DSH_MODULE_ROOT: resolve(
+          dirname(this.#options.dshBin),
+          "../node_modules",
+        ),
       },
       initializeTimeoutMs: 30_000,
     });

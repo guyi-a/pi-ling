@@ -36,7 +36,7 @@ Electron Main Supervisor
         ├─ NativeRuntime
         │     └─ @pi-ling/coding-agent
         │           ├─ @pi-ling/agent-core
-        │           └─ @pi-ling/ai
+        │           └─ @earendil-works/pi-ai
         ├─ DshRuntime
         │     └─ ACP stdio → custom DSH Profile sidecar
         └─ ClaudeRuntime
@@ -47,7 +47,8 @@ Electron Main Supervisor
 
 ### Native Runtime
 
-- `@pi-ling/ai` 负责模型协议，只实现 DeepSeek OpenAI-compatible Chat Completions 与 Anthropic Messages。
+- `@earendil-works/pi-ai` 负责模型协议；产品只注册 DeepSeek 与 Anthropic
+  Provider，不加载全量 Provider 集合。
 - `@pi-ling/agent-core` 负责状态、事件、上下文、取消和 ReAct 工具循环。
 - `@pi-ling/coding-agent` 负责 Coding Harness 和全部产品内置 Agent 能力。
 - `vendor/pi-ai` 与 `vendor/pi-agent-core` 保留为 MIT 源码参考，不作为运行依赖。
@@ -59,9 +60,12 @@ Electron Main Supervisor
 - 固定 `dsh-v0.1.3-alpha.1` / `d347e703908d0406b7a7ef80e3a0e594d86b2215`，不跟随 latest。
 - Electron Main 使用 `@agentclientprotocol/sdk` 驱动 `dsh --profile acp`，不嵌入 Cordis。
 - DSH_HOME 按版本隔离，DSH 原生 session id 与产品 session id 分开持久化。
-- DSH 使用 pi-ling Cordis bridge bundle，承载 `@pi-ling/ai` Adapter、
-  Canonical Transcript Seed 和 ACP live stream。
-- 产品审批模式映射 ACP one-shot permission；未知、删除和破坏性执行不自动允许。
+- DSH 使用固定版本自带的 `@deepseek-ai/dsh-llm-pi-ai` 调用模型，只配置
+  DeepSeek 与 Anthropic 路由；pi-ling Bridge 仅承担 Canonical Transcript
+  Seed、Runtime projection 和 ACP live stream 扩展。
+- DSH 通过内置 `tools/pre-execute` 适配模块触发官方
+  `dsh-user-approval`，再由 ACP one-shot permission 映射产品三档审批；
+  Native 与 DSH 共用 Effect 决策规则，但保留各自门控实现。
 - DSH developer preview 未经安全审计，只能在 feature flag 和首次安全确认后启用。
 
 ### Claude Runtime
@@ -164,7 +168,7 @@ interface RuntimeAdapter {
 ### Phase 1：自研 Runtime
 
 1. 建立 Electron + React + TypeScript monorepo。
-2. 实现 `@pi-ling/ai` 共享协议和 DeepSeek、Anthropic Provider。
+2. 接入 `@earendil-works/pi-ai`，仅注册 DeepSeek、Anthropic Provider。
 3. 实现 `@pi-ling/agent-core` 状态、事件和 ReAct 循环。
 4. 实现 `@pi-ling/coding-agent` 及内置 Harness 模块。
 5. 打通 Main / Preload / Renderer 的类型安全 IPC。
@@ -196,8 +200,8 @@ Renderer 输入 Prompt
 3. 实现 Main `RunMessageBuffer`、16ms delta merge 和 Session reconnect。
 4. 解耦 selected Session 与 active Runs。
 5. 让 Native 使用统一 Event Log。
-6. 将 DSH LLM/Transcript PoC 合并为可分发 Cordis bridge bundle，并补
-   ACP token stream。
+6. 将 DSH Transcript PoC 演进为可分发 Cordis bridge bundle，并补 ACP
+   token stream；模型层使用固定 DSH 官方 `dsh-llm-pi-ai`。
 7. 实现 Claude Agent SDK Runtime、opaque SessionStore projection 与
    Approval mapping。
 8. 实现 Cursor 风格 Run Activity projector。
@@ -220,8 +224,44 @@ Renderer 输入 Prompt
 - `E:\pi`：Pi 0.85.0，MIT。
 - `@anthropic-ai/claude-agent-sdk`：Claude Runtime 的 TypeScript SDK，
   当前 PoC 固定 `0.3.263`。
-- `E:\deepseek-harness`：DSH 0.1.3-alpha.1 官方源码。
-- `E:\dsh-for-humans`：DSH 教程，不是源码。
+- `.dsh-source`：指向 DSH 0.1.3-alpha.1 固定 worktree 的本地链接；
+  使用 `pnpm dsh:setup` 创建和校验。
+- `dsh-for-humans`：DSH 教程，不是源码。
+
+## 当前交接状态（2026-09-07）
+
+- DSH 继续采用 ACP，不采用固定版本能力不足的官方 SDK。
+- 三套 Runtime 可以独立实现工具、审批和上下文压缩，但对用户暴露的能力、
+  安全规则、事件和 UI 语义应通过统一契约及 Conformance Tests 保持一致；
+  不要求强制共用 MCP、工具服务或同一份内部代码。
+- LLM Adapter 与历史导入是两个独立问题：
+  - LLM Adapter 决定 DSH 如何调用模型；
+  - Canonical Session Bridge 负责历史 Seed、增量同步和 Resume projection。
+- DSH 固定基线已在 commit `6f38265` 建立：独立 worktree 精确锁定
+  `dsh-v0.1.3-alpha.1 / d347e703`，真实 DSH 进程已验证 ACP Prompt、
+  Cancel、Close、跨进程 Resume 和 Canonical Event 落库。
+- DSH 完整执行计划见
+  [`docs/dsh-acp-integration-plan.md`](docs/dsh-acp-integration-plan.md)。
+- Native 已在分支 `refactor/native-pi-ai` 迁移到
+  `@earendil-works/pi-ai@0.85.0`，类型检查、测试和生产构建通过，并在 commit
+  `0974fba` 提交。
+- DSH 模型层采用固定版本自带的 `@deepseek-ai/dsh-llm-pi-ai`；原
+  `@pi-ling/dsh-llm` 和 `@pi-ling/ai` 已退出产品架构。
+- `@earendil-works/pi-agent-core` 不能直接替换当前 `@pi-ling/agent-core`：
+  当前 Core 含有 `runId/turnId`、前置审批、`resumePendingTools` 和恢复事件等
+  产品定制。长期方向是将审批策略迁到 `coding-agent`，将事件标识、checkpoint
+  和恢复编排迁到 Runtime/Main Session 层，再以薄 Adapter 评估接入上游
+  `pi-agent-core`。
+- DSH PR2A 已对齐 Native/DSH 的三档审批行为，并通过真实 DSH 写工具 ACP
+  审批 Smoke；PR2B 已修正 contextUsage、ACP messageId、执行分组和
+  capabilities 声明。
+- DSH PR4 Spike 已选定方案 B（预物化后 resume）；PR5 已落地 Canonical
+  Session Bridge MVP：`toDshSeed` 支持 text/reasoning/tool-call/tool-result，
+  首次切 DSH 完整导入历史并记录幂等水位，含真实 DSH recall Smoke。
+- DSH PR6 已落地跨 Runtime handoff 增量同步：`toDshSeed` 支持 delta 偏移，
+  sidecar 插件支持 append 模式（open write + append + flush），切回 DSH 时
+  按 `lastSyncedCanonicalSeq` 水位追平新增历史；Attachment/Compaction 待有
+  真实数据流后再做。
 
 ## 开发约束
 

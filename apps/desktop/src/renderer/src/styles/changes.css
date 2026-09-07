@@ -1,0 +1,405 @@
+/* Changes 面板：Cursor 风格多语义改动视图 */
+
+.changes-panel {
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-auto-rows: auto;
+  overflow: hidden;
+  background: var(--workbench-bg);
+}
+
+/* 覆盖 workbench-body 的 place-items:center，让面板撑满 */
+.workbench-body:has(.changes-panel) {
+  display: block;
+  padding: 0;
+}
+
+.changes-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.changes-coming-soon {
+  color: var(--muted-2);
+  font-size: 11px;
+}
+
+/* Source 下拉 */
+.source-picker {
+  position: relative;
+}
+
+.source-picker summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px;
+  color: var(--text-soft);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  list-style: none;
+  font-size: 13px;
+}
+
+.source-picker summary::-webkit-details-marker {
+  display: none;
+}
+
+.source-picker summary:hover {
+  background: var(--surface-hover);
+}
+
+.source-picker-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+}
+
+.source-picker-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-picker-total {
+  display: flex;
+  gap: 5px;
+  flex: 0 0 auto;
+  margin-left: 2px;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+}
+
+.source-picker-chevron {
+  width: 12px;
+  height: 12px;
+  color: var(--muted-2);
+}
+
+.source-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 2px);
+  left: 0;
+  min-width: 220px;
+  display: grid;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--menu-bg);
+  box-shadow: 0 12px 32px var(--shadow);
+}
+
+.source-menu button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  color: var(--text-soft);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.source-menu button:hover:not(:disabled),
+.source-menu button.selected {
+  background: var(--surface-hover);
+}
+
+.source-menu button:disabled {
+  color: var(--muted-2);
+  cursor: default;
+  opacity: 0.72;
+}
+
+.source-menu button svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.source-menu button span {
+  display: grid;
+  gap: 1px;
+}
+
+.source-menu button strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.source-menu button small {
+  color: var(--muted-2);
+  font-size: 11px;
+}
+
+/* 空态 */
+.changes-empty {
+  align-self: center;
+  justify-self: center;
+  width: min(280px, calc(100% - 48px));
+  color: var(--muted);
+  text-align: center;
+}
+
+.changes-empty-mark {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  margin: 0 auto 12px;
+  color: var(--muted-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  font-size: 15px;
+}
+
+.changes-empty strong {
+  display: block;
+  color: var(--text-soft);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.changes-empty p {
+  margin: 6px 0 0;
+  color: var(--muted-2);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.changes-empty-mini {
+  padding: 10px 12px;
+  color: var(--muted-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* 文件滚动流 */
+.changes-files {
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 8px;
+}
+
+.file-section {
+  border-bottom: 1px solid var(--border);
+}
+
+.file-section:last-child {
+  border-bottom: 0;
+}
+
+.file-section-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  background: var(--workbench-bg);
+}
+
+.file-status {
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: var(--radius-sm);
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.status-added {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+}
+
+.status-modified {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+}
+
+.status-deleted {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+}
+
+.file-path {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-soft);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+}
+
+.file-stat {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+}
+
+.file-section-body {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Unified diff 行级渲染 */
+.unified-diff {
+  min-width: 0;
+  overflow: auto;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.diff-lines {
+  min-width: max-content;
+  padding: 2px 0;
+}
+
+.diff-line {
+  display: grid;
+  grid-template-columns: 2.5rem 2.5rem 1.25rem max-content;
+  align-items: center;
+  min-height: 20px;
+  padding-right: 12px;
+}
+
+.diff-gutter {
+  padding-right: 8px;
+  color: var(--muted-2);
+  text-align: right;
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.diff-sign {
+  text-align: center;
+  user-select: none;
+}
+
+.diff-line-content {
+  padding-right: 12px;
+  white-space: pre;
+}
+
+/* 新增行：绿底绿字 */
+.diff-add {
+  color: var(--success);
+}
+
+.diff-line.diff-add {
+  background: color-mix(in srgb, var(--success) 9%, transparent);
+}
+
+.diff-line.diff-add .diff-sign,
+.diff-line.diff-add .diff-line-content {
+  color: var(--success);
+}
+
+.diff-line.diff-add .diff-gutter {
+  color: color-mix(in srgb, var(--success) 60%, var(--muted-2));
+}
+
+/* 删除行：红底红字 */
+.diff-delete {
+  color: var(--danger);
+}
+
+.diff-line.diff-delete {
+  background: color-mix(in srgb, var(--danger) 9%, transparent);
+}
+
+.diff-line.diff-delete .diff-sign,
+.diff-line.diff-delete .diff-line-content {
+  color: var(--danger);
+}
+
+.diff-line.diff-delete .diff-gutter {
+  color: color-mix(in srgb, var(--danger) 60%, var(--muted-2));
+}
+
+/* hunk 头 */
+.diff-line.diff-hunk {
+  background: var(--surface-1);
+}
+
+.diff-line.diff-hunk .diff-line-content {
+  color: var(--accent);
+}
+
+/* 元信息 */
+.diff-line.diff-meta .diff-line-content {
+  color: var(--muted);
+}
+
+/* context 行 */
+.diff-line.diff-context .diff-gutter {
+  color: var(--muted-2);
+}
+
+.diff-line.diff-context .diff-line-content {
+  color: var(--text-soft);
+}
+
+/* context 折叠块 */
+.diff-collapsed {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 12px;
+  color: var(--muted);
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-1);
+  cursor: pointer;
+  font-size: 11px;
+  text-align: left;
+}
+
+.diff-collapsed:hover {
+  background: var(--surface-hover);
+}
+
+.diff-collapsed-count {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--muted-2);
+}
+
+.diff-collapsed-label {
+  color: var(--muted);
+}
+
+.diff-truncated {
+  padding: 6px 12px;
+  color: var(--warning);
+  font-size: 11px;
+  border-top: 1px solid var(--border);
+}

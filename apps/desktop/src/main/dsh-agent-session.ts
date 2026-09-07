@@ -1,6 +1,5 @@
-import { createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
-import { classifyCommand } from "@pi-ling/coding-agent";
 import type {
   RuntimeAdapter,
   RuntimeEvent,
@@ -8,7 +7,6 @@ import type {
 } from "@pi-ling/runtime-contracts";
 import type {
   AgentStatus,
-  AgentUsage,
   ApprovalMode,
   ApprovalRequest,
   CanonicalMessage,
@@ -20,8 +18,9 @@ import type {
   TimelineEvent,
   TimelineSnapshot,
 } from "@pi-ling/contracts";
-import { projectTimelineSnapshot } from "@pi-ling/session-events";
+import { projectCanonicalMessages, projectTimelineSnapshot } from "@pi-ling/session-events";
 
+import { evaluateDshApproval } from "./dsh-approval-policy.js";
 import { RunMessageBuffer } from "./run-message-buffer.js";
 import { SessionStore } from "./session-store/session-store.js";
 
@@ -31,6 +30,11 @@ interface PendingPermission {
   runtimePermissionId: string;
   approval: ApprovalRequest;
   options: RuntimePermissionOption[];
+}
+
+interface ContextUsage {
+  used: number;
+  size: number;
 }
 
 export class DshAgentSession {
@@ -44,20 +48,18 @@ export class DshAgentSession {
   readonly #unsubscribe: () => void;
   readonly #pending = new Map<string, PendingPermission>();
   readonly #tools = new Set<string>();
-  readonly #toolTurns = new Map<string, string>();
   #activeRunId: string | null = null;
-  #turn = 0;
   #assistantOpen = false;
-  #assistantHasText = false;
+  #assistantMessageId: string | null = null;
   #assistantText = "";
   #assistantReasoning = "";
+  #assistantToolCalls: Array<{
+    toolCallId: string;
+    name: string;
+    input: Record<string, unknown>;
+  }> = [];
   #approvalMode: ApprovalMode;
-  #usage: AgentUsage = {
-    input: 0,
-    output: 0,
-    totalTokens: 0,
-    cost: 0,
-  };
+  #contextUsage: ContextUsage | undefined;
 
   private constructor(options: {
     store: SessionStore;
@@ -95,20 +97,84 @@ export class DshAgentSession {
     const externalSessionId = options.store.getRuntimeSessionId(
       options.session.id,
     );
-    const handle = externalSessionId
-      ? await options.runtime.resumeSession({
+    const events = options.store.loadSessionEvents(options.session.id);
+    const messages = projectCanonicalMessages(events);
+    const watermark =
+      options.store.getRuntimeSession(options.session.id, "dsh")
+        ?.lastSyncedCanonicalSeq ?? 0;
+    const importOptions = {
+      workspaceRoot: options.session.workspace.root,
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+    };
+
+    if (!externalSessionId) {
+      if (messages.length > 0 && options.runtime.importSession) {
+        const importedId = randomUUID();
+        await options.runtime.importSession({
+          sessionId: importedId,
+          ...importOptions,
+          canonicalMessages: messages,
+        });
+        options.store.setRuntimeImport(
+          options.session.id,
+          importedId,
+          events.at(-1)?.seq ?? 0,
+        );
+        await options.runtime.resumeSession({
+          sessionId: options.session.id,
+          workspaceRoot: options.session.workspace.root,
+          externalSessionId: importedId,
+        });
+        return instance;
+      }
+      const handle = await options.runtime.createSession({
+        sessionId: options.session.id,
+        workspaceRoot: options.session.workspace.root,
+      });
+      options.store.setRuntimeSessionId(
+        options.session.id,
+        handle.externalSessionId,
+      );
+      return instance;
+    }
+
+    // Existing DSH session: append the canonical delta past the watermark.
+    if (options.runtime.importSession && watermark > 0) {
+      const syncedMessages = projectCanonicalMessages(
+        events.filter((envelope) => envelope.seq <= watermark),
+      );
+      if (messages.length > syncedMessages.length) {
+        const delta = messages.slice(syncedMessages.length);
+        const startTurn =
+          syncedMessages.filter((message) => message.role === "user").length +
+          1;
+        await options.runtime.importSession({
+          sessionId: externalSessionId,
+          appendToExternalSessionId: externalSessionId,
+          startTurn,
+          ...importOptions,
+          canonicalMessages: delta,
+        });
+        options.store.setRuntimeImport(
+          options.session.id,
+          externalSessionId,
+          events.at(-1)?.seq ?? 0,
+        );
+        await options.runtime.resumeSession({
           sessionId: options.session.id,
           workspaceRoot: options.session.workspace.root,
           externalSessionId,
-        })
-      : await options.runtime.createSession({
-          sessionId: options.session.id,
-          workspaceRoot: options.session.workspace.root,
         });
-    options.store.setRuntimeSessionId(
-      options.session.id,
-      handle.externalSessionId,
-    );
+        return instance;
+      }
+    }
+
+    await options.runtime.resumeSession({
+      sessionId: options.session.id,
+      workspaceRoot: options.session.workspace.root,
+      externalSessionId,
+    });
     return instance;
   }
 
@@ -121,7 +187,7 @@ export class DshAgentSession {
       sessionId: this.#session.id,
       runtimeKind: "dsh",
       availableRuntimes: this.#availableRuntimes,
-      provider: "deepseek-official",
+      provider: "deepseek",
       model: "deepseek-v4-flash",
       configured: Boolean(process.env["DEEPSEEK_API_KEY"]?.trim()),
       approvalMode: this.#approvalMode,
@@ -139,11 +205,12 @@ export class DshAgentSession {
   startPrompt(runId: string, prompt: string): void {
     if (this.#activeRunId) throw new Error("DSH is already running");
     this.#activeRunId = runId;
-    this.#turn = 0;
     this.#assistantOpen = false;
-    this.#assistantHasText = false;
+    this.#assistantMessageId = null;
     this.#assistantText = "";
     this.#assistantReasoning = "";
+    this.#assistantToolCalls = [];
+    this.#contextUsage = undefined;
     this.#store.setLifecycle(this.#session.id, "running", runId);
     const userMessage: CanonicalMessage = {
       id: `${runId}:user`,
@@ -258,77 +325,118 @@ export class DshAgentSession {
     this.#projectedSeq = projected.lastSeq;
   }
 
-  #turnId(): string {
-    return `${this.#activeRunId}:turn:${Math.max(1, this.#turn)}`;
+  #turnIdFor(runId: string, messageId?: string): string {
+    return messageId ?? `${runId}:assistant`;
   }
 
-  #ensureAssistant(runId: string): string {
+  #ensureAssistant(runId: string, messageId?: string): string {
+    const turnId = this.#turnIdFor(runId, messageId);
+    if (this.#assistantOpen && this.#assistantMessageId !== turnId) {
+      this.#closeAssistant(runId);
+    }
     if (!this.#assistantOpen) {
-      this.#turn += 1;
       this.#assistantOpen = true;
-      this.#assistantHasText = false;
+      this.#assistantMessageId = turnId;
       this.#assistantText = "";
       this.#assistantReasoning = "";
-      const turnId = this.#turnId();
+      this.#assistantToolCalls = [];
       this.#store.appendSessionEvent({
         sessionId: this.#session.id,
         runtimeKind: "dsh",
         runId,
         turnId,
         idempotencyKey: `turn:${turnId}:start`,
-        event: { kind: "turn.started", turn: this.#turn },
+        event: { kind: "turn.started", turn: 1 },
       });
-      this.#publish(runId, { type: "turn_start", turnId, turn: this.#turn });
+      this.#publish(runId, { type: "turn_start", turnId, turn: 1 });
       this.#publish(runId, {
         type: "assistant_start",
         turnId,
-        itemId: `${turnId}:assistant`,
+        itemId: turnId,
       });
     }
-    return this.#turnId();
+    return turnId;
   }
 
-  #closeAssistant(runId: string, stopReason: string): void {
-    if (!this.#assistantOpen) return;
-    const turnId = this.#turnId();
-    const messageId = `${turnId}:assistant`;
+  #closeAssistant(runId: string, stopReason?: string): void {
+    if (!this.#assistantOpen || !this.#assistantMessageId) return;
+    const turnId = this.#assistantMessageId;
+    const effectiveStop =
+      stopReason ??
+      (this.#assistantToolCalls.length > 0 ? "toolUse" : "stop");
     const message: CanonicalMessage = {
-      id: messageId,
+      id: turnId,
       role: "assistant",
       content: [
         ...(this.#assistantReasoning
-          ? [{ type: "reasoning" as const, text: this.#assistantReasoning }]
+          ? [{
+              type: "reasoning" as const,
+              text: this.#assistantReasoning,
+              signature: "reasoning_content",
+            }]
           : []),
         ...(this.#assistantText
           ? [{ type: "text" as const, text: this.#assistantText }]
           : []),
+        ...this.#assistantToolCalls.map((call) => ({
+          type: "tool-call" as const,
+          toolCallId: call.toolCallId,
+          name: call.name,
+          input: call.input,
+        })),
       ],
       sourceRuntime: "dsh",
       createdAt: Date.now(),
     };
+    const isFinalAnswer =
+      effectiveStop !== "toolUse" && this.#assistantToolCalls.length === 0;
     this.#store.appendSessionEvent({
       sessionId: this.#session.id,
       runtimeKind: "dsh",
       runId,
       turnId,
-      messageId,
+      messageId: turnId,
       idempotencyKey: `assistant:${turnId}`,
       event: {
         kind: "message.assistant.committed",
         message,
-        stopReason,
-        usage: this.#usage,
+        stopReason: effectiveStop,
+        usage: { input: 0, output: 0, totalTokens: 0, cost: 0 },
+        ...(isFinalAnswer && this.#contextUsage
+          ? { contextUsage: this.#contextUsage }
+          : {}),
       },
     });
-    this.#buffer.commitMessage(this.#session.id, runId, messageId);
+    this.#buffer.commitMessage(this.#session.id, runId, turnId);
     this.#publish(runId, {
       type: "assistant_end",
       turnId,
-      itemId: messageId,
-      stopReason,
-      usage: this.#usage,
+      itemId: turnId,
+      stopReason: effectiveStop,
+      ...(isFinalAnswer && this.#contextUsage
+        ? { contextUsage: this.#contextUsage }
+        : {}),
     });
     this.#assistantOpen = false;
+    this.#assistantMessageId = null;
+    this.#assistantText = "";
+    this.#assistantReasoning = "";
+    this.#assistantToolCalls = [];
+  }
+
+  #recordContextUsage(runId: string, usage: ContextUsage): void {
+    this.#contextUsage = usage;
+    this.#store.appendSessionEvent({
+      sessionId: this.#session.id,
+      runtimeKind: "dsh",
+      runId,
+      idempotencyKey: `run:${runId}:context-usage:${usage.used}:${usage.size}`,
+      event: {
+        kind: "usage.recorded",
+        usage: { input: 0, output: 0, totalTokens: 0, cost: 0 },
+        contextUsage: usage,
+      },
+    });
   }
 
   async #handleRuntimeEvent(event: RuntimeEvent): Promise<void> {
@@ -355,48 +463,46 @@ export class DshAgentSession {
     if (!runId || runId !== this.#activeRunId) return;
     if (event.type === "run_start") return;
     if (event.type === "assistant_thought") {
-      const turnId = this.#ensureAssistant(runId);
+      const turnId = this.#ensureAssistant(runId, event.messageId);
       this.#assistantReasoning += event.delta;
       this.#buffer.ingest({
         sessionId: this.#session.id,
         runId,
         turnId,
-        messageId: `${turnId}:assistant`,
+        messageId: turnId,
         emittedAt: Date.now(),
         frame: { kind: "assistant.reasoning.delta", delta: event.delta },
       });
     } else if (event.type === "assistant_text") {
-      const turnId = this.#ensureAssistant(runId);
-      this.#assistantHasText = true;
+      const turnId = this.#ensureAssistant(runId, event.messageId);
       this.#assistantText += event.delta;
       this.#buffer.ingest({
         sessionId: this.#session.id,
         runId,
         turnId,
-        messageId: `${turnId}:assistant`,
+        messageId: turnId,
         emittedAt: Date.now(),
         frame: { kind: "assistant.text.delta", delta: event.delta },
       });
-    } else if (event.type === "usage") {
-      this.#usage = {
-        input: event.used,
-        output: 0,
-        totalTokens: event.used,
-        cost: 0,
-      };
+    } else if (event.type === "context_usage") {
+      this.#recordContextUsage(runId, {
+        used: event.used,
+        size: event.size,
+      });
     } else if (event.type === "tool") {
-      let turnId = this.#toolTurns.get(event.callId);
-      if (!turnId) {
-        turnId = this.#ensureAssistant(runId);
-        this.#toolTurns.set(event.callId, turnId);
-      }
+      const turnId = this.#assistantMessageId ?? `${runId}:exec`;
       const arguments_ =
         typeof event.input === "object" && event.input !== null
           ? (event.input as Record<string, unknown>)
           : {};
       if (!this.#tools.has(event.callId)) {
         this.#tools.add(event.callId);
-        this.#closeAssistant(runId, "toolUse");
+        this.#assistantToolCalls.push({
+          toolCallId: event.callId,
+          name: event.title,
+          input: arguments_,
+        });
+        this.#ensureAssistant(runId, turnId);
         this.#store.appendSessionEvent({
           sessionId: this.#session.id,
           runtimeKind: "dsh",
@@ -423,7 +529,6 @@ export class DshAgentSession {
         });
       }
       if (event.status === "running") {
-        this.#closeAssistant(runId, "toolUse");
         this.#store.appendSessionEvent({
           sessionId: this.#session.id,
           runtimeKind: "dsh",
@@ -498,11 +603,15 @@ export class DshAgentSession {
       typeof event.input === "object" && event.input !== null
         ? (event.input as Record<string, unknown>)
         : {};
+    const turnId = this.#assistantMessageId ?? `${event.runId}:exec`;
     if (!this.#tools.has(event.callId)) {
-      const turnId = this.#ensureAssistant(event.runId);
       this.#tools.add(event.callId);
-      this.#toolTurns.set(event.callId, turnId);
-      this.#closeAssistant(event.runId, "toolUse");
+      this.#assistantToolCalls.push({
+        toolCallId: event.callId,
+        name: event.title,
+        input,
+      });
+      this.#ensureAssistant(event.runId, turnId);
       this.#store.appendSessionEvent({
         sessionId: this.#session.id,
         runtimeKind: "dsh",
@@ -528,24 +637,21 @@ export class DshAgentSession {
         arguments: input,
       });
     }
-    const command =
-      typeof input["command"] === "string" ? input["command"] : "";
-    const destructive =
-      event.toolKind === "delete" ||
-      event.toolKind === "other" ||
-      (event.toolKind === "execute" &&
-        classifyCommand(command) === "destructive");
-    const autoAllow =
-      !destructive &&
-      (event.toolKind === "read" ||
-        event.toolKind === "search" ||
-        (mode === "accept-write" && event.toolKind === "edit") ||
-        mode === "auto");
+    const evaluation = evaluateDshApproval(
+      {
+        callId: event.callId,
+        title: event.title,
+        ...(event.toolKind ? { toolKind: event.toolKind } : {}),
+        input,
+      },
+      mode,
+      this.#session.workspace.root,
+    );
     const allowOption = event.options.find(
       (option) =>
         option.kind === "allow_once" || option.kind === "allow_always",
     );
-    if (autoAllow && allowOption) {
+    if (!evaluation.reason && allowOption) {
       await this.#runtime.resolvePermission({
         permissionId: event.permissionId,
         optionId: allowOption.optionId,
@@ -553,28 +659,22 @@ export class DshAgentSession {
       return;
     }
 
-    const digest = createHash("sha256")
-      .update(JSON.stringify(event))
-      .digest("hex");
     const approval: ApprovalRequest = {
       callId: event.callId,
       tool: event.title,
       arguments: input,
-      effect: {
-        kind: `dsh-${event.toolKind ?? "unknown"}`,
-        title: event.title,
-      },
-      effectDigest: digest,
-      reason: `DSH requests ${event.toolKind ?? "unknown"} permission`,
+      effect: { ...evaluation.effect },
+      effectDigest: evaluation.effectDigest,
+      reason:
+        evaluation.reason ?? "DSH permission requires an explicit decision",
     };
     this.#pending.set(event.callId, {
       runId: event.runId,
-      turnId: this.#turnId(),
+      turnId,
       runtimePermissionId: event.permissionId,
       approval,
       options: event.options,
     });
-    const turnId = this.#toolTurns.get(event.callId) ?? this.#turnId();
     this.#store.appendSessionEvent({
       sessionId: this.#session.id,
       runtimeKind: "dsh",

@@ -11,7 +11,11 @@ import type {
 } from "./types";
 
 function filePath(item: { arguments: Record<string, unknown> }): string | undefined {
-  const value = item.arguments["path"] ?? item.arguments["file"];
+  const value =
+    item.arguments["path"] ??
+    item.arguments["file"] ??
+    item.arguments["file_path"] ??
+    item.arguments["filePath"];
   return typeof value === "string" && value.trim()
     ? value.replaceAll("\\", "/").toLowerCase()
     : undefined;

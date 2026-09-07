@@ -1,4 +1,4 @@
-import { Type } from "@pi-ling/ai";
+import { Type } from "@earendil-works/pi-ai";
 import type { AgentTool } from "@pi-ling/agent-core";
 
 import type { Workspace } from "../workspace/workspace.js";

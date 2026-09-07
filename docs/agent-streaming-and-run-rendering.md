@@ -187,8 +187,8 @@ Native 与 DSH 切换时没有自动同步模型历史。该问题需要 canonic
   对 live stream 的订阅和转发；
 - DSH 支持通过 `LlmAdapter` 与 Cordis plugin 替换模型适配层；
 - 官方本地开发支持 `--patch`，持久 bundle 支持 `dsh plugin --profile ... add`。
-- `@pi-ling/dsh-llm` 的加载失败已定位为 `file:` 安装后无法解析
-  `@pi-ling/ai`；改用开发期 `link:` 后真实 Prompt 已成功。
+- 已退出的 `@pi-ling/dsh-llm` 曾定位并验证 `file:`/`link:` 加载问题；
+  产品模型层现改用固定 DSH 自带的 `@deepseek-ai/dsh-llm-pi-ai`。
 
 实现时仍需覆盖：
 

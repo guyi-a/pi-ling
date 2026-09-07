@@ -2,12 +2,14 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import type { ToolCall } from "@pi-ling/ai";
+import type { ToolCall } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   ApprovalManager,
   type ApprovalRequest,
+  type ApprovalMode,
+  type Effect,
   approvalReason,
   classifyCommand,
   deriveEffect,
@@ -91,6 +93,98 @@ describe("effects and approval", () => {
         sensitiveCall,
       ),
     ).toBe("sensitive file");
+  });
+
+  it("locks the product approval matrix across all modes", () => {
+    const modes: ApprovalMode[] = ["manual", "accept-write", "auto"];
+    const cases: Array<{
+      name: string;
+      effect: Effect;
+      prompts: [boolean, boolean, boolean];
+      call?: ToolCall;
+    }> = [
+      {
+        name: "workspace read",
+        effect: {
+          kind: "filesystem-read",
+          operation: "read",
+          path: path.join(root, "README.md"),
+          scope: "workspace",
+        },
+        prompts: [false, false, false],
+      },
+      {
+        name: "workspace write",
+        effect: {
+          kind: "filesystem-write",
+          operation: "write",
+          path: path.join(root, "file.txt"),
+          scope: "workspace",
+        },
+        prompts: [true, false, false],
+      },
+      {
+        name: "harmless command",
+        effect: {
+          kind: "process-exec",
+          command: "git status",
+          cwd: root,
+          classification: "harmless",
+        },
+        prompts: [false, false, false],
+      },
+      {
+        name: "normal command",
+        effect: {
+          kind: "process-exec",
+          command: "pnpm test",
+          cwd: root,
+          classification: "normal",
+        },
+        prompts: [true, true, false],
+      },
+      {
+        name: "destructive command",
+        effect: {
+          kind: "process-exec",
+          command: "git reset --hard",
+          cwd: root,
+          classification: "destructive",
+        },
+        prompts: [true, true, true],
+      },
+      {
+        name: "sensitive write",
+        effect: {
+          kind: "filesystem-write",
+          operation: "write",
+          path: path.join(root, ".env"),
+          scope: "workspace",
+        },
+        prompts: [true, true, true],
+        call: {
+          type: "toolCall",
+          id: "sensitive",
+          name: "write_file",
+          arguments: { path: ".env", content: "API_KEY=secret" },
+        },
+      },
+      {
+        name: "unknown effect",
+        effect: { kind: "unknown", note: "unknown tool" },
+        prompts: [true, true, true],
+      },
+    ];
+
+    for (const testCase of cases) {
+      expect(
+        modes.map(
+          (mode) =>
+            approvalReason(testCase.effect, mode, testCase.call) !== undefined,
+        ),
+        testCase.name,
+      ).toEqual(testCase.prompts);
+    }
   });
 
   it("binds decisions to the exact effect digest", async () => {
