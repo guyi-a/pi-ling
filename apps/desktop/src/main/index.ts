@@ -1,6 +1,5 @@
 import { promises as fs } from "node:fs";
-import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type {
@@ -34,6 +33,7 @@ import {
   type WebContents,
 } from "electron";
 
+import { resolveDshLaunchConfig } from "./dsh-launch-config.js";
 import { SessionStore } from "./session-store/session-store.js";
 import { SessionSupervisor } from "./session-supervisor.js";
 
@@ -537,34 +537,14 @@ ipcMain.handle(
 
 void app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
-  const defaultDshBin =
-    "E:\\deepseek-harness\\apps\\cli\\lib\\bin.js";
-  const dshBin = process.env["PI_LING_DSH_BIN"] ?? defaultDshBin;
-  if (
-    process.env["PI_LING_DSH_ENABLED"] === "true" &&
-    existsSync(dshBin)
-  ) {
-    const sourceRoot = resolve(dirname(dshBin), "../../..");
-    const configuredNode = process.env["PI_LING_NODE_BIN"] ?? "E:\\node.exe";
-    dshRuntime = new DshRuntimeAdapter({
-      dshBin,
-      command: existsSync(configuredNode)
-        ? configuredNode
-        : process.execPath,
-      dshHome: join(
-        app.getPath("userData"),
-        "dsh",
-        "0.1.3-alpha.1-d347e703",
-      ),
-      cwd: existsSync(join(sourceRoot, "package.json"))
-        ? sourceRoot
-        : app.getPath("userData"),
-      env: {
-        ...(process.env["DEEPSEEK_API_KEY"]
-          ? { DEEPSEEK_API_KEY: process.env["DEEPSEEK_API_KEY"] }
-          : {}),
-      },
-    });
+  const dshLaunch = resolveDshLaunchConfig(
+    process.env,
+    app.getPath("userData"),
+  );
+  if (dshLaunch.enabled && "options" in dshLaunch) {
+    dshRuntime = new DshRuntimeAdapter(dshLaunch.options);
+  } else if (dshLaunch.enabled) {
+    console.warn(`DSH Runtime disabled: ${dshLaunch.reason}`);
   }
   sessionStore = new SessionStore(
     join(app.getPath("userData"), "pi-ling.db"),

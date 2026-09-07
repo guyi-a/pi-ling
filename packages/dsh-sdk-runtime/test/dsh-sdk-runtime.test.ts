@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import type { RuntimeEvent } from "@pi-ling/runtime-contracts";
 import { describe, expect, it } from "vitest";
@@ -10,6 +10,23 @@ import {
   DshSdkRuntimeAdapter,
   mapSdkSessionEvent,
 } from "../src/index.js";
+
+const projectRoot = fileURLToPath(new URL("../../../", import.meta.url));
+const dshRoot =
+  process.env["PI_LING_DSH_WORKTREE"] ??
+  path.join(projectRoot, ".dsh-source");
+const dshBin =
+  process.env["PI_LING_DSH_BIN"] ??
+  path.join(dshRoot, "apps", "cli", "lib", "bin.js");
+const nodeImportHook = pathToFileURL(
+  path.join(
+    projectRoot,
+    "packages",
+    "dsh-runtime",
+    "dist",
+    "fs-ext-hook.js",
+  ),
+).href;
 
 describe("DshSdkRuntimeAdapter PoC", () => {
   it("maps committed SDK message and tool events", () => {
@@ -90,12 +107,11 @@ describe("DshSdkRuntimeAdapter PoC", () => {
       );
       const events: RuntimeEvent[] = [];
       const adapter = new DshSdkRuntimeAdapter({
-        dshBin: "E:/deepseek-harness/apps/cli/lib/bin.js",
+        dshBin,
         dshHome: path.join(directory, "dsh-home"),
-        cwd: "E:/pi-ling",
-        processCwd: "E:/deepseek-harness",
-        nodeImportHook:
-          "file:///E:/pi-ling/packages/dsh-runtime/dist/fs-ext-hook.js",
+        cwd: projectRoot,
+        processCwd: dshRoot,
+        nodeImportHook,
         env: process.env["DEEPSEEK_API_KEY"]
           ? { DEEPSEEK_API_KEY: process.env["DEEPSEEK_API_KEY"] }
           : {},
@@ -106,7 +122,7 @@ describe("DshSdkRuntimeAdapter PoC", () => {
       try {
         await adapter.createSession({
           sessionId: "sdk-poc-session",
-          workspaceRoot: "E:/pi-ling",
+          workspaceRoot: projectRoot,
         });
         await adapter.send(
           "sdk-poc-session",
@@ -127,12 +143,11 @@ describe("DshSdkRuntimeAdapter PoC", () => {
 
         await adapter.dispose();
         const resumed = new DshSdkRuntimeAdapter({
-          dshBin: "E:/deepseek-harness/apps/cli/lib/bin.js",
+          dshBin,
           dshHome: path.join(directory, "dsh-home"),
-          cwd: "E:/pi-ling",
-          processCwd: "E:/deepseek-harness",
-          nodeImportHook:
-            "file:///E:/pi-ling/packages/dsh-runtime/dist/fs-ext-hook.js",
+          cwd: projectRoot,
+          processCwd: dshRoot,
+          nodeImportHook,
           env: process.env["DEEPSEEK_API_KEY"]
             ? { DEEPSEEK_API_KEY: process.env["DEEPSEEK_API_KEY"] }
             : {},
@@ -141,7 +156,7 @@ describe("DshSdkRuntimeAdapter PoC", () => {
           await resumed.resumeSession({
             sessionId: "sdk-poc-session",
             externalSessionId: "sdk-poc-session",
-            workspaceRoot: "E:/pi-ling",
+            workspaceRoot: projectRoot,
           });
           await expect(
             resumed.send(

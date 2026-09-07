@@ -6,7 +6,8 @@
 
 ## 已打通
 
-- 官方 DSH 源码已 clone 到 `E:\deepseek-harness` 并完成构建。
+- 官方 DSH 固定源码通过 `pnpm dsh:setup` 准备，并由仓库根目录
+  `.dsh-source` 指向独立 worktree。
 - `DshRuntimeAdapter` 通过 ACP stdio 控制 DSH 子进程。
 - 支持 session create/resume/close、prompt、cancel、semantic update 和 permission request。
 - fake ACP 测试覆盖消息、thinking、tool、permission、cancel 和子进程 crash。
@@ -110,8 +111,8 @@ input/output usage。
   bundle 后，profile 中复制出的包无法解析其 `link:` 依赖
   `@pi-ling/ai`，Cordis loader tree 先加载失败并被 dispose，随后
   `session/new` 只暴露了二次生命周期错误。
-- 在隔离 ACP profile 中改用
-  `dsh plugin --profile acp add link:E:/pi-ling/packages/dsh-llm`
+- 在旧 Windows 开发环境的隔离 ACP profile 中改用
+  `dsh plugin --profile acp add link:<pi-ling-root>/packages/dsh-llm`
   后，plugin tree、`session/new` 和真实模型 Prompt 均成功；Prompt
   返回了预期的 `dsh-bridge-ok`。
 - bundle 默认禁用；产品 DSH Runtime 暂时使用已验证的

@@ -1,3 +1,5 @@
+import { dirname, resolve } from "node:path";
+
 import {
   DeepSeekHarness,
   type HarnessNotification,
@@ -292,7 +294,10 @@ export class DshSdkRuntimeAdapter implements RuntimeAdapter {
         ...process.env,
         ...this.#options.env,
         ...(nodeOptions ? { NODE_OPTIONS: nodeOptions } : {}),
-        PI_LING_DSH_MODULE_ROOT: "E:/deepseek-harness/apps/cli/node_modules",
+        PI_LING_DSH_MODULE_ROOT: resolve(
+          dirname(this.#options.dshBin),
+          "../node_modules",
+        ),
       },
       initializeTimeoutMs: 30_000,
     });

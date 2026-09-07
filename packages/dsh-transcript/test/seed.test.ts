@@ -23,6 +23,8 @@ import {
   toDshSeed,
 } from "../src/index.js";
 
+const projectRoot = fileURLToPath(new URL("../../../", import.meta.url));
+
 const canonicalHistory = [
   {
     id: "canonical-user-1",
@@ -98,7 +100,7 @@ describe("DSH transcript seed plugin", () => {
         if (!service) throw new Error("Transcript seed service was not loaded");
         handle = await service.createAgent({
           sessionId: "real-seed-poc",
-          cwd: "E:/pi-ling",
+          cwd: projectRoot,
           provider: "pi-ling-deepseek",
           model: "deepseek-v4-flash",
           messages: canonicalHistory,

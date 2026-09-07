@@ -41,6 +41,9 @@ importers:
         specifier: 2.5.0
         version: 2.5.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
     devDependencies:
+      '@deepseek-ai/dsh-llm-mock-server':
+        specifier: link:../../.dsh-source/packages/test-support/llm-mock-server
+        version: link:../../.dsh-source/packages/test-support/llm-mock-server
       '@types/node':
         specifier: 24.10.1
         version: 24.10.1
@@ -160,13 +163,13 @@ importers:
   packages/dsh-llm:
     dependencies:
       '@deepseek-ai/cordis':
-        specifier: link:E:/deepseek-harness/vendor/cordis
-        version: link:../../../deepseek-harness/vendor/cordis
+        specifier: link:../../.dsh-source/vendor/cordis
+        version: link:../../.dsh-source/vendor/cordis
       '@deepseek-ai/dsh-llm':
-        specifier: link:E:/deepseek-harness/packages/llm/llm
-        version: link:../../../deepseek-harness/packages/llm/llm
+        specifier: link:../../.dsh-source/packages/llm/llm
+        version: link:../../.dsh-source/packages/llm/llm
       '@pi-ling/ai':
-        specifier: link:E:/pi-ling/packages/ai
+        specifier: workspace:*
         version: link:../ai
     devDependencies:
       '@types/node':
@@ -201,8 +204,8 @@ importers:
   packages/dsh-sdk-runtime:
     dependencies:
       '@deepseek-ai/dsh-sdk-client':
-        specifier: link:E:/deepseek-harness/packages/sdk/client
-        version: link:../../../deepseek-harness/packages/sdk/client
+        specifier: link:../../.dsh-source/packages/sdk/client
+        version: link:../../.dsh-source/packages/sdk/client
       '@pi-ling/runtime-contracts':
         specifier: workspace:*
         version: link:../runtime-contracts
@@ -220,30 +223,30 @@ importers:
   packages/dsh-transcript:
     dependencies:
       '@deepseek-ai/cordis':
-        specifier: link:E:/deepseek-harness/vendor/cordis
-        version: link:../../../deepseek-harness/vendor/cordis
+        specifier: link:../../.dsh-source/vendor/cordis
+        version: link:../../.dsh-source/vendor/cordis
       '@deepseek-ai/dsh-agent':
-        specifier: link:E:/deepseek-harness/packages/core/agent
-        version: link:../../../deepseek-harness/packages/core/agent
+        specifier: link:../../.dsh-source/packages/core/agent
+        version: link:../../.dsh-source/packages/core/agent
       '@deepseek-ai/dsh-llm':
-        specifier: link:E:/deepseek-harness/packages/llm/llm
-        version: link:../../../deepseek-harness/packages/llm/llm
+        specifier: link:../../.dsh-source/packages/llm/llm
+        version: link:../../.dsh-source/packages/llm/llm
       '@deepseek-ai/dsh-session':
-        specifier: link:E:/deepseek-harness/packages/core/session
-        version: link:../../../deepseek-harness/packages/core/session
+        specifier: link:../../.dsh-source/packages/core/session
+        version: link:../../.dsh-source/packages/core/session
     devDependencies:
       '@deepseek-ai/dsh-agent-loop':
-        specifier: link:E:/deepseek-harness/packages/core/agent-loop
-        version: link:../../../deepseek-harness/packages/core/agent-loop
+        specifier: link:../../.dsh-source/packages/core/agent-loop
+        version: link:../../.dsh-source/packages/core/agent-loop
       '@deepseek-ai/dsh-session-projection':
-        specifier: link:E:/deepseek-harness/packages/session/session-projection
-        version: link:../../../deepseek-harness/packages/session/session-projection
+        specifier: link:../../.dsh-source/packages/session/session-projection
+        version: link:../../.dsh-source/packages/session/session-projection
       '@deepseek-ai/dsh-system-prompt':
-        specifier: link:E:/deepseek-harness/packages/core/system-prompt
-        version: link:../../../deepseek-harness/packages/core/system-prompt
+        specifier: link:../../.dsh-source/packages/core/system-prompt
+        version: link:../../.dsh-source/packages/core/system-prompt
       '@deepseek-ai/dsh-tools':
-        specifier: link:E:/deepseek-harness/packages/core/tools
-        version: link:../../../deepseek-harness/packages/core/tools
+        specifier: link:../../.dsh-source/packages/core/tools
+        version: link:../../.dsh-source/packages/core/tools
       '@pi-ling/dsh-llm':
         specifier: workspace:*
         version: link:../dsh-llm

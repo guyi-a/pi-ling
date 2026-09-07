@@ -15,7 +15,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@deepseek-ai/dsh-sdk-client": "link:E:/deepseek-harness/packages/sdk/client",
+    "@deepseek-ai/dsh-sdk-client": "link:../../.dsh-source/packages/sdk/client",
     "@pi-ling/runtime-contracts": "workspace:*"
   },
   "devDependencies": {

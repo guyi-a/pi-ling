@@ -220,8 +220,9 @@ Renderer 输入 Prompt
 - `E:\pi`：Pi 0.85.0，MIT。
 - `@anthropic-ai/claude-agent-sdk`：Claude Runtime 的 TypeScript SDK，
   当前 PoC 固定 `0.3.263`。
-- `E:\deepseek-harness`：DSH 0.1.3-alpha.1 官方源码。
-- `E:\dsh-for-humans`：DSH 教程，不是源码。
+- `.dsh-source`：指向 DSH 0.1.3-alpha.1 固定 worktree 的本地链接；
+  使用 `pnpm dsh:setup` 创建和校验。
+- `dsh-for-humans`：DSH 教程，不是源码。
 
 ## 开发约束
 

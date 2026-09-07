@@ -25,6 +25,7 @@
     "streamdown": "2.5.0"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-llm-mock-server": "link:../../.dsh-source/packages/test-support/llm-mock-server",
     "@types/node": "24.10.1",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
