@@ -1,3 +1,6 @@
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { RuntimeEvent } from "@pi-ling/runtime-contracts";
@@ -50,6 +53,30 @@ describe("DshRuntimeAdapter", () => {
       runId: "run-1",
       delta: "hello",
     });
+  });
+
+  it("materializes a profile patch for the pinned ACP process", async () => {
+    const dshHome = await fs.mkdtemp(
+      path.join(os.tmpdir(), "pi-ling-dsh-profile-"),
+    );
+    const adapter = new DshRuntimeAdapter({
+      dshHome,
+      command: process.execPath,
+      dshBin: fixture,
+      profilePatch: "- id: llm-pi-ai\n",
+    });
+    runtimes.push(adapter);
+    try {
+      await adapter.createSession({
+        sessionId: "profile",
+        workspaceRoot: process.cwd(),
+      });
+      await expect(
+        fs.readFile(path.join(dshHome, "pi-ling-acp.patch.yml"), "utf8"),
+      ).resolves.toBe("- id: llm-pi-ai\n");
+    } finally {
+      await fs.rm(dshHome, { recursive: true, force: true });
+    }
   });
 
   it("round-trips one-shot permission decisions", async () => {

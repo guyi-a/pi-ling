@@ -3,6 +3,8 @@ import { dirname, join, resolve } from "node:path";
 
 import type { DshRuntimeOptions } from "@pi-ling/dsh-runtime";
 
+import { DSH_PI_AI_PROFILE_PATCH } from "./dsh-pi-ai-profile.js";
+
 export const PINNED_DSH_VERSION = "0.1.3-alpha.1";
 export const PINNED_DSH_COMMIT = "d347e703";
 
@@ -90,9 +92,19 @@ export function resolveDshLaunchConfig(
         `${PINNED_DSH_VERSION}-${PINNED_DSH_COMMIT}`,
       ),
       cwd: sourceRoot,
+      profilePatch: DSH_PI_AI_PROFILE_PATCH,
       env: {
         ...(env["DEEPSEEK_API_KEY"]?.trim()
           ? { DEEPSEEK_API_KEY: env["DEEPSEEK_API_KEY"] }
+          : {}),
+        ...(env["ANTHROPIC_API_KEY"]?.trim()
+          ? { ANTHROPIC_API_KEY: env["ANTHROPIC_API_KEY"] }
+          : {}),
+        ...(env["DEEPSEEK_BASE_URL"]?.trim()
+          ? { DEEPSEEK_BASE_URL: env["DEEPSEEK_BASE_URL"] }
+          : {}),
+        ...(env["ANTHROPIC_BASE_URL"]?.trim()
+          ? { ANTHROPIC_BASE_URL: env["ANTHROPIC_BASE_URL"] }
           : {}),
       },
     },

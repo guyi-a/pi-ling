@@ -21,11 +21,6 @@
     "@deepseek-ai/dsh-session": "link:../../.dsh-source/packages/core/session"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-agent-loop": "link:../../.dsh-source/packages/core/agent-loop",
-    "@deepseek-ai/dsh-session-projection": "link:../../.dsh-source/packages/session/session-projection",
-    "@deepseek-ai/dsh-system-prompt": "link:../../.dsh-source/packages/core/system-prompt",
-    "@deepseek-ai/dsh-tools": "link:../../.dsh-source/packages/core/tools",
-    "@pi-ling/dsh-llm": "workspace:*",
     "@types/node": "24.10.1",
     "typescript": "7.0.2",
     "vitest": "4.1.9"

@@ -79,6 +79,9 @@ describe("resolveDshLaunchConfig", () => {
         PI_LING_DSH_ENABLED: "true",
         PI_LING_DSH_BIN: bin,
         DEEPSEEK_API_KEY: "secret",
+        ANTHROPIC_API_KEY: "anthropic-secret",
+        DEEPSEEK_BASE_URL: "https://deepseek.test",
+        ANTHROPIC_BASE_URL: "https://anthropic.test",
       },
       "/user-data",
     );
@@ -89,7 +92,15 @@ describe("resolveDshLaunchConfig", () => {
         dshBin: bin,
         command: process.execPath,
         cwd: root,
-        env: { DEEPSEEK_API_KEY: "secret" },
+        profilePatch: expect.stringContaining(
+          "@deepseek-ai/dsh-llm-pi-ai",
+        ),
+        env: {
+          DEEPSEEK_API_KEY: "secret",
+          ANTHROPIC_API_KEY: "anthropic-secret",
+          DEEPSEEK_BASE_URL: "https://deepseek.test",
+          ANTHROPIC_BASE_URL: "https://anthropic.test",
+        },
       },
     });
   });

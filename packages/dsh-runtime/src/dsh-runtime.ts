@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { promises as fs } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { Readable, Writable } from "node:stream";
 
@@ -30,6 +31,7 @@ export interface DshRuntimeOptions {
   args?: string[];
   cwd?: string;
   env?: Record<string, string>;
+  profilePatch?: string;
   initializeTimeoutMs?: number;
   shutdownTimeoutMs?: number;
 }
@@ -277,6 +279,9 @@ export class DshRuntimeAdapter implements RuntimeAdapter {
 
   async #start(): Promise<void> {
     const command = this.#options.command ?? process.execPath;
+    const profilePatch = this.#options.profilePatch
+      ? await this.#writeProfilePatch(this.#options.profilePatch)
+      : undefined;
     const args =
       this.#options.args ??
       (this.#options.dshBin
@@ -290,6 +295,7 @@ export class DshRuntimeAdapter implements RuntimeAdapter {
             this.#options.dshBin,
             "--profile",
             "acp",
+            ...(profilePatch ? ["--patch", profilePatch] : []),
           ]
         : []);
     if (args.length === 0) throw new Error("A DSH executable is required");
@@ -478,6 +484,13 @@ export class DshRuntimeAdapter implements RuntimeAdapter {
     } finally {
       if (timer) clearTimeout(timer);
     }
+  }
+
+  async #writeProfilePatch(content: string): Promise<string> {
+    await fs.mkdir(this.#options.dshHome, { recursive: true });
+    const path = resolve(this.#options.dshHome, "pi-ling-acp.patch.yml");
+    await fs.writeFile(path, content, "utf8");
+    return path;
   }
 
   #waitForExit(

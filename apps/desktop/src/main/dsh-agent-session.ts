@@ -121,7 +121,7 @@ export class DshAgentSession {
       sessionId: this.#session.id,
       runtimeKind: "dsh",
       availableRuntimes: this.#availableRuntimes,
-      provider: "deepseek-official",
+      provider: "deepseek",
       model: "deepseek-v4-flash",
       configured: Boolean(process.env["DEEPSEEK_API_KEY"]?.trim()),
       approvalMode: this.#approvalMode,

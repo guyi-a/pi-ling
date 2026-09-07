@@ -60,8 +60,9 @@ Electron Main Supervisor
 - 固定 `dsh-v0.1.3-alpha.1` / `d347e703908d0406b7a7ef80e3a0e594d86b2215`，不跟随 latest。
 - Electron Main 使用 `@agentclientprotocol/sdk` 驱动 `dsh --profile acp`，不嵌入 Cordis。
 - DSH_HOME 按版本隔离，DSH 原生 session id 与产品 session id 分开持久化。
-- DSH 使用 pi-ling Cordis bridge bundle，承载 `@pi-ling/ai` Adapter、
-  Canonical Transcript Seed 和 ACP live stream。
+- DSH 使用固定版本自带的 `@deepseek-ai/dsh-llm-pi-ai` 调用模型，只配置
+  DeepSeek 与 Anthropic 路由；pi-ling Bridge 仅承担 Canonical Transcript
+  Seed、Runtime projection 和 ACP live stream 扩展。
 - 产品审批模式映射 ACP one-shot permission；未知、删除和破坏性执行不自动允许。
 - DSH developer preview 未经安全审计，只能在 feature flag 和首次安全确认后启用。
 
@@ -197,8 +198,8 @@ Renderer 输入 Prompt
 3. 实现 Main `RunMessageBuffer`、16ms delta merge 和 Session reconnect。
 4. 解耦 selected Session 与 active Runs。
 5. 让 Native 使用统一 Event Log。
-6. 将 DSH LLM/Transcript PoC 合并为可分发 Cordis bridge bundle，并补
-   ACP token stream。
+6. 将 DSH Transcript PoC 演进为可分发 Cordis bridge bundle，并补 ACP
+   token stream；模型层使用固定 DSH 官方 `dsh-llm-pi-ai`。
 7. 实现 Claude Agent SDK Runtime、opaque SessionStore projection 与
    Approval mapping。
 8. 实现 Cursor 风格 Run Activity projector。
@@ -240,10 +241,10 @@ Renderer 输入 Prompt
 - DSH 完整执行计划见
   [`docs/dsh-acp-integration-plan.md`](docs/dsh-acp-integration-plan.md)。
 - Native 已在分支 `refactor/native-pi-ai` 迁移到
-  `@earendil-works/pi-ai@0.85.0`，类型检查、测试和生产构建通过；该迁移当前
-  尚未提交。`@pi-ling/ai` 暂时只供旧 `@pi-ling/dsh-llm` PoC 使用。
-- 固定 DSH 已提供官方 `@deepseek-ai/dsh-llm-pi-ai`。后续应先决定直接采用
-  官方 Adapter，还是继续维护自研 `@pi-ling/dsh-llm`，再推进 DSH 模型层。
+  `@earendil-works/pi-ai@0.85.0`，类型检查、测试和生产构建通过，并在 commit
+  `0974fba` 提交。
+- DSH 模型层采用固定版本自带的 `@deepseek-ai/dsh-llm-pi-ai`；原
+  `@pi-ling/dsh-llm` 和 `@pi-ling/ai` 已退出产品架构。
 - `@earendil-works/pi-agent-core` 不能直接替换当前 `@pi-ling/agent-core`：
   当前 Core 含有 `runId/turnId`、前置审批、`resumePendingTools` 和恢复事件等
   产品定制。长期方向是将审批策略迁到 `coding-agent`，将事件标识、checkpoint

@@ -15,6 +15,7 @@ import {
 import type { RuntimeEvent } from "@pi-ling/runtime-contracts";
 import { describe, expect, it } from "vitest";
 
+import { DSH_PI_AI_PROFILE_PATCH } from "./dsh-pi-ai-profile.js";
 import { SessionStore } from "./session-store/session-store.js";
 import { SessionSupervisor } from "./session-supervisor.js";
 
@@ -82,7 +83,7 @@ function realDshOptions(
       dshVersion: rootManifest.version,
       acpSdk,
       node: process.versions.node,
-      provider: "deepseek-official",
+      provider: "deepseek",
       model: "deepseek-v4-flash",
       backend: model.baseURL ? "local-mock" : "configured-provider",
     }),
@@ -92,6 +93,7 @@ function realDshOptions(
     command,
     dshHome,
     cwd: sourceRoot,
+    profilePatch: DSH_PI_AI_PROFILE_PATCH,
     env: {
       DEEPSEEK_API_KEY: apiKey,
       ...(model.baseURL ? { DEEPSEEK_BASE_URL: model.baseURL } : {}),

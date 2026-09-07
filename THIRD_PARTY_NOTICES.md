@@ -3,8 +3,8 @@
 ## Pi
 
 The Native Runtime uses `@earendil-works/pi-ai` 0.85.0. The design and
-behavior of `packages/agent-core` and the transitional DSH model PoC were also
-implemented with reference to the Pi project:
+behavior of `packages/agent-core` were also implemented with reference to the
+Pi project:
 
 - https://github.com/earendil-works/pi
 - Copyright (c) 2025 Mario Zechner

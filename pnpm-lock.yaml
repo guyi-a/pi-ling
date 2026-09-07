@@ -91,28 +91,6 @@ importers:
         specifier: 4.1.9
         version: 4.1.9(@types/node@24.10.1)(@vitest/coverage-v8@4.1.9)(vite@7.3.1(@types/node@24.10.1)(lightningcss@1.33.0)(yaml@2.9.0))
 
-  packages/ai:
-    dependencies:
-      '@anthropic-ai/sdk':
-        specifier: 0.123.0
-        version: 0.123.0(zod@4.5.4)
-      openai:
-        specifier: 6.40.0
-        version: 6.40.0(ws@8.21.3)(zod@4.5.4)
-      typebox:
-        specifier: 1.3.7
-        version: 1.3.7
-    devDependencies:
-      '@types/node':
-        specifier: 24.10.1
-        version: 24.10.1
-      typescript:
-        specifier: 7.0.2
-        version: 7.0.2
-      vitest:
-        specifier: 4.1.9
-        version: 4.1.9(@types/node@24.10.1)(@vitest/coverage-v8@4.1.9)(vite@7.3.1(@types/node@24.10.1)(lightningcss@1.33.0)(yaml@2.9.0))
-
   packages/claude-transcript:
     dependencies:
       '@anthropic-ai/claude-agent-sdk':
@@ -159,28 +137,6 @@ importers:
       typescript:
         specifier: 7.0.2
         version: 7.0.2
-
-  packages/dsh-llm:
-    dependencies:
-      '@deepseek-ai/cordis':
-        specifier: link:../../.dsh-source/vendor/cordis
-        version: link:../../.dsh-source/vendor/cordis
-      '@deepseek-ai/dsh-llm':
-        specifier: link:../../.dsh-source/packages/llm/llm
-        version: link:../../.dsh-source/packages/llm/llm
-      '@pi-ling/ai':
-        specifier: workspace:*
-        version: link:../ai
-    devDependencies:
-      '@types/node':
-        specifier: 24.10.1
-        version: 24.10.1
-      typescript:
-        specifier: 7.0.2
-        version: 7.0.2
-      vitest:
-        specifier: 4.1.9
-        version: 4.1.9(@types/node@24.10.1)(@vitest/coverage-v8@4.1.9)(vite@7.3.1(@types/node@24.10.1)(lightningcss@1.33.0)(yaml@2.9.0))
 
   packages/dsh-runtime:
     dependencies:
@@ -235,21 +191,6 @@ importers:
         specifier: link:../../.dsh-source/packages/core/session
         version: link:../../.dsh-source/packages/core/session
     devDependencies:
-      '@deepseek-ai/dsh-agent-loop':
-        specifier: link:../../.dsh-source/packages/core/agent-loop
-        version: link:../../.dsh-source/packages/core/agent-loop
-      '@deepseek-ai/dsh-session-projection':
-        specifier: link:../../.dsh-source/packages/session/session-projection
-        version: link:../../.dsh-source/packages/session/session-projection
-      '@deepseek-ai/dsh-system-prompt':
-        specifier: link:../../.dsh-source/packages/core/system-prompt
-        version: link:../../.dsh-source/packages/core/system-prompt
-      '@deepseek-ai/dsh-tools':
-        specifier: link:../../.dsh-source/packages/core/tools
-        version: link:../../.dsh-source/packages/core/tools
-      '@pi-ling/dsh-llm':
-        specifier: workspace:*
-        version: link:../dsh-llm
       '@types/node':
         specifier: 24.10.1
         version: 24.10.1

@@ -53,6 +53,12 @@ PI_LING_DSH_BIN=/absolute/path/to/deepseek-harness-d347e703/apps/cli/lib/bin.js
 The desktop app checks the CLI and root package versions before registering the
 runtime; a missing path or version mismatch leaves DSH disabled.
 
+The desktop writes a deterministic profile overlay into the versioned
+`DSH_HOME`. It activates the pinned DSH `@deepseek-ai/dsh-llm-pi-ai` adapter
+with only `deepseek` and `anthropic` routes; ACP defaults to
+`deepseek/deepseek-v4-flash`. Optional `DEEPSEEK_BASE_URL` and
+`ANTHROPIC_BASE_URL` override their endpoints.
+
 Real DSH process tests remain opt-in. They use the pinned DSH test-support LLM
 server, so they exercise ACP and persistence without network credentials:
 

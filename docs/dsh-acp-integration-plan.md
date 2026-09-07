@@ -1,7 +1,7 @@
 # DSH ACP 接入执行计划
 
 记录时间：2026-09-07
-状态：Phase 0 已完成，下一阶段为安全与 Runtime/Event 合约
+状态：Phase 0 与官方 LLM Adapter 接入已完成；安全与事件合约仍待实施
 固定 DSH：`dsh-v0.1.3-alpha.1` / `d347e703908d0406b7a7ef80e3a0e594d86b2215`
 固定 ACP SDK：`@agentclientprotocol/sdk@1.4.0`
 
@@ -21,12 +21,11 @@ flowchart LR
 
   subgraph bridge [pi-ling Cordis Bridge]
     AcpPlugin["ACP Plugin Extension"]
-    LlmPlugin["@pi-ling/dsh-llm"]
     SessionPlugin["Canonical Session Bridge"]
   end
 
+  Profile --> OfficialLlm["@deepseek-ai/dsh-llm-pi-ai"]
   Profile --> AcpPlugin
-  Profile --> LlmPlugin
   Profile --> SessionPlugin
   SessionPlugin --> DshEvents["DSH Session Events"]
   DshEvents --> Runtime
@@ -58,11 +57,13 @@ ACP 负责：
 
 Cordis Bridge 负责：
 
-- pi-ling LLM Adapter；
 - Canonical Transcript Seed 与增量同步；
 - DSH Runtime projection；
 - ACP live stream 补充；
 - 固定版本 Profile 和分发。
+
+模型调用使用固定 DSH 自带的 `@deepseek-ai/dsh-llm-pi-ai`，Profile 只配置
+DeepSeek 与 Anthropic 路由。
 
 ### 2.2 不采用的路线
 
@@ -92,8 +93,8 @@ Cordis Bridge 负责：
 - `runtime_sessions` 和 `runtime_projection_entries` 表已建立。
 - `RunMessageBuffer` 已支持按 Session/Run 隔离 transient frame。
 - fake ACP 测试已覆盖基础事件、permission round-trip、cancel 和进程 crash。
-- `@pi-ling/dsh-llm` 已完成 DSH Message/Tool 到 `@pi-ling/ai` Context
-  的转换 PoC。
+- 固定 Profile 已启用官方 `@deepseek-ai/dsh-llm-pi-ai` 的 DeepSeek 与
+  Anthropic 路由，ACP 默认选择 DeepSeek。
 - `@pi-ling/dsh-transcript` 已完成 text-only user/assistant pairs 到
   DSH Session Event Seed 的确定性 PoC。
 
@@ -112,7 +113,6 @@ LLM Bridge 和 Seed recall 仍需分别重新执行后，才能视为当前环�
 - DSH `changedFiles()` 返回空数组，`diff()` 返回 `undefined`。
 - DSH pending permission 没有像 Native 一样形成完整的 durable recovery 流程。
 - Runtime capabilities 中存在尚未由产品实际暴露或验证的能力。
-- PoC 包使用 `link:E:/...`，无法在 macOS 或正式分发环境复现。
 
 ### 3.3 P0 安全问题
 
@@ -134,40 +134,31 @@ LLM Bridge 和 Seed recall 仍需分别重新执行后，才能视为当前环�
 
 计划建立时，本机 `/Users/guyi/deepseek-harness` 位于
 `master / 47f943859bef60e4160492346772ded9b24f765a`，包版本为
-`0.1.0-rc.5`，不是本项目固定版本。远端固定 tag 存在，但本机尚未准备独立
-的固定版本工作目录。
-
-当前本地 binary 不能自动视为兼容基线。所有真实验证必须明确记录实际
-commit、ACP SDK、Node 和 Profile。
+`0.1.0-rc.5`，不是本项目固定版本。当前已另建
+`/Users/guyi/deepseek-harness-d347e703` 固定 worktree，并由 `.dsh-source`
+指向；所有真实验证仍必须记录实际 commit、ACP SDK、Node 和 Profile。
 
 ## 4. 插件边界
 
-### 4.1 插件一：`@pi-ling/dsh-llm`
+### 4.1 官方 LLM Adapter：`@deepseek-ai/dsh-llm-pi-ai`
 
 职责：
 
-- 将 DSH `GenerateOptions` 转换为 `@pi-ling/ai` Context。
-- 保留 User、Assistant、Reasoning、Tool Call 和 Tool Result 拓扑。
-- 暴露 DeepSeek 与 Anthropic 的受控模型目录。
-- 将 text、reasoning、tool-call、usage 和 finish stream 转回 DSH。
-- 传播 AbortSignal、错误和 Provider 特有 finish 信息。
-- 从受控 sidecar 环境读取凭据，不接触 Renderer。
+- 使用上游 pi-ai 完成 DSH Message、Tool、Reasoning、Attachment、Replay、
+  Usage 和 Finish 的双向转换。
+- 只启用 DeepSeek 与 Anthropic 路由。
+- 通过 DSH credentials/environment seam 解析凭据，不接触 Renderer。
 
 非职责：
 
 - 不管理产品 Session Event Log。
 - 不决定 Effect Approval。
-- 不创建产品级扩展系统或加载第三方插件。
 - 不负责 Native/DSH Runtime 切换。
 
-产品化要求：
+该插件由固定 DSH 版本提供，pi-ling 不复制或维护其实现。产品只维护
+Profile patch、允许的 Provider 配置和真实 ACP Smoke。
 
-- 去除 `link:E:/...`。
-- 对固定 DSH 接口做编译和契约测试。
-- 以 tarball/package 或其他可复现产物装入固定 Profile。
-- Profile 加载失败时必须 fail closed，并回退到未启用 DSH，而不是静默换路由。
-
-### 4.2 插件二：Canonical Session Bridge
+### 4.2 自研插件：Canonical Session Bridge
 
 当前原型：`@pi-ling/dsh-transcript`。正式包名在 Seed 接入方案确定后决定，
 暂用 `@pi-ling/dsh-session-bridge` 表示。
@@ -343,37 +334,28 @@ Spike 必须给出：
 - 不在本阶段改变 Session Seed 方案。
 - 不增加 DSH 原生 UI surfaces。
 
-### Phase 2：产品化 LLM Adapter 插件
+### Phase 2：采用官方 LLM Adapter
 
-目标：让固定 DSH Profile 可稳定使用 `@pi-ling/ai`。
+状态：已完成。
 
-工作：
+结果：
 
-- 完成 DSH 与 pi-ling Message/Tool/Usage/Finish 双向契约测试。
-- 覆盖 malformed tool arguments、Provider error、abort 和 reasoning。
-- 固定 DeepSeek/Anthropic route 与 model capability 投影。
-- 解决 Cordis bundle 的依赖解析与激活顺序。
-- 生成可分发插件产物并安装到隔离的版本化 `DSH_HOME`。
-- 使用 ACP Profile 做真实模型 Smoke。
+- 固定 ACP Profile 使用 DSH 自带的 `@deepseek-ai/dsh-llm-pi-ai`。
+- 只配置 DeepSeek 与 Anthropic 路由，ACP 默认选择
+  `deepseek/deepseek-v4-flash`。
+- Profile patch 写入版本化 `DSH_HOME` 并通过 `--patch` 加载。
+- 真实 DSH ACP 进程与本地 mock Provider 已验证 Prompt、Cancel、Close、
+  跨进程 Resume 和 Canonical Event 落库。
+- 删除自研 `@pi-ling/dsh-llm` 与 `@pi-ling/ai`，不再维护重复模型协议。
 
 主要影响：
 
-- [`packages/dsh-llm/src/index.ts`](../packages/dsh-llm/src/index.ts)
-- [`packages/dsh-llm/test/bridge.test.ts`](../packages/dsh-llm/test/bridge.test.ts)
-- [`packages/dsh-llm/package.json`](../packages/dsh-llm/package.json)
-- 固定 DSH Profile/patch 产物
+- [`apps/desktop/src/main/dsh-pi-ai-profile.ts`](../apps/desktop/src/main/dsh-pi-ai-profile.ts)
+- [`apps/desktop/src/main/dsh-launch-config.ts`](../apps/desktop/src/main/dsh-launch-config.ts)
+- [`packages/dsh-runtime/src/dsh-runtime.ts`](../packages/dsh-runtime/src/dsh-runtime.ts)
+- 固定 DSH 自带的 `@deepseek-ai/dsh-llm-pi-ai`
 
-验收：
-
-- DeepSeek 路由真实 Prompt 成功。
-- Anthropic 路由至少完成受控契约测试；真实测试按凭据条件显式启用。
-- text/reasoning/tool/usage/finish 顺序与固定 DSH 预期一致。
-- 产物不依赖 workspace `link:` 或绝对路径。
-
-不做：
-
-- 不在该插件中写产品 SQLite。
-- 不让 LLM Adapter 决定审批。
+后续真实 Provider 验证按凭据条件显式启用，不阻塞默认确定性测试。
 
 ### Phase 3：Canonical Session Bridge 与上下文同步
 
@@ -573,7 +555,7 @@ DSH 固定接口、Bridge package 和真实 Smoke 使用独立显式命令，不
 - [x] PR1：固定版本开发环境、跨平台路径和真实 ACP 基线 Smoke。
 - [ ] PR2：Permission fail-closed、contextUsage、messageId 和 truthful
   capabilities。
-- [ ] PR3：`@pi-ling/dsh-llm` 依赖打包与固定 Profile 真实验证。
+- [x] PR3：采用固定 DSH 官方 `dsh-llm-pi-ai` 并完成 Profile Smoke。
 - [ ] PR4：Canonical Seed 接入 Spike，记录 import 与 persistence 决策。
 - [ ] PR5：Canonical Session Bridge text/tool/reasoning MVP 与幂等水位。
 - [ ] PR6：Attachment、Compaction、Runtime projection 与跨 Runtime handoff。
@@ -596,7 +578,7 @@ DSH 固定接口、Bridge package 和真实 Smoke 使用独立显式命令，不
 - [x] fake ACP event/permission/cancel/crash 测试。
 - [x] Electron Main DSH feature flag 与 Session wiring。
 - [x] DSH 事件写入统一 `session_events` 的基础路径。
-- [x] LLM Adapter 转换 PoC。
+- [x] 官方 `dsh-llm-pi-ai` Profile 接入。
 - [x] text-only Canonical Seed 确定性 PoC。
 - [x] SDK、ACP、Canonical Transcript 和 Runtime 架构研究。
 
@@ -604,10 +586,11 @@ DSH 固定接口、Bridge package 和真实 Smoke 使用独立显式命令，不
 
 - [x] 固定 commit 的真实 ACP Prompt/Cancel/Close/Resume Smoke。
 - [x] 固定 DSH 事件进入产品 Canonical Session Event Log。
+- [x] 官方 `dsh-llm-pi-ai` 通过本地 mock Provider 的真实 ACP Smoke。
 
 尚待当前环境重新验证：
 
-- [ ] LLM Bridge 真实 Prompt。
+- [ ] 官方 LLM Adapter 的真实 DeepSeek/Anthropic Provider 调用。
 - [ ] Seed 后真实模型 recall。
 - [ ] 真实 ACP Permission。
 
@@ -617,7 +600,6 @@ DSH 固定接口、Bridge package 和真实 Smoke 使用独立显式命令，不
 - [ ] 正确 contextUsage。
 - [ ] ACP message identity。
 - [ ] Stable execution group。
-- [ ] 可分发 LLM Adapter。
 - [ ] 完整 Canonical Session Bridge。
 - [ ] Seed 产品接线与增量水位。
 - [ ] live token stream。

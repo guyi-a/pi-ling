@@ -101,24 +101,19 @@ input/output usage。
   `manual / accept-write / auto` 与 ACP option 的映射。
 - `delete`、`other`、无法解析的执行和破坏性命令始终人工确认。
 
-## `@pi-ling/ai` Bridge 状态
+## DSH LLM Adapter 状态
 
-- `@pi-ling/dsh-llm` 已实现 DSH Context、text/reasoning/tool/usage/finish
-  到 `@pi-ling/ai` 的转换。
-- 编译和转换单测通过。
-- 已定位此前 `session/new` 返回
-  `cannot create effect on inactive context` 的原因：使用 `file:` 安装本地
-  bundle 后，profile 中复制出的包无法解析其 `link:` 依赖
-  `@pi-ling/ai`，Cordis loader tree 先加载失败并被 dispose，随后
-  `session/new` 只暴露了二次生命周期错误。
-- 在旧 Windows 开发环境的隔离 ACP profile 中改用
-  `dsh plugin --profile acp add link:<pi-ling-root>/packages/dsh-llm`
-  后，plugin tree、`session/new` 和真实模型 Prompt 均成功；Prompt
-  返回了预期的 `dsh-bridge-ok`。
-- bundle 默认禁用；产品 DSH Runtime 暂时使用已验证的
-  `deepseek-official` route。
-- 正式启用前仍需决定可分发的依赖打包方式，不能依赖开发机绝对 `link:`
-  路径。
+- 产品采用固定版本 DSH 自带的 `@deepseek-ai/dsh-llm-pi-ai`，不再维护
+  `@pi-ling/dsh-llm` 和 `@pi-ling/ai`。
+- 固定 Profile 只配置 DeepSeek 与 Anthropic 路由，ACP 默认选择
+  `deepseek/deepseek-v4-flash`。
+- Profile patch 由 `DshRuntimeAdapter` 写入版本化 `DSH_HOME` 后通过
+  `--patch` 加载，不需要额外安装自研模型插件。
+- 真实 DSH ACP 进程已通过本地 mock Provider 验证 Prompt、Cancel、Close、
+  跨进程 Resume 和 Canonical Event 落库。
+- 已退出的 `@pi-ling/dsh-llm` 曾完成真实模型 PoC；此前
+  `cannot create effect on inactive context` 是其 `file:` 安装无法解析
+  workspace/link 依赖后的二次错误，不是官方 Adapter 问题。
 - `@pi-ling/dsh-transcript` Seed Plugin PoC 已验证
   `Canonical → SessionEvent[] → agents.create({ seed })`。导入包含
   `ORANGE-42` 的历史后，下一轮真实模型成功回答该代号，证明 DSH 可以消费
@@ -128,7 +123,7 @@ input/output usage。
 
 研究与 PoC 结论已收敛到 `runtime-architecture-decision.md`。DSH 后续工作：
 
-1. 将 LLM/Transcript PoC 合并为可分发 `@pi-ling/dsh-bridge` bundle。
+1. 将 Transcript PoC 演进为可分发 `@pi-ling/dsh-bridge` bundle。
 2. 扩展固定版本 ACP plugin，转发 `agent/assistant-stream`。
 3. 补完整 Tool/Reasoning/Attachment Canonical Seed。
 4. 修正 RuntimeEvent 的 `messageId` 与 `contextUsage`。
