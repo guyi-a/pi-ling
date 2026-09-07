@@ -2,23 +2,24 @@ import type {
   AssistantMessage,
   AssistantMessageEvent,
   AssistantMessageEventStream,
+  Api,
   Context,
   Message,
   Model,
+  ModelThinkingLevel,
   Static,
-  ThinkingLevel,
   Tool,
   ToolCall,
   ToolResultMessage,
   TSchema,
-} from "@pi-ling/ai";
+} from "@earendil-works/pi-ai";
 
 export type StreamFunction = (
-  model: Model,
+  model: Model<Api>,
   context: Context,
   options: {
     signal: AbortSignal;
-    reasoning?: ThinkingLevel;
+    reasoning?: Exclude<ModelThinkingLevel, "off">;
   },
 ) => AssistantMessageEventStream;
 
@@ -41,8 +42,8 @@ export interface AgentTool<
 
 export interface AgentState {
   systemPrompt: string;
-  model: Model;
-  thinkingLevel: ThinkingLevel;
+  model: Model<Api>;
+  thinkingLevel: ModelThinkingLevel;
   tools: AgentTool[];
   messages: Message[];
   readonly isStreaming: boolean;
@@ -107,9 +108,9 @@ export type AgentEventListener = (
 
 export interface AgentOptions {
   initialState: {
-    model: Model;
+    model: Model<Api>;
     systemPrompt?: string;
-    thinkingLevel?: ThinkingLevel;
+    thinkingLevel?: ModelThinkingLevel;
     tools?: AgentTool[];
     messages?: Message[];
   };

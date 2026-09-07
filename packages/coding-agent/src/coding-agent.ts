@@ -4,7 +4,12 @@ import {
   type BeforeToolCallContext,
   type StreamFunction,
 } from "@pi-ling/agent-core";
-import type { Message, Model, ToolCall } from "@pi-ling/ai";
+import type {
+  Api,
+  Message,
+  Model,
+  ToolCall,
+} from "@earendil-works/pi-ai";
 
 import {
   ApprovalManager,
@@ -45,7 +50,7 @@ export type CodingAgentEvent =
 
 export interface CodingAgentOptions {
   workspaceRoot: string;
-  model: Model;
+  model: Model<Api>;
   streamFn: StreamFunction;
   emit(event: CodingAgentEvent): void | Promise<void>;
   messages?: Message[];

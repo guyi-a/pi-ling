@@ -7,12 +7,12 @@ import {
 } from "@pi-ling/coding-agent";
 import {
   createModels,
-  emptyUsage,
   type AssistantMessage,
   type Message,
   type ToolCall,
-} from "@pi-ling/ai";
-import { deepseekProvider } from "@pi-ling/ai/providers/deepseek";
+  type Usage,
+} from "@earendil-works/pi-ai";
+import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 import type {
   AgentStatus,
   AgentUsage,
@@ -39,7 +39,25 @@ import {
 
 const PROVIDER = "deepseek";
 const MODEL = "deepseek-v4-flash";
-const models = createModels([deepseekProvider()]);
+const models = createModels();
+models.setProvider(deepseekProvider());
+
+function emptyUsage(): Usage {
+  return {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 0,
+    cost: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      total: 0,
+    },
+  };
+}
 
 function turnNumber(turnId: string): number {
   const value = Number(turnId.match(/:turn:(\d+)$/)?.[1]);
@@ -176,7 +194,7 @@ export class PiAgentSession {
     const agent = await CodingAgent.create({
       workspaceRoot: options.session.workspace.root,
       model,
-      streamFn: models.stream.bind(models),
+      streamFn: models.streamSimple.bind(models),
       messages:
         canonical.length > 0
           ? nativeMessages(canonical)

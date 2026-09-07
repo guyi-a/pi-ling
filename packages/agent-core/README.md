@@ -7,7 +7,7 @@ pi-ling 的有状态 Agent 与 ReAct 循环。
 ```text
 Agent.prompt()
   → 追加 user message
-  → 调用 @pi-ling/ai stream
+  → 调用 @earendil-works/pi-ai streamSimple
   → 转发 assistant 流事件
   → 完成 assistant message
   → 没有 tool call：结束

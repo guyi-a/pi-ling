@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-import type { Message, ToolCall } from "@pi-ling/ai";
+import type {
+  Message,
+  ToolCall,
+} from "@earendil-works/pi-ai";
 import type { ApprovalRequest as RuntimeApprovalRequest } from "@pi-ling/coding-agent";
 import { SESSION_EVENT_SCHEMA_VERSION } from "@pi-ling/contracts";
 import type {

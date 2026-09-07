@@ -36,7 +36,7 @@ Electron Main Supervisor
         ├─ NativeRuntime
         │     └─ @pi-ling/coding-agent
         │           ├─ @pi-ling/agent-core
-        │           └─ @pi-ling/ai
+        │           └─ @earendil-works/pi-ai
         ├─ DshRuntime
         │     └─ ACP stdio → custom DSH Profile sidecar
         └─ ClaudeRuntime
@@ -47,7 +47,8 @@ Electron Main Supervisor
 
 ### Native Runtime
 
-- `@pi-ling/ai` 负责模型协议，只实现 DeepSeek OpenAI-compatible Chat Completions 与 Anthropic Messages。
+- `@earendil-works/pi-ai` 负责模型协议；产品只注册 DeepSeek 与 Anthropic
+  Provider，不加载全量 Provider 集合。
 - `@pi-ling/agent-core` 负责状态、事件、上下文、取消和 ReAct 工具循环。
 - `@pi-ling/coding-agent` 负责 Coding Harness 和全部产品内置 Agent 能力。
 - `vendor/pi-ai` 与 `vendor/pi-agent-core` 保留为 MIT 源码参考，不作为运行依赖。
@@ -164,7 +165,7 @@ interface RuntimeAdapter {
 ### Phase 1：自研 Runtime
 
 1. 建立 Electron + React + TypeScript monorepo。
-2. 实现 `@pi-ling/ai` 共享协议和 DeepSeek、Anthropic Provider。
+2. 接入 `@earendil-works/pi-ai`，仅注册 DeepSeek、Anthropic Provider。
 3. 实现 `@pi-ling/agent-core` 状态、事件和 ReAct 循环。
 4. 实现 `@pi-ling/coding-agent` 及内置 Harness 模块。
 5. 打通 Main / Preload / Renderer 的类型安全 IPC。
@@ -223,6 +224,33 @@ Renderer 输入 Prompt
 - `.dsh-source`：指向 DSH 0.1.3-alpha.1 固定 worktree 的本地链接；
   使用 `pnpm dsh:setup` 创建和校验。
 - `dsh-for-humans`：DSH 教程，不是源码。
+
+## 当前交接状态（2026-09-07）
+
+- DSH 继续采用 ACP，不采用固定版本能力不足的官方 SDK。
+- 三套 Runtime 可以独立实现工具、审批和上下文压缩，但对用户暴露的能力、
+  安全规则、事件和 UI 语义应通过统一契约及 Conformance Tests 保持一致；
+  不要求强制共用 MCP、工具服务或同一份内部代码。
+- LLM Adapter 与历史导入是两个独立问题：
+  - LLM Adapter 决定 DSH 如何调用模型；
+  - Canonical Session Bridge 负责历史 Seed、增量同步和 Resume projection。
+- DSH 固定基线已在 commit `6f38265` 建立：独立 worktree 精确锁定
+  `dsh-v0.1.3-alpha.1 / d347e703`，真实 DSH 进程已验证 ACP Prompt、
+  Cancel、Close、跨进程 Resume 和 Canonical Event 落库。
+- DSH 完整执行计划见
+  [`docs/dsh-acp-integration-plan.md`](docs/dsh-acp-integration-plan.md)。
+- Native 已在分支 `refactor/native-pi-ai` 迁移到
+  `@earendil-works/pi-ai@0.85.0`，类型检查、测试和生产构建通过；该迁移当前
+  尚未提交。`@pi-ling/ai` 暂时只供旧 `@pi-ling/dsh-llm` PoC 使用。
+- 固定 DSH 已提供官方 `@deepseek-ai/dsh-llm-pi-ai`。后续应先决定直接采用
+  官方 Adapter，还是继续维护自研 `@pi-ling/dsh-llm`，再推进 DSH 模型层。
+- `@earendil-works/pi-agent-core` 不能直接替换当前 `@pi-ling/agent-core`：
+  当前 Core 含有 `runId/turnId`、前置审批、`resumePendingTools` 和恢复事件等
+  产品定制。长期方向是将审批策略迁到 `coding-agent`，将事件标识、checkpoint
+  和恢复编排迁到 Runtime/Main Session 层，再以薄 Adapter 评估接入上游
+  `pi-agent-core`。
+- DSH Phase 1 的审批、contextUsage、messageId、执行分组和 capability 修正
+  尚未实施；不要把固定基线通过误认为这些产品语义已经完成。
 
 ## 开发约束
 

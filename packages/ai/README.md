@@ -1,6 +1,9 @@
 # @pi-ling/ai
 
-pi-ling 的模型协议层，只包含 DeepSeek 与 Anthropic Claude。
+过渡期的 DSH LLM PoC 模型层，只包含 DeepSeek 与 Anthropic Claude。
+
+Native Runtime 已迁移到 `@earendil-works/pi-ai@0.85.0`。新代码不得增加
+对本包的依赖；本包在 DSH LLM 方案确定前仅供 `@pi-ling/dsh-llm` 使用。
 
 ## 调用链
 

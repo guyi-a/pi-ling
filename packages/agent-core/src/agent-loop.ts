@@ -1,14 +1,15 @@
 import {
-  createAssistantMessage,
   type AssistantMessage,
+  type Api,
   type Context,
   type Message,
   type Model,
-  type ThinkingLevel,
+  type ModelThinkingLevel,
   type ToolCall,
   type ToolResultMessage,
+  type Usage,
   type UserMessage,
-} from "@pi-ling/ai";
+} from "@earendil-works/pi-ai";
 import { Value } from "typebox/value";
 
 import type {
@@ -21,8 +22,8 @@ import type {
 export interface RunAgentLoopOptions {
   runId: string;
   context: Context;
-  model: Model;
-  reasoning: ThinkingLevel;
+  model: Model<Api>;
+  reasoning: ModelThinkingLevel;
   tools: AgentTool[];
   prompt?: UserMessage;
   signal: AbortSignal;
@@ -38,6 +39,40 @@ function toolCalls(message: AssistantMessage): ToolCall[] {
   return message.content.filter(
     (block): block is ToolCall => block.type === "toolCall",
   );
+}
+
+function emptyUsage(): Usage {
+  return {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 0,
+    cost: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      total: 0,
+    },
+  };
+}
+
+function failureMessage(
+  model: Model<Api>,
+  errorMessage: string,
+): AssistantMessage {
+  return {
+    role: "assistant",
+    content: [],
+    api: model.api,
+    provider: model.provider,
+    model: model.id,
+    usage: emptyUsage(),
+    stopReason: "error",
+    errorMessage,
+    timestamp: Date.now(),
+  };
 }
 
 function validationError(tool: AgentTool, arguments_: unknown): string {
@@ -310,9 +345,10 @@ export async function runAgentLoop(
     });
   }
 
-  const failure = createAssistantMessage(options.model);
-  failure.stopReason = "error";
-  failure.errorMessage = `Agent exceeded ${options.maxTurns} turns`;
+  const failure = failureMessage(
+    options.model,
+    `Agent exceeded ${options.maxTurns} turns`,
+  );
   const finalTurnId = `${options.runId}:turn:${options.maxTurns}`;
   await options.emit({
     type: "message_start",

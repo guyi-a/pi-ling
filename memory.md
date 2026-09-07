@@ -42,7 +42,8 @@
 1. 先建立可运行的 Electron + React + TypeScript 框架。
 2. 打通 Main、Preload、Renderer 的最小类型安全 IPC。
 3. 验证开发启动、类型检查和生产构建。
-4. `packages/ai` 实现 DeepSeek 与 Anthropic Claude Provider。
+4. Native 模型层使用 `@earendil-works/pi-ai@0.85.0`，只注册 DeepSeek 与
+   Anthropic Claude Provider。
 5. `packages/agent-core` 实现 Agent 状态、事件、上下文和 ReAct 循环。
 6. `packages/coding-agent` 实现 Workspace、内置工具、effect 审批和 Diff。
 7. `packages/dsh-runtime` 通过 ACP 接入固定版本 DSH sidecar。

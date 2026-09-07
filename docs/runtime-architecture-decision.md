@@ -27,7 +27,7 @@ Transcript 允许存在，但只能作为 Resume 所需的派生投影。
 
 - `@pi-ling/coding-agent`
 - `@pi-ling/agent-core`
-- `@pi-ling/ai`
+- `@earendil-works/pi-ai@0.85.0`（仅注册 DeepSeek、Anthropic）
 
 短期仍由 Electron Main 管理，长期应迁入 Worker，避免模型流和工具循环扩大
 Main 崩溃半径。

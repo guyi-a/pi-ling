@@ -2,8 +2,8 @@ import {
   CodingAgent,
   type CodingAgentEvent,
 } from "@pi-ling/coding-agent";
-import { createModels } from "@pi-ling/ai";
-import { deepseekProvider } from "@pi-ling/ai/providers/deepseek";
+import { createModels } from "@earendil-works/pi-ai";
+import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 import type {
   RuntimeAdapter,
   RuntimeCapabilities,
@@ -14,7 +14,8 @@ import type {
   RuntimeSessionOptions,
 } from "@pi-ling/runtime-contracts";
 
-const models = createModels([deepseekProvider()]);
+const models = createModels();
+models.setProvider(deepseekProvider());
 
 export class NativeRuntimeAdapter implements RuntimeAdapter {
   readonly kind = "native" as const;
@@ -43,7 +44,7 @@ export class NativeRuntimeAdapter implements RuntimeAdapter {
     options: RuntimeSessionOptions,
   ): Promise<RuntimeSessionHandle> {
     const model = models.getModel(
-      (options.provider as "deepseek" | undefined) ?? "deepseek",
+      options.provider ?? "deepseek",
       options.model ?? "deepseek-v4-flash",
     );
     if (!model) throw new Error("Native runtime model is unavailable");
@@ -51,7 +52,7 @@ export class NativeRuntimeAdapter implements RuntimeAdapter {
     agent = await CodingAgent.create({
       workspaceRoot: options.workspaceRoot,
       model,
-      streamFn: models.stream.bind(models),
+      streamFn: models.streamSimple.bind(models),
       emit: (event) => this.#handleEvent(options.sessionId, agent, event),
     });
     this.#sessions.set(options.sessionId, agent);

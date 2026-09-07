@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@pi-ling/ai": "workspace:*",
+    "@earendil-works/pi-ai": "0.85.0",
     "@pi-ling/coding-agent": "workspace:*",
     "@pi-ling/contracts": "workspace:*",
     "@pi-ling/dsh-runtime": "workspace:*",
