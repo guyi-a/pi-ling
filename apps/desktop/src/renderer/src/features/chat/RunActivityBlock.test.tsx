@@ -138,7 +138,7 @@ describe("RunActivityBlock", () => {
     expect(html).not.toContain("run-activity-summary");
   });
 
-  it("auto-expands read-only tool history after completion", () => {
+  it("shows read-only tools inline while keeping details collapsed", () => {
     const assistant = {
       kind: "assistant" as const,
       id: "assistant",
@@ -165,7 +165,7 @@ describe("RunActivityBlock", () => {
       lifecycle: "completed",
       viewMode: "settled",
       phase: "completed",
-      summary: "explored 1 file",
+      summary: "Explored 1 file",
       counters: {
         editedFiles: [],
         exploredFiles: ["*.md"],
@@ -190,11 +190,13 @@ describe("RunActivityBlock", () => {
     const html = renderToStaticMarkup(
       <RunActivityBlock activity={model} />,
     );
-    expect(html).toContain("explored 1 file");
+    expect(html).toContain("Explored 1 file");
     expect(html).toContain("Glob");
     expect(html).toContain("*.md");
-    expect(html).toContain('aria-expanded="true"');
-    expect(html).toContain("run-activity-details");
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain("run-activity-tools-inline");
+    expect(html).not.toContain("run-activity-details");
+    expect(html).not.toContain("I will list markdown files.");
   });
 
   it("falls back to the phase label when planning with no active tool", () => {

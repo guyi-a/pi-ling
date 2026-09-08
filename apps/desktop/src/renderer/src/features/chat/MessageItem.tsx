@@ -6,16 +6,24 @@ import type {
 } from "../../timeline/reducer";
 import { formatContextUsage } from "./format-context-usage";
 import { Markdown } from "./Markdown";
+import { UserAttachmentChips } from "./UserAttachmentChips";
 
 export function MessageItem(props: {
   item: UserTimelineItem | AssistantTimelineItem;
   hideThinking?: boolean;
+  workspaceRoot?: string;
 }) {
   const { item } = props;
   if (item.kind === "user") {
     return (
       <article className="message user">
-        <div className="message-text">{item.text}</div>
+        {item.attachments && item.attachments.length > 0 ? (
+          <UserAttachmentChips
+            attachments={item.attachments}
+            workspaceRoot={props.workspaceRoot}
+          />
+        ) : null}
+        {item.text ? <div className="message-text">{item.text}</div> : null}
       </article>
     );
   }

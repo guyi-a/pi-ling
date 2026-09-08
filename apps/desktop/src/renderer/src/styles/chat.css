@@ -725,3 +725,92 @@
   font-family: "Cascadia Code", Consolas, monospace;
   font-size: 11px;
 }
+
+.attachment-chips,
+.user-attachment-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.attachment-chip,
+.user-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 220px;
+  padding: 4px 8px 4px 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.user-attachment-chip {
+  cursor: pointer;
+}
+
+.attachment-chip-thumb,
+.user-attachment-chip-thumb,
+.tool-read-image-preview {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--surface-3);
+}
+
+.tool-read-image-preview {
+  width: min(100%, 280px);
+  height: auto;
+  max-height: 180px;
+  margin-bottom: 8px;
+}
+
+.attachment-chip-name,
+.user-attachment-chip-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-soft);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-chip-remove,
+.composer-attach-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  color: var(--muted-2);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.composer-attach-button {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.composer-attach-button:hover:not(:disabled),
+.attachment-chip-remove:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.composer-hint {
+  margin-top: 8px;
+  color: var(--muted-2);
+  font-size: 12px;
+}
+
+.tool-read-image-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}

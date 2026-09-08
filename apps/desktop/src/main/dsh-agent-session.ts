@@ -13,13 +13,17 @@ import type {
   CanonicalMessage,
   ChangedFile,
   FileDiff,
+  PromptAttachment,
   RuntimeKind,
   SessionSummary,
+  SessionEventEnvelope,
   TimelineEnvelope,
-  TimelineEvent,
   TimelineSnapshot,
 } from "@pi-ling/contracts";
-import { projectCanonicalMessages, projectTimelineSnapshot } from "@pi-ling/session-events";
+import {
+  projectCanonicalMessages,
+  TimelineProjector,
+} from "@pi-ling/session-events";
 
 import { evaluateDshApproval } from "./dsh-approval-policy.js";
 import {
@@ -50,7 +54,7 @@ export class DshAgentSession {
   readonly #emit: (envelope: TimelineEnvelope) => void;
   readonly #availableRuntimes: RuntimeKind[];
   readonly #buffer: RunMessageBuffer;
-  #projectedSeq: number;
+  readonly #projector: TimelineProjector;
   readonly #unsubscribe: () => void;
   readonly #pending = new Map<string, PendingPermission>();
   readonly #tools = new Set<string>();
@@ -84,10 +88,10 @@ export class DshAgentSession {
     this.#emit = options.emit;
     this.#availableRuntimes = options.availableRuntimes;
     this.#buffer = options.buffer;
-    this.#projectedSeq = projectTimelineSnapshot(
+    this.#projector = new TimelineProjector(
       options.session.id,
       options.store.loadSessionEvents(options.session.id),
-    ).lastSeq;
+    );
     this.#approvalMode = options.session.approvalMode;
     this.#workspaceRoot = options.session.workspace.root;
     this.#unsubscribe = this.#runtime.subscribe(async (event) => {
@@ -215,13 +219,17 @@ export class DshAgentSession {
   }
 
   snapshot(): TimelineSnapshot {
-    return projectTimelineSnapshot(
-      this.#session.id,
-      this.#store.loadSessionEvents(this.#session.id),
-    );
+    return this.#projector.snapshot();
   }
 
-  startPrompt(runId: string, prompt: string): void {
+  startPrompt(
+    runId: string,
+    prompt: string,
+    attachments?: PromptAttachment[],
+  ): void {
+    if ((attachments?.length ?? 0) > 0) {
+      throw new Error("Image attachments are only supported on Native runtime");
+    }
     if (this.#activeRunId) throw new Error("DSH is already running");
     this.#activeRunId = runId;
     this.#assistantOpen = false;
@@ -239,19 +247,16 @@ export class DshAgentSession {
       sourceRuntime: "dsh",
       createdAt: Date.now(),
     };
-    this.#store.appendSessionEvent({
-      sessionId: this.#session.id,
-      runtimeKind: "dsh",
-      runId,
-      messageId: userMessage.id,
-      idempotencyKey: `run:${runId}:start`,
-      event: { kind: "run.started", userMessage },
-    });
-    this.#publish(runId, {
-      type: "run_start",
-      userItemId: `${runId}:user`,
-      prompt,
-    });
+    this.#flush(
+      this.#store.appendSessionEvent({
+        sessionId: this.#session.id,
+        runtimeKind: "dsh",
+        runId,
+        messageId: userMessage.id,
+        idempotencyKey: `run:${runId}:start`,
+        event: { kind: "run.started", userMessage },
+      }),
+    );
     void this.#runtime
       .send(this.#session.id, runId, prompt)
       .catch(() => {})
@@ -284,28 +289,22 @@ export class DshAgentSession {
         : candidate.kind === "reject_once" ||
           candidate.kind === "reject_always",
     );
-    this.#store.appendSessionEvent({
-      sessionId: this.#session.id,
-      runtimeKind: "dsh",
-      runId: pending.runId,
-      turnId: pending.turnId,
-      toolCallId: callId,
-      idempotencyKey: `approval:${callId}:resolved`,
-      event: {
-        kind: "approval.resolved",
-        toolItemId: callId,
-        callId,
-        approved: decision.approved,
-      },
-    });
-    this.#publish(pending.runId, {
-      type: "approval_resolved",
-      turnId: pending.turnId,
-      itemId: `${callId}:approval`,
-      toolItemId: callId,
-      callId,
-      approved: decision.approved,
-    });
+    this.#flush(
+      this.#store.appendSessionEvent({
+        sessionId: this.#session.id,
+        runtimeKind: "dsh",
+        runId: pending.runId,
+        turnId: pending.turnId,
+        toolCallId: callId,
+        idempotencyKey: `approval:${callId}:resolved`,
+        event: {
+          kind: "approval.resolved",
+          toolItemId: callId,
+          callId,
+          approved: decision.approved,
+        },
+      }),
+    );
     this.#pending.delete(callId);
     return this.#runtime.resolvePermission({
       permissionId: pending.runtimePermissionId,
@@ -332,17 +331,10 @@ export class DshAgentSession {
     this.#activeRunId = null;
   }
 
-  #publish(runId: string, event: TimelineEvent): void {
-    this.#store.appendTimeline(
-      this.#session.id,
-      runId,
-      event,
-    );
-    const projected = this.snapshot();
-    for (const next of projected.events.slice(this.#projectedSeq)) {
+  #flush(envelope: SessionEventEnvelope): void {
+    for (const next of this.#projector.push(envelope)) {
       this.#emit(next);
     }
-    this.#projectedSeq = projected.lastSeq;
   }
 
   #turnIdFor(runId: string, messageId?: string): string {
@@ -362,20 +354,16 @@ export class DshAgentSession {
       this.#assistantText = "";
       this.#assistantReasoning = "";
       this.#assistantToolCalls = [];
-      this.#store.appendSessionEvent({
-        sessionId: this.#session.id,
-        runtimeKind: "dsh",
-        runId,
-        turnId,
-        idempotencyKey: `turn:${turnId}:start`,
-        event: { kind: "turn.started", turn },
-      });
-      this.#publish(runId, { type: "turn_start", turnId, turn });
-      this.#publish(runId, {
-        type: "assistant_start",
-        turnId,
-        itemId: turnId,
-      });
+      this.#flush(
+        this.#store.appendSessionEvent({
+          sessionId: this.#session.id,
+          runtimeKind: "dsh",
+          runId,
+          turnId,
+          idempotencyKey: `turn:${turnId}:start`,
+          event: { kind: "turn.started", turn },
+        }),
+      );
     }
     return turnId;
   }
@@ -410,29 +398,24 @@ export class DshAgentSession {
       sourceRuntime: "dsh",
       createdAt: Date.now(),
     };
-    this.#store.appendSessionEvent({
-      sessionId: this.#session.id,
-      runtimeKind: "dsh",
-      runId,
-      turnId,
-      messageId: turnId,
-      idempotencyKey: `assistant:${turnId}`,
-      event: {
-        kind: "message.assistant.committed",
-        message,
-        stopReason: effectiveStop,
-        usage: { input: 0, output: 0, totalTokens: 0, cost: 0 },
-        ...(this.#contextUsage ? { contextUsage: this.#contextUsage } : {}),
-      },
-    });
+    this.#flush(
+      this.#store.appendSessionEvent({
+        sessionId: this.#session.id,
+        runtimeKind: "dsh",
+        runId,
+        turnId,
+        messageId: turnId,
+        idempotencyKey: `assistant:${turnId}`,
+        event: {
+          kind: "message.assistant.committed",
+          message,
+          stopReason: effectiveStop,
+          usage: { input: 0, output: 0, totalTokens: 0, cost: 0 },
+          ...(this.#contextUsage ? { contextUsage: this.#contextUsage } : {}),
+        },
+      }),
+    );
     this.#buffer.commitMessage(this.#session.id, runId, turnId);
-    this.#publish(runId, {
-      type: "assistant_end",
-      turnId,
-      itemId: turnId,
-      stopReason: effectiveStop,
-      ...(this.#contextUsage ? { contextUsage: this.#contextUsage } : {}),
-    });
     this.#assistantOpen = false;
     this.#assistantMessageId = null;
     this.#assistantText = "";
@@ -459,17 +442,15 @@ export class DshAgentSession {
     if (event.sessionId && event.sessionId !== this.#session.id) return;
     if (event.type === "runtime_error") {
       if (this.#activeRunId) {
-        this.#store.appendSessionEvent({
-          sessionId: this.#session.id,
-          runtimeKind: "dsh",
-          runId: this.#activeRunId,
-          idempotencyKey: `run:${this.#activeRunId}:end`,
-          event: { kind: "run.ended", status: "crashed" },
-        });
-        this.#publish(this.#activeRunId, {
-          type: "run_end",
-          status: "crashed",
-        });
+        this.#flush(
+          this.#store.appendSessionEvent({
+            sessionId: this.#session.id,
+            runtimeKind: "dsh",
+            runId: this.#activeRunId,
+            idempotencyKey: `run:${this.#activeRunId}:end`,
+            event: { kind: "run.ended", status: "crashed" },
+          }),
+        );
         this.#store.setLifecycle(this.#session.id, "crashed");
         this.#buffer.endRun(this.#session.id, this.#activeRunId);
       }
@@ -519,81 +500,62 @@ export class DshAgentSession {
           input: arguments_,
         });
         this.#ensureAssistant(runId, turnId);
-        this.#store.appendSessionEvent({
-          sessionId: this.#session.id,
-          runtimeKind: "dsh",
-          runId,
-          turnId,
-          toolCallId: event.callId,
-          idempotencyKey: `tool:${event.callId}:call`,
-          event: {
-            kind: "tool.call.committed",
-            toolCall: {
-              id: event.callId,
-              name: event.title,
-              input: arguments_,
+        this.#flush(
+          this.#store.appendSessionEvent({
+            sessionId: this.#session.id,
+            runtimeKind: "dsh",
+            runId,
+            turnId,
+            toolCallId: event.callId,
+            idempotencyKey: `tool:${event.callId}:call`,
+            event: {
+              kind: "tool.call.committed",
+              toolCall: {
+                id: event.callId,
+                name: event.title,
+                input: arguments_,
+              },
             },
-          },
-        });
-        this.#publish(runId, {
-          type: "tool_requested",
-          turnId,
-          itemId: event.callId,
-          callId: event.callId,
-          tool: event.title,
-          arguments: arguments_,
-        });
+          }),
+        );
       }
       if (event.status === "running") {
         await this.#captureToolFile(event.title, arguments_, event.kind);
-        this.#store.appendSessionEvent({
-          sessionId: this.#session.id,
-          runtimeKind: "dsh",
-          runId,
-          turnId,
-          toolCallId: event.callId,
-          idempotencyKey: `tool:${event.callId}:start`,
-          event: {
-            kind: "tool.execution.started",
+        this.#flush(
+          this.#store.appendSessionEvent({
+            sessionId: this.#session.id,
+            runtimeKind: "dsh",
+            runId,
+            turnId,
             toolCallId: event.callId,
-          },
-        });
-        this.#publish(runId, {
-          type: "tool_start",
-          turnId,
-          itemId: event.callId,
-          callId: event.callId,
-          tool: event.title,
-          arguments: arguments_,
-        });
-      } else {
-        this.#store.appendSessionEvent({
-          sessionId: this.#session.id,
-          runtimeKind: "dsh",
-          runId,
-          turnId,
-          messageId: `tool:${event.callId}`,
-          toolCallId: event.callId,
-          idempotencyKey: `tool:${event.callId}:result`,
-          event: {
-            kind: "tool.result.committed",
-            result: {
+            idempotencyKey: `tool:${event.callId}:start`,
+            event: {
+              kind: "tool.execution.started",
               toolCallId: event.callId,
-              content: event.output ?? "",
-              isError: event.status === "failed",
-              rawPayload: { dsh: event },
             },
-          },
-        });
-        this.#publish(runId, {
-          type: "tool_end",
-          turnId,
-          itemId: event.callId,
-          callId: event.callId,
-          tool: event.title,
-          isError: event.status === "failed",
-          output: event.output ?? "",
-        });
+          }),
+        );
+      } else {
+        this.#flush(
+          this.#store.appendSessionEvent({
+            sessionId: this.#session.id,
+            runtimeKind: "dsh",
+            runId,
+            turnId,
+            messageId: `tool:${event.callId}`,
+            toolCallId: event.callId,
+            idempotencyKey: `tool:${event.callId}:result`,
+            event: {
+              kind: "tool.result.committed",
+              result: {
+                toolCallId: event.callId,
+                content: event.output ?? "",
+                isError: event.status === "failed",
+                rawPayload: { dsh: event },
+              },
+            },
+          }),
+        );
         if (event.status !== "failed") {
           await this.#emitToolChanges(
             runId,
@@ -609,14 +571,15 @@ export class DshAgentSession {
       await this.#handlePermission(event);
     } else if (event.type === "run_end") {
       this.#closeAssistant(runId, event.status === "completed" ? "stop" : event.status);
-      this.#store.appendSessionEvent({
-        sessionId: this.#session.id,
-        runtimeKind: "dsh",
-        runId,
-        idempotencyKey: `run:${runId}:end`,
-        event: { kind: "run.ended", status: event.status },
-      });
-      this.#publish(runId, { type: "run_end", status: event.status });
+      this.#flush(
+        this.#store.appendSessionEvent({
+          sessionId: this.#session.id,
+          runtimeKind: "dsh",
+          runId,
+          idempotencyKey: `run:${runId}:end`,
+          event: { kind: "run.ended", status: event.status },
+        }),
+      );
       this.#store.setLifecycle(this.#session.id, "idle");
       this.#buffer.endRun(this.#session.id, runId);
     }
@@ -670,26 +633,21 @@ export class DshAgentSession {
     for (const baseline of this.#changes.exportBaselines()) {
       this.#store.saveBaseline(this.#session.id, baseline);
     }
-    this.#store.appendSessionEvent({
-      sessionId: this.#session.id,
-      runtimeKind: "dsh",
-      runId,
-      turnId,
-      toolCallId: callId,
-      idempotencyKey: `changes:${callId}`,
-      event: {
-        kind: "changes.committed",
-        callId,
-        files,
-      },
-    });
-    this.#publish(runId, {
-      type: "changes",
-      turnId,
-      itemId: `${callId}:changes`,
-      callId,
-      files,
-    });
+    this.#flush(
+      this.#store.appendSessionEvent({
+        sessionId: this.#session.id,
+        runtimeKind: "dsh",
+        runId,
+        turnId,
+        toolCallId: callId,
+        idempotencyKey: `changes:${callId}`,
+        event: {
+          kind: "changes.committed",
+          callId,
+          files,
+        },
+      }),
+    );
   }
 
   async #handlePermission(
@@ -709,30 +667,24 @@ export class DshAgentSession {
         input,
       });
       this.#ensureAssistant(event.runId, turnId);
-      this.#store.appendSessionEvent({
-        sessionId: this.#session.id,
-        runtimeKind: "dsh",
-        runId: event.runId,
-        turnId,
-        toolCallId: event.callId,
-        idempotencyKey: `tool:${event.callId}:call`,
-        event: {
-          kind: "tool.call.committed",
-          toolCall: {
-            id: event.callId,
-            name: event.title,
-            input,
+      this.#flush(
+        this.#store.appendSessionEvent({
+          sessionId: this.#session.id,
+          runtimeKind: "dsh",
+          runId: event.runId,
+          turnId,
+          toolCallId: event.callId,
+          idempotencyKey: `tool:${event.callId}:call`,
+          event: {
+            kind: "tool.call.committed",
+            toolCall: {
+              id: event.callId,
+              name: event.title,
+              input,
+            },
           },
-        },
-      });
-      this.#publish(event.runId, {
-        type: "tool_requested",
-        turnId,
-        itemId: event.callId,
-        callId: event.callId,
-        tool: event.title,
-        arguments: input,
-      });
+        }),
+      );
     }
     const evaluation = evaluateDshApproval(
       {
@@ -772,26 +724,21 @@ export class DshAgentSession {
       approval,
       options: event.options,
     });
-    this.#store.appendSessionEvent({
-      sessionId: this.#session.id,
-      runtimeKind: "dsh",
-      runId: event.runId,
-      turnId,
-      toolCallId: event.callId,
-      idempotencyKey: `approval:${event.callId}:requested`,
-      event: {
-        kind: "approval.requested",
-        toolItemId: event.callId,
-        approval,
-      },
-    });
-    this.#publish(event.runId, {
-      type: "approval_requested",
-      turnId,
-      itemId: `${event.callId}:approval`,
-      toolItemId: event.callId,
-      approval,
-    });
+    this.#flush(
+      this.#store.appendSessionEvent({
+        sessionId: this.#session.id,
+        runtimeKind: "dsh",
+        runId: event.runId,
+        turnId,
+        toolCallId: event.callId,
+        idempotencyKey: `approval:${event.callId}:requested`,
+        event: {
+          kind: "approval.requested",
+          toolItemId: event.callId,
+          approval,
+        },
+      }),
+    );
     this.#store.setLifecycle(
       this.#session.id,
       "awaiting_approval",

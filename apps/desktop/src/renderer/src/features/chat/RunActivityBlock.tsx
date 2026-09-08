@@ -28,17 +28,11 @@ export function RunActivityBlock(props: {
     activity.tools.length > 0 &&
     activity.counters.editedFiles.length === 0 &&
     activity.changes.length === 0;
-  const [open, setOpen] = useState(
-    Boolean(props.forceOpen || failed || readOnlyToolRun),
-  );
+  const [open, setOpen] = useState(Boolean(props.forceOpen || failed));
 
   useEffect(() => {
-    if (readOnlyToolRun && activity.viewMode === "settled") {
-      setOpen(true);
-      return;
-    }
     if (!active && !failed && !props.forceOpen) setOpen(false);
-  }, [active, failed, props.forceOpen, readOnlyToolRun, activity.viewMode]);
+  }, [active, failed, props.forceOpen]);
 
   if (!activity.hasActivity) return null;
 
@@ -65,6 +59,11 @@ export function RunActivityBlock(props: {
   const orphanTools = activity.tools.filter(
     (tool) => !associatedToolIds.has(tool.id),
   );
+  const showInlineTools =
+    !open &&
+    !active &&
+    readOnlyToolRun &&
+    activity.tools.length > 0;
 
   return (
     <section
@@ -122,6 +121,14 @@ export function RunActivityBlock(props: {
         </div>
       ) : failed ? (
         <div className="run-activity-failure">Execution failed</div>
+      ) : null}
+
+      {showInlineTools ? (
+        <div className="run-activity-tools-inline">
+          {activity.tools.map((tool) => (
+            <ToolCard item={tool} key={tool.id} />
+          ))}
+        </div>
       ) : null}
 
       {open && (activity.summary || activity.tools.length > 0) ? (

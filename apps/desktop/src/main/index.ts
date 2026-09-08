@@ -13,6 +13,7 @@ import type {
   ChangedFile,
   CreateSessionRequest,
   FileDiff,
+  PromptAttachment,
   SessionArchiveResult,
   SessionActivation,
   SessionSummary,
@@ -37,6 +38,10 @@ import {
   type WebContents,
 } from "electron";
 
+import {
+  importAttachmentImageFromPath,
+  saveAttachmentImage,
+} from "./attachment-store.js";
 import { resolveDshLaunchConfig } from "./dsh-launch-config.js";
 import { SessionStore } from "./session-store/session-store.js";
 import { SessionSupervisor } from "./session-supervisor.js";
@@ -79,6 +84,8 @@ const TERMINAL_START_CHANNEL = "terminal:start";
 const TERMINAL_INPUT_CHANNEL = "terminal:input";
 const TERMINAL_RESIZE_CHANNEL = "terminal:resize";
 const TERMINAL_KILL_CHANNEL = "terminal:kill";
+const ATTACHMENT_SAVE_IMAGE_CHANNEL = "attachment:save-image";
+const ATTACHMENT_PICK_IMAGES_CHANNEL = "attachment:pick-images";
 
 const windowThemeColors: Record<
   AppTheme,
@@ -104,6 +111,41 @@ const supervisors = new Map<
   { supervisor: SessionSupervisor; ready: Promise<void> }
 >();
 
+function parseAttachments(value: unknown): PromptAttachment[] {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("attachments" in value) ||
+    !Array.isArray(value.attachments)
+  ) {
+    return [];
+  }
+  const attachments: PromptAttachment[] = [];
+  for (const item of value.attachments) {
+    if (
+      typeof item !== "object" ||
+      item === null ||
+      typeof item.id !== "string" ||
+      item.id.length === 0 ||
+      typeof item.relativePath !== "string" ||
+      item.relativePath.length === 0 ||
+      typeof item.name !== "string" ||
+      item.name.length === 0 ||
+      typeof item.mediaType !== "string" ||
+      item.mediaType.length === 0
+    ) {
+      continue;
+    }
+    attachments.push({
+      id: item.id,
+      relativePath: item.relativePath,
+      name: item.name,
+      mediaType: item.mediaType,
+    });
+  }
+  return attachments;
+}
+
 function parsePromptRequest(value: unknown): AgentPromptRequest {
   if (
     typeof value !== "object" ||
@@ -112,14 +154,19 @@ function parsePromptRequest(value: unknown): AgentPromptRequest {
     typeof value.requestId !== "string" ||
     value.requestId.length === 0 ||
     !("prompt" in value) ||
-    typeof value.prompt !== "string" ||
-    value.prompt.trim().length === 0
+    typeof value.prompt !== "string"
   ) {
+    throw new Error("Invalid model prompt request");
+  }
+  const prompt = value.prompt.trim();
+  const attachments = parseAttachments(value);
+  if (!prompt && attachments.length === 0) {
     throw new Error("Invalid model prompt request");
   }
   return {
     requestId: value.requestId,
-    prompt: value.prompt.trim(),
+    prompt,
+    ...(attachments.length > 0 ? { attachments } : {}),
     ...("sessionId" in value && typeof value.sessionId === "string"
       ? { sessionId: value.sessionId }
       : {}),
@@ -366,6 +413,7 @@ ipcMain.handle(
       request.requestId,
       request.prompt,
       request.sessionId,
+      request.attachments,
     );
     return { requestId: request.requestId };
   },
@@ -675,6 +723,71 @@ ipcMain.handle(
       throw new Error("Invalid terminal session");
     }
     terminalSupervisor.kill(event.sender.id, sessionId);
+  },
+);
+
+ipcMain.handle(
+  ATTACHMENT_SAVE_IMAGE_CHANNEL,
+  async (
+    _event,
+    workspaceRoot: unknown,
+    bytes: unknown,
+    mimeType: unknown,
+    suggestedName: unknown,
+  ) => {
+    if (typeof workspaceRoot !== "string" || workspaceRoot.length === 0) {
+      throw new Error("Workspace root is required");
+    }
+    if (!(bytes instanceof Uint8Array) && !Buffer.isBuffer(bytes)) {
+      throw new Error("Invalid image bytes");
+    }
+    if (typeof mimeType !== "string" || !mimeType.startsWith("image/")) {
+      throw new Error("Invalid image mime type");
+    }
+    return saveAttachmentImage({
+      workspaceRoot,
+      bytes: Buffer.from(bytes as Uint8Array),
+      mimeType,
+      ...(typeof suggestedName === "string" && suggestedName.trim()
+        ? { suggestedName: suggestedName.trim() }
+        : {}),
+    });
+  },
+);
+
+ipcMain.handle(
+  ATTACHMENT_PICK_IMAGES_CHANNEL,
+  async (event, workspaceRoot: unknown) => {
+    if (typeof workspaceRoot !== "string" || workspaceRoot.length === 0) {
+      throw new Error("Workspace root is required");
+    }
+    const parent = BrowserWindow.fromWebContents(event.sender);
+    const options: Electron.OpenDialogOptions = {
+      title: "Select images",
+      properties: ["openFile", "multiSelections"],
+      filters: [
+        {
+          name: "Images",
+          extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp"],
+        },
+      ],
+    };
+    const result = parent
+      ? await dialog.showOpenDialog(parent, options)
+      : await dialog.showOpenDialog(options);
+    if (result.canceled || result.filePaths.length === 0) {
+      return [];
+    }
+    const saved = [];
+    for (const sourcePath of result.filePaths) {
+      saved.push(
+        await importAttachmentImageFromPath({
+          workspaceRoot,
+          sourcePath,
+        }),
+      );
+    }
+    return saved;
   },
 );
 

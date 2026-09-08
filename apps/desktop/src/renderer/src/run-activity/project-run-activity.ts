@@ -22,7 +22,7 @@ function summary(counters: RunActivityCounters): string {
   const parts: string[] = [];
   if (counters.editedFiles.length) {
     parts.push(
-      `Edited ${counters.editedFiles.length} ${
+      `edited ${counters.editedFiles.length} ${
         counters.editedFiles.length === 1 ? "file" : "files"
       }`,
     );
@@ -41,16 +41,14 @@ function summary(counters: RunActivityCounters): string {
       }`,
     );
   }
-  if (counters.failedToolCount) {
-    parts.push(`${counters.failedToolCount} failed`);
-  }
   if (parts.length === 0 && counters.toolCount) {
     parts.push(
-      `Used ${counters.toolCount} ${counters.toolCount === 1 ? "tool" : "tools"}`,
+      `used ${counters.toolCount} ${counters.toolCount === 1 ? "tool" : "tools"}`,
     );
   }
   if (parts.length === 0) return "";
-  return parts.join(", ");
+  const text = parts.join(", ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 function terminalPhase(status: TimelineRun["status"]): RunPhase | undefined {

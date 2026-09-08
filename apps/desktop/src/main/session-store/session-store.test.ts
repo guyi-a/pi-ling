@@ -331,9 +331,12 @@ describe("SessionStore", () => {
     store.reconcile();
 
     expect(store.getSession("session-1")?.lifecycle).toBe("crashed");
-    expect(store.loadSnapshot("session-1").events).toEqual([
+    const ended = store
+      .loadSessionEvents("session-1")
+      .filter((entry) => entry.event.kind === "run.ended");
+    expect(ended).toEqual([
       expect.objectContaining({
-        event: { type: "run_end", status: "crashed" },
+        event: { kind: "run.ended", status: "crashed" },
       }),
     ]);
   });

@@ -8,6 +8,7 @@ import type {
   ChangesSource,
   CreateSessionRequest,
   FileDiff,
+  PromptAttachment,
   RuntimeKind,
   SessionActivation,
   SessionArchiveResult,
@@ -24,6 +25,7 @@ import { gitDiff, gitScopedFiles } from "./git-diff.js";
 import { PiAgentSession } from "./pi-agent-session.js";
 import { RunMessageBuffer } from "./run-message-buffer.js";
 import { SessionStore } from "./session-store/session-store.js";
+import { projectTimelineSnapshot } from "@pi-ling/session-events";
 
 type ApprovalDecision = {
   approved: boolean;
@@ -35,7 +37,11 @@ interface ActiveSession {
   readonly sessionId: string;
   readonly status: AgentStatus;
   snapshot(): TimelineSnapshot;
-  startPrompt(runId: string, prompt: string): void;
+  startPrompt(
+    runId: string,
+    prompt: string,
+    attachments?: PromptAttachment[],
+  ): void;
   cancel(runId: string): boolean | Promise<boolean>;
   resolveApproval(
     callId: string,
@@ -146,7 +152,11 @@ export class SessionSupervisor {
     return {
       session: this.#store.getSession(sessionId)!,
       status: active.status,
-      snapshot: active.snapshot(),
+      snapshot: projectTimelineSnapshot(
+        sessionId,
+        this.#store.loadSessionEvents(sessionId),
+        this.#buffer.snapshot(sessionId),
+      ),
       bufferFrames: this.#buffer.snapshot(sessionId),
       activationRevision,
     };
@@ -217,13 +227,21 @@ export class SessionSupervisor {
     );
   }
 
-  startPrompt(runId: string, prompt: string, sessionId?: string): void {
+  startPrompt(
+    runId: string,
+    prompt: string,
+    sessionId?: string,
+    attachments?: PromptAttachment[],
+  ): void {
     const targetId = sessionId ?? this.#selectedSessionId;
     if (!targetId) throw new Error("Create or select a session first");
     const active = this.#sessions.get(targetId);
     if (!active) throw new Error(`Session is not active: ${targetId}`);
     const session = this.#store.getSession(targetId);
     if (!session) throw new Error(`Session not found: ${targetId}`);
+    if ((attachments?.length ?? 0) > 0 && session.runtimeKind !== "native") {
+      throw new Error("Image attachments are only supported on Native runtime");
+    }
     const workspaceRun = this.#workspaceRuns.get(session.workspaceId);
     if (workspaceRun && workspaceRun !== runId) {
       throw new Error("Another session is already running in this workspace");
@@ -231,7 +249,7 @@ export class SessionSupervisor {
     this.#workspaceRuns.set(session.workspaceId, runId);
     this.#runOwners.set(runId, targetId);
     try {
-      active.startPrompt(runId, prompt);
+      active.startPrompt(runId, prompt, attachments);
     } catch (error) {
       this.#workspaceRuns.delete(session.workspaceId);
       this.#runOwners.delete(runId);

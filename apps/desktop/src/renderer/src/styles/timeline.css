@@ -103,6 +103,10 @@
   font-size: 13px;
 }
 
+.run-activity-tools-inline {
+  margin: 4px 0 0 32px;
+}
+
 .run-activity-details {
   position: relative;
   margin: 5px 0 0 8px;

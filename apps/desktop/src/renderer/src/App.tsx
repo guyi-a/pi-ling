@@ -2,6 +2,7 @@ import type {
   AgentStatus,
   ApprovalMode,
   ChangedFile,
+  PromptAttachment,
   RuntimeKind,
   SessionActivation,
   StreamFrameEnvelope,
@@ -465,13 +466,17 @@ export function App() {
     applyActivation(activation);
   }
 
-  async function sendPrompt(prompt: string) {
+  async function sendPrompt(
+    prompt: string,
+    attachments?: PromptAttachment[],
+  ) {
     const runId = crypto.randomUUID();
     setPendingRunId(runId);
     try {
       await window.piLing.sendPrompt({
         requestId: runId,
         prompt,
+        ...(attachments && attachments.length > 0 ? { attachments } : {}),
         ...(status?.sessionId ? { sessionId: status.sessionId } : {}),
       });
     } catch (error) {
@@ -686,6 +691,7 @@ export function App() {
                 onMessagePresented={finishMessagePresentation}
                 modelLabel={modelLabel}
                 workspaceReady={Boolean(status?.workspace)}
+                workspaceRoot={workspaceRoot}
                 activeRunId={activeRunId}
                 approvalMode={status?.approvalMode ?? "manual"}
                 runtimeKind={status?.runtimeKind ?? "native"}

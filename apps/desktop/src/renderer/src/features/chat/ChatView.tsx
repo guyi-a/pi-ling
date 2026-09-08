@@ -1,13 +1,19 @@
-import { ArrowUp, Bot, Square } from "lucide-react";
-import type { ApprovalMode, RuntimeKind } from "@pi-ling/contracts";
+import { ArrowUp, Bot, ImagePlus, Square } from "lucide-react";
+import type { ApprovalMode, PromptAttachment, RuntimeKind } from "@pi-ling/contracts";
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
-import type { FormEvent, ReactNode } from "react";
+import type {
+  ClipboardEvent,
+  DragEvent,
+  FormEvent,
+  ReactNode,
+} from "react";
 
 import type {
   ApprovalTimelineItem,
@@ -18,6 +24,12 @@ import { projectRunActivities } from "../../run-activity/project-run-activity";
 import { changesFilesByRunId } from "../../run-activity/run-changes";
 import { ApprovalModePicker } from "./ApprovalModePicker";
 import { ApprovalDock } from "./ApprovalDock";
+import { AttachmentChips } from "./AttachmentChips";
+import {
+  saveImageFiles,
+  toPromptAttachments,
+  useAttachmentsStore,
+} from "./attachments-store";
 import { MessageItem } from "./MessageItem";
 import { RunActivityBlock } from "./RunActivityBlock";
 import { TurnChangesCard } from "./TurnChangesCard";
@@ -35,6 +47,8 @@ export function shouldSubmitComposer(input: {
   return input.key === "Enter" && !input.shiftKey && !input.isComposing;
 }
 
+const EMPTY_ATTACHMENTS: PromptAttachment[] = [];
+
 export function ChatView(props: {
   sessionId: string | null;
   items: TimelineItem[];
@@ -43,11 +57,12 @@ export function ChatView(props: {
   onMessagePresented: (messageId: string) => void;
   modelLabel: string;
   workspaceReady: boolean;
+  workspaceRoot?: string;
   activeRunId: string | null;
   approvalMode: ApprovalMode;
   runtimeKind: RuntimeKind;
   availableRuntimes: RuntimeKind[];
-  onSend: (prompt: string) => Promise<void>;
+  onSend: (prompt: string, attachments?: PromptAttachment[]) => Promise<void>;
   onCancel: (runId: string) => void;
   onApproval: (
     item: ApprovalTimelineItem,
@@ -69,6 +84,7 @@ export function ChatView(props: {
     onMessagePresented,
     modelLabel,
     workspaceReady,
+    workspaceRoot,
     activeRunId,
     approvalMode,
     runtimeKind,
@@ -86,6 +102,14 @@ export function ChatView(props: {
   } = props;
   const [prompt, setPrompt] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
+  const attachmentsEnabled = runtimeKind === "native";
+  const attachmentSessionId = sessionId ?? "draft";
+  const attachments = useAttachmentsStore(
+    (state) => state.pending[attachmentSessionId] ?? EMPTY_ATTACHMENTS,
+  );
+  const clearAttachments = useAttachmentsStore((state) => state.clear);
+  const hasAttachments = attachments.length > 0;
+  const canAttachImages = attachmentsEnabled && Boolean(workspaceRoot);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const shouldFollowRef = useRef(true);
@@ -126,15 +150,71 @@ export function ChatView(props: {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const value = prompt.trim();
-    if (!value || activeRunId || !workspaceReady) return;
+    if ((!value && !hasAttachments) || activeRunId || !workspaceReady) return;
+    const outgoingAttachments = toPromptAttachments(attachmentSessionId);
     setPrompt("");
     setSendError(null);
     shouldFollowRef.current = true;
+    if (outgoingAttachments.length > 0) {
+      clearAttachments(attachmentSessionId);
+    }
     try {
-      await onSend(value);
+      await onSend(
+        value,
+        outgoingAttachments.length > 0 ? outgoingAttachments : undefined,
+      );
     } catch (error) {
       setPrompt(value);
       setSendError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  const handleImageFiles = useCallback(
+    (files: File[]) => {
+      if (!canAttachImages || !workspaceRoot) return;
+      void saveImageFiles(attachmentSessionId, workspaceRoot, files);
+    },
+    [attachmentSessionId, canAttachImages, workspaceRoot],
+  );
+
+  const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    if (!canAttachImages) return;
+    const items = event.clipboardData?.items;
+    if (!items || items.length === 0) return;
+    const images: File[] = [];
+    for (const item of items) {
+      if (item.kind !== "file") continue;
+      if (!item.type.startsWith("image/")) continue;
+      const file = item.getAsFile();
+      if (file) images.push(file);
+    }
+    if (images.length === 0) return;
+    event.preventDefault();
+    handleImageFiles(images);
+  };
+
+  const onDragOver = (event: DragEvent<HTMLFormElement>) => {
+    if (!canAttachImages) return;
+    if (!event.dataTransfer?.types.includes("Files")) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  };
+
+  const onDrop = (event: DragEvent<HTMLFormElement>) => {
+    if (!canAttachImages) return;
+    const images = Array.from(event.dataTransfer?.files ?? []).filter((file) =>
+      file.type.startsWith("image/"),
+    );
+    if (images.length === 0) return;
+    event.preventDefault();
+    handleImageFiles(images);
+  };
+
+  async function pickImages() {
+    if (!canAttachImages || !workspaceRoot) return;
+    const picked = await window.piLing.pickAttachmentImages(workspaceRoot);
+    if (picked.length > 0) {
+      useAttachmentsStore.getState().add(attachmentSessionId, picked);
     }
   }
 
@@ -151,7 +231,11 @@ export function ChatView(props: {
   })) {
     if (activity.user) {
       rendered.push(
-        <MessageItem item={activity.user} key={activity.user.id} />,
+        <MessageItem
+          item={activity.user}
+          workspaceRoot={workspaceRoot}
+          key={activity.user.id}
+        />,
       );
     }
     if (activity.hasActivity) {
@@ -228,11 +312,23 @@ export function ChatView(props: {
             pendingApprovals.length > 0 ? " has-approval-overlay" : ""
           }`}
         >
-          <form className="composer" onSubmit={submit}>
+          <form
+            className="composer"
+            onSubmit={submit}
+            onDragOver={onDragOver}
+            onDrop={onDrop}
+          >
+          {workspaceRoot && hasAttachments ? (
+            <AttachmentChips
+              sessionId={attachmentSessionId}
+              workspaceRoot={workspaceRoot}
+            />
+          ) : null}
           <textarea
             ref={textareaRef}
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
+            onPaste={onPaste}
             onKeyDown={(event) => {
               if (shouldSubmitComposer({
                 key: event.key,
@@ -252,6 +348,11 @@ export function ChatView(props: {
             disabled={!workspaceReady}
           />
           {sendError ? <div className="message-error">{sendError}</div> : null}
+          {!attachmentsEnabled && workspaceReady ? (
+            <div className="composer-hint">
+              图片附件仅 Native 运行时可读
+            </div>
+          ) : null}
           {runtimeError ? (
             <div className="message-error">
               {runtimeError}
@@ -269,6 +370,19 @@ export function ChatView(props: {
           ) : null}
           <div className="composer-footer">
             <div className="composer-controls">
+              {canAttachImages ? (
+                <button
+                  type="button"
+                  className="composer-attach-button"
+                  aria-label="上传图片"
+                  disabled={Boolean(activeRunId)}
+                  onClick={() => {
+                    void pickImages();
+                  }}
+                >
+                  <ImagePlus size={16} />
+                </button>
+              ) : null}
               <RuntimePicker
                 value={runtimeKind}
                 available={availableRuntimes}
@@ -301,7 +415,7 @@ export function ChatView(props: {
                 className="send-button"
                 type="submit"
                 aria-label="发送"
-                disabled={!prompt.trim() || !workspaceReady}
+                disabled={(!prompt.trim() && !hasAttachments) || !workspaceReady}
               >
                 <ArrowUp />
               </button>

@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import {
   projectCanonicalMessages,
   projectTimelineSnapshot,
+  TimelineProjector,
 } from "../src/index.js";
 
 const user: CanonicalMessage = {
@@ -44,6 +45,40 @@ describe("session event projectors", () => {
         event(2, { kind: "message.user.committed", message: user }),
       ]),
     ).toEqual([user]);
+  });
+
+  it("projects attachment metadata on run_start", () => {
+    const userWithAttachment: CanonicalMessage = {
+      id: "user-2",
+      role: "user",
+      content: [
+        {
+          type: "attachment",
+          attachmentId: ".pi-ling/attachments/a.png",
+          mediaType: "image/png",
+          name: "a.png",
+        },
+        { type: "text", text: "look at this" },
+      ],
+      sourceRuntime: "native",
+      createdAt: 3,
+    };
+    const snapshot = projectTimelineSnapshot("session", [
+      event(1, { kind: "run.started", userMessage: userWithAttachment }),
+    ]);
+    const runStart = snapshot.events.find(
+      (entry) => entry.event.type === "run_start",
+    )?.event;
+    expect(runStart?.type).toBe("run_start");
+    if (runStart?.type !== "run_start") return;
+    expect(runStart.prompt).toBe("look at this");
+    expect(runStart.attachments).toEqual([
+      {
+        relativePath: ".pi-ling/attachments/a.png",
+        name: "a.png",
+        mediaType: "image/png",
+      },
+    ]);
   });
 
   it("projects committed messages into the legacy timeline", () => {
@@ -128,5 +163,49 @@ describe("session event projectors", () => {
       "tool_requested",
       "tool_start",
     ]);
+  });
+
+  it("incrementally projects the same snapshot as the batch fold", () => {
+    const assistant: CanonicalMessage = {
+      id: "assistant-1",
+      role: "assistant",
+      content: [
+        { type: "reasoning", text: "think" },
+        { type: "text", text: "done" },
+      ],
+      sourceRuntime: "native",
+      createdAt: 2,
+    };
+    const envelopes = [
+      event(1, { kind: "run.started", userMessage: user }),
+      event(
+        2,
+        {
+          kind: "message.assistant.committed",
+          message: assistant,
+          stopReason: "stop",
+          usage: { input: 1, output: 1, totalTokens: 2, cost: 0 },
+        },
+        { messageId: assistant.id, turnId: "turn" },
+      ),
+      event(3, { kind: "run.ended", status: "completed" }),
+    ];
+    const batch = projectTimelineSnapshot("session", envelopes);
+    const projector = new TimelineProjector("session");
+    const incremental = envelopes.flatMap((envelope) =>
+      projector.push(envelope),
+    );
+    expect(incremental.map(({ event }) => event.type)).toEqual(
+      batch.events.map(({ event }) => event.type),
+    );
+    expect(projector.snapshot()).toEqual(batch);
+  });
+
+  it("skips duplicate session event seq on idempotent replay", () => {
+    const projector = new TimelineProjector("session");
+    const started = event(1, { kind: "run.started", userMessage: user });
+    expect(projector.push(started)).toHaveLength(1);
+    expect(projector.push(started)).toEqual([]);
+    expect(projector.snapshot().events).toHaveLength(1);
   });
 });

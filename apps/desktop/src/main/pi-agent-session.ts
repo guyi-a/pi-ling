@@ -1,5 +1,6 @@
 import {
   CodingAgent,
+  Workspace,
   type ApprovalDecision,
   type ApprovalRequest as RuntimeApprovalRequest,
   type CodingAgentEvent,
@@ -10,7 +11,9 @@ import {
   type AssistantMessage,
   type Message,
   type ToolCall,
+  type ToolResultMessage,
   type Usage,
+  type UserMessage,
 } from "@earendil-works/pi-ai";
 import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 import type {
@@ -19,15 +22,16 @@ import type {
   CanonicalMessage,
   ChangedFile,
   FileDiff,
+  PromptAttachment,
   SessionSummary,
   RuntimeKind,
+  SessionEventEnvelope,
   TimelineEnvelope,
-  TimelineEvent,
   TimelineSnapshot,
 } from "@pi-ling/contracts";
 import {
   projectCanonicalMessages,
-  projectTimelineSnapshot,
+  TimelineProjector,
 } from "@pi-ling/session-events";
 
 import { RunMessageBuffer } from "./run-message-buffer.js";
@@ -40,6 +44,7 @@ import {
 
 const PROVIDER = "deepseek";
 const MODEL = "deepseek-v4-pro";
+const VISION_MODEL = "deepseek-v4-flash-vision-exp";
 const models = createModels();
 models.setProvider(deepseekProvider());
 
@@ -65,19 +70,57 @@ function turnNumber(turnId: string): number {
   return Number.isFinite(value) && value > 0 ? value : 1;
 }
 
-function nativeMessages(
+async function nativeMessages(
   canonical: readonly CanonicalMessage[],
-): Message[] {
+  workspace: Workspace,
+): Promise<Message[]> {
   const toolNames = new Map<string, string>();
   const output: Message[] = [];
   for (const message of canonical) {
     if (message.role === "user") {
+      const native = message.rawPayload?.native as UserMessage | undefined;
+      if (
+        native?.role === "user" &&
+        Array.isArray(native.content) &&
+        native.content.some((block) => block.type === "image")
+      ) {
+        output.push({
+          ...native,
+          timestamp: message.createdAt,
+        });
+        continue;
+      }
+      const blocks: Exclude<UserMessage["content"], string> = [];
+      for (const block of message.content) {
+        if (block.type === "text") {
+          blocks.push({ type: "text", text: block.text });
+        } else if (block.type === "attachment") {
+          const attachmentId = block.attachmentId?.trim();
+          if (!attachmentId || attachmentId.startsWith("inline:")) {
+            continue;
+          }
+          try {
+            const image = await workspace.readImage(attachmentId);
+            blocks.push({
+              type: "image",
+              data: image.data,
+              mimeType: image.mimeType,
+            });
+          } catch {
+            blocks.push({
+              type: "text",
+              text: `[attachment unavailable: ${attachmentId}]`,
+            });
+          }
+        }
+      }
+      if (blocks.length === 0) continue;
       output.push({
         role: "user",
-        content: message.content
-          .filter((block) => block.type === "text")
-          .map((block) => block.text)
-          .join("\n"),
+        content:
+          blocks.length === 1 && blocks[0]?.type === "text"
+            ? blocks[0].text
+            : blocks,
         timestamp: message.createdAt,
       });
     } else if (message.role === "assistant") {
@@ -110,6 +153,14 @@ function nativeMessages(
         timestamp: message.createdAt,
       });
     } else {
+      const native = message.rawPayload?.native as ToolResultMessage | undefined;
+      if (native?.role === "toolResult") {
+        output.push({
+          ...native,
+          timestamp: message.createdAt,
+        });
+        continue;
+      }
       for (const block of message.content) {
         if (block.type !== "tool-result") continue;
         output.push({
@@ -126,6 +177,53 @@ function nativeMessages(
   return output;
 }
 
+async function buildUserPromptMessage(
+  workspace: Workspace,
+  prompt: string,
+  attachments: readonly PromptAttachment[],
+): Promise<UserMessage> {
+  const blocks: Exclude<UserMessage["content"], string> = [];
+  for (const attachment of attachments) {
+    const image = await workspace.readImage(attachment.relativePath);
+    blocks.push({
+      type: "image",
+      data: image.data,
+      mimeType: image.mimeType,
+    });
+  }
+  if (prompt.trim()) {
+    blocks.push({ type: "text", text: prompt.trim() });
+  }
+  return {
+    role: "user",
+    content: blocks,
+    timestamp: Date.now(),
+  };
+}
+
+function buildCanonicalUserMessage(
+  runId: string,
+  prompt: string,
+  attachments: readonly PromptAttachment[],
+): CanonicalMessage {
+  const content: CanonicalMessage["content"] = [
+    ...attachments.map((attachment) => ({
+      type: "attachment" as const,
+      attachmentId: attachment.relativePath,
+      mediaType: attachment.mediaType,
+      name: attachment.name,
+    })),
+    ...(prompt.trim() ? [{ type: "text" as const, text: prompt.trim() }] : []),
+  ];
+  return {
+    id: `${runId}:user`,
+    role: "user",
+    content,
+    sourceRuntime: "native",
+    createdAt: Date.now(),
+  };
+}
+
 export class PiAgentSession {
   readonly #store: SessionStore;
   readonly #session: SessionSummary;
@@ -133,7 +231,7 @@ export class PiAgentSession {
   readonly #agent: CodingAgent;
   readonly #availableRuntimes: RuntimeKind[];
   readonly #buffer: RunMessageBuffer;
-  #projectedSeq: number;
+  readonly #projector: TimelineProjector;
   #activeRunId: string | null = null;
   #runOutcome: "completed" | "cancelled" | "error" = "completed";
 
@@ -151,10 +249,10 @@ export class PiAgentSession {
     this.#agent = agent;
     this.#availableRuntimes = availableRuntimes;
     this.#buffer = buffer;
-    this.#projectedSeq = projectTimelineSnapshot(
+    this.#projector = new TimelineProjector(
       session.id,
       store.loadSessionEvents(session.id),
-    ).lastSeq;
+    );
   }
 
   static async open(options: {
@@ -179,14 +277,16 @@ export class PiAgentSession {
     const canonical = projectCanonicalMessages(
       options.store.loadSessionEvents(options.session.id),
     );
+    const workspace = await Workspace.open(options.session.workspace.root);
+    const restoredMessages =
+      canonical.length > 0
+        ? await nativeMessages(canonical, workspace)
+        : options.store.loadMessages(options.session.id);
     const agent = await CodingAgent.create({
       workspaceRoot: options.session.workspace.root,
       model,
       streamFn: models.streamSimple.bind(models),
-      messages:
-        canonical.length > 0
-          ? nativeMessages(canonical)
-          : options.store.loadMessages(options.session.id),
+      messages: restoredMessages,
       baselines: options.store.loadBaselines(
         options.session.id,
       ) as FileBaseline[],
@@ -226,26 +326,21 @@ export class PiAgentSession {
   }
 
   snapshot(): TimelineSnapshot {
-    return projectTimelineSnapshot(
-      this.#session.id,
-      this.#store.loadSessionEvents(this.#session.id),
-    );
+    return this.#projector.snapshot();
   }
 
-  startPrompt(runId: string, prompt: string): void {
+  startPrompt(
+    runId: string,
+    prompt: string,
+    attachments: PromptAttachment[] = [],
+  ): void {
     if (this.#activeRunId || this.#agent.isStreaming) {
       throw new Error("Agent is already processing a prompt");
     }
     this.#activeRunId = runId;
     this.#runOutcome = "completed";
     this.#store.setLifecycle(this.#session.id, "running", runId);
-    const userMessage: CanonicalMessage = {
-      id: `${runId}:user`,
-      role: "user",
-      content: [{ type: "text", text: prompt }],
-      sourceRuntime: "native",
-      createdAt: Date.now(),
-    };
+    const userMessage = buildCanonicalUserMessage(runId, prompt, attachments);
     const started = this.#store.appendSessionEvent({
       sessionId: this.#session.id,
       runtimeKind: "native",
@@ -262,19 +357,32 @@ export class PiAgentSession {
       lastDurableSeq: started.seq,
       updatedAt: Date.now(),
     });
-    this.#publish(runId, {
-      type: "run_start",
-      userItemId: `${runId}:user`,
-      prompt,
-    });
-    void this.#agent
-      .prompt(prompt, runId)
-      .catch((error: unknown) => this.#failRun(runId, error))
-      .finally(() => {
+    this.#flush(started);
+    void (async () => {
+      try {
+        const hasImages = attachments.length > 0;
+        const targetModelId = hasImages ? VISION_MODEL : MODEL;
+        const model = models.getModel(PROVIDER, targetModelId);
+        if (!model) {
+          throw new Error(`Model is unavailable: ${PROVIDER}/${targetModelId}`);
+        }
+        this.#agent.setModel(model);
+        const userPrompt = hasImages
+          ? await buildUserPromptMessage(
+              this.#agent.workspace,
+              prompt,
+              attachments,
+            )
+          : prompt;
+        await this.#agent.prompt(userPrompt, runId);
+      } catch (error: unknown) {
+        this.#failRun(runId, error);
+      } finally {
         if (this.#activeRunId === runId) {
           this.#activeRunId = null;
         }
-      });
+      }
+    })();
   }
 
   cancel(runId: string): boolean {
@@ -319,18 +427,10 @@ export class PiAgentSession {
     this.#activeRunId = null;
   }
 
-  #publish(runId: string, event: TimelineEvent): TimelineEnvelope {
-    const envelope = this.#store.appendTimeline(
-      this.#session.id,
-      runId,
-      event,
-    );
-    const projected = this.snapshot();
-    for (const next of projected.events.slice(this.#projectedSeq)) {
+  #flush(envelope: SessionEventEnvelope): void {
+    for (const next of this.#projector.push(envelope)) {
       this.#emit(next);
     }
-    this.#projectedSeq = projected.lastSeq;
-    return envelope;
   }
 
   #persistMessage(
@@ -401,13 +501,7 @@ export class PiAgentSession {
         "awaiting_approval",
         approval.runId,
       );
-      this.#publish(approval.runId, {
-        type: "approval_requested",
-        turnId: approval.turnId,
-        itemId: `${approval.callId}:approval`,
-        toolItemId: approval.callId,
-        approval: productApproval,
-      });
+      this.#flush(durable);
       return;
     }
     if (event.type === "approval_resolved") {
@@ -447,14 +541,7 @@ export class PiAgentSession {
       });
       this.#store.deletePendingApproval(this.#session.id, event.callId);
       this.#store.setLifecycle(this.#session.id, "running", event.runId);
-      this.#publish(event.runId, {
-        type: "approval_resolved",
-        turnId: event.turnId,
-        itemId: `${event.callId}:approval`,
-        toolItemId: event.callId,
-        callId: event.callId,
-        approved: event.approved,
-      });
+      this.#flush(durable);
       return;
     }
     if (event.type === "changes") {
@@ -468,7 +555,7 @@ export class PiAgentSession {
           return diff ? { ...file, ...diffLineStats(diff.patch) } : file;
         }),
       );
-      this.#store.appendSessionEvent({
+      const changesCommitted = this.#store.appendSessionEvent({
         sessionId: this.#session.id,
         runtimeKind: "native",
         runId: event.runId,
@@ -481,13 +568,7 @@ export class PiAgentSession {
           files,
         },
       });
-      this.#publish(event.runId, {
-        type: "changes",
-        turnId: event.turnId,
-        itemId: `${event.callId}:changes`,
-        callId: event.callId,
-        files,
-      });
+      this.#flush(changesCommitted);
       return;
     }
 
@@ -515,11 +596,7 @@ export class PiAgentSession {
           lastDurableSeq: durable.seq,
           updatedAt: Date.now(),
         });
-        this.#publish(runId, {
-          type: "turn_start",
-          turnId: agentEvent.turnId,
-          turn: agentEvent.turn,
-        });
+        this.#flush(durable);
         }
         break;
       case "turn_end":
@@ -541,23 +618,10 @@ export class PiAgentSession {
           lastDurableSeq: durable.seq,
           updatedAt: Date.now(),
         });
-        this.#publish(runId, {
-          type: "turn_end",
-          turnId: agentEvent.turnId,
-        });
+        this.#flush(durable);
         }
         break;
       case "message_start":
-        if (
-          agentEvent.message.role === "assistant" &&
-          agentEvent.turnId
-        ) {
-          this.#publish(runId, {
-            type: "assistant_start",
-            turnId: agentEvent.turnId,
-            itemId: `${agentEvent.turnId}:assistant`,
-          });
-        }
         break;
       case "message_update":
         if (agentEvent.assistantMessageEvent.type === "text_delta") {
@@ -632,42 +696,27 @@ export class PiAgentSession {
             },
           });
           this.#buffer.commitMessage(this.#session.id, runId, messageId);
-          this.#publish(runId, {
-            type: "assistant_end",
-            turnId: agentEvent.turnId,
-            itemId: `${agentEvent.turnId}:assistant`,
-            stopReason: agentEvent.message.stopReason,
-            usage,
-            ...(agentEvent.message.errorMessage
-              ? { error: agentEvent.message.errorMessage }
-              : {}),
-          });
+          this.#flush(committed);
           for (const block of agentEvent.message.content) {
             if (block.type === "toolCall") {
-              this.#store.appendSessionEvent({
-                sessionId: this.#session.id,
-                runtimeKind: "native",
-                runId,
-                turnId: agentEvent.turnId,
-                toolCallId: block.id,
-                idempotencyKey: `tool:${block.id}:call`,
-                event: {
-                  kind: "tool.call.committed",
-                  toolCall: {
-                    id: block.id,
-                    name: block.name,
-                    input: block.arguments,
+              this.#flush(
+                this.#store.appendSessionEvent({
+                  sessionId: this.#session.id,
+                  runtimeKind: "native",
+                  runId,
+                  turnId: agentEvent.turnId,
+                  toolCallId: block.id,
+                  idempotencyKey: `tool:${block.id}:call`,
+                  event: {
+                    kind: "tool.call.committed",
+                    toolCall: {
+                      id: block.id,
+                      name: block.name,
+                      input: block.arguments,
+                    },
                   },
-                },
-              });
-              this.#publish(runId, {
-                type: "tool_requested",
-                turnId: agentEvent.turnId,
-                itemId: block.id,
-                callId: block.id,
-                tool: block.name,
-                arguments: block.arguments,
-              });
+                }),
+              );
             }
           }
           this.#store.setCheckpoint({
@@ -714,14 +763,7 @@ export class PiAgentSession {
             runtimeKind: "native",
             lastDurableSeq: durable.seq,
           });
-          this.#publish(runId, {
-            type: "tool_start",
-            turnId: agentEvent.turnId,
-            itemId: agentEvent.toolCall.id,
-            callId: agentEvent.toolCall.id,
-            tool: agentEvent.toolCall.name,
-            arguments: agentEvent.toolCall.arguments,
-          });
+          this.#flush(durable);
         }
         break;
       case "tool_execution_end":
@@ -753,15 +795,7 @@ export class PiAgentSession {
               },
             },
           });
-        this.#publish(runId, {
-          type: "tool_end",
-          turnId: agentEvent.turnId,
-          itemId: agentEvent.toolCall.id,
-          callId: agentEvent.toolCall.id,
-          tool: agentEvent.toolCall.name,
-          isError: agentEvent.result.isError,
-          output,
-        });
+        this.#flush(durable);
         this.#store.setCheckpoint({
           sessionId: this.#session.id,
           runId,
@@ -782,10 +816,7 @@ export class PiAgentSession {
             idempotencyKey: `run:${runId}:end`,
             event: { kind: "run.ended", status: this.#runOutcome },
           });
-        this.#publish(runId, {
-          type: "run_end",
-          status: this.#runOutcome,
-        });
+        this.#flush(durable);
         this.#store.setCheckpoint({
           sessionId: this.#session.id,
           runId,
@@ -811,47 +842,7 @@ export class PiAgentSession {
         checkpoint.phase === "approved_pending_exec") &&
       checkpoint.pendingApproval
     ) {
-      const approval = checkpoint.pendingApproval;
-      const events = this.snapshot().events.map(({ event }) => event);
-      if (
-        !events.some(
-          (event) =>
-            event.type === "approval_requested" &&
-            event.approval.callId === approval.callId,
-        )
-      ) {
-        this.#publish(checkpoint.runId, {
-          type: "approval_requested",
-          turnId: approval.turnId,
-          itemId: `${approval.callId}:approval`,
-          toolItemId: approval.callId,
-          approval: {
-            callId: approval.callId,
-            tool: approval.tool,
-            arguments: approval.arguments,
-            effect: { ...approval.effect },
-            effectDigest: approval.effectDigest,
-            reason: approval.reason,
-          },
-        });
-      }
-      if (
-        checkpoint.phase === "approved_pending_exec" &&
-        !events.some(
-          (event) =>
-            event.type === "approval_resolved" &&
-            event.callId === approval.callId,
-        )
-      ) {
-        this.#publish(checkpoint.runId, {
-          type: "approval_resolved",
-          turnId: approval.turnId,
-          itemId: `${approval.callId}:approval`,
-          toolItemId: approval.callId,
-          callId: approval.callId,
-          approved: true,
-        });
-      }
+      // Projector already folded durable approval events during open().
     }
     if (
       checkpoint.phase === "executing_tool" &&
@@ -874,10 +865,15 @@ export class PiAgentSession {
         (lastAssistant.stopReason === "stop" ||
           lastAssistant.stopReason === "length")
       ) {
-        this.#publish(checkpoint.runId, {
-          type: "run_end",
-          status: "completed",
-        });
+        this.#flush(
+          this.#store.appendSessionEvent({
+            sessionId: this.#session.id,
+            runtimeKind: "native",
+            runId: checkpoint.runId,
+            idempotencyKey: `run:${checkpoint.runId}:end`,
+            event: { kind: "run.ended", status: "completed" },
+          }),
+        );
         this.#store.setCheckpoint({
           ...checkpoint,
           phase: "terminal",
@@ -928,10 +924,7 @@ export class PiAgentSession {
       idempotencyKey: `run:${checkpoint.runId}:end`,
       event: { kind: "run.ended", status: "crashed" },
     });
-    this.#publish(checkpoint.runId, {
-      type: "run_end",
-      status: "crashed",
-    });
+    this.#flush(durable);
     this.#store.setCheckpoint({
       ...checkpoint,
       phase: "terminal",
@@ -956,10 +949,7 @@ export class PiAgentSession {
       idempotencyKey: `run:${runId}:end`,
       event: { kind: "run.ended", status: this.#runOutcome },
     });
-    this.#publish(runId, {
-      type: "run_end",
-      status: this.#runOutcome,
-    });
+    this.#flush(durable);
     this.#store.setCheckpoint({
       sessionId: this.#session.id,
       runId,

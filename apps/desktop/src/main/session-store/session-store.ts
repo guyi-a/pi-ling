@@ -1210,10 +1210,6 @@ export class SessionStore {
         row.active_run_id,
       );
       if (!checkpoint) {
-        this.appendTimeline(row.session_id, row.active_run_id, {
-          type: "run_end",
-          status: "crashed",
-        });
         this.appendSessionEvent({
           sessionId: row.session_id,
           runtimeKind: row.runtime_kind,
@@ -1254,10 +1250,6 @@ export class SessionStore {
         );
         continue;
       }
-      this.appendTimeline(row.session_id, row.active_run_id, {
-        type: "run_end",
-        status: "crashed",
-      });
       const durable = this.appendSessionEvent({
         sessionId: row.session_id,
         runtimeKind: row.runtime_kind,

@@ -218,7 +218,7 @@ describe("projectRunActivities", () => {
       presentingRunIds: new Set(["run"]),
       currentToolId: "read-a",
     })[0]!;
-    expect(activity.summary).toBe("explored 1 file");
+    expect(activity.summary).toBe("Explored 1 file");
     expect(activity.counters.exploredFiles).toEqual(["a.ts"]);
     expect(activity.currentAction).toMatchObject({
       verb: "Reading",
@@ -243,7 +243,7 @@ describe("projectRunActivities", () => {
       ],
       runs: { run: { id: "run", status: "completed" } },
     })[0]!;
-    expect(activity.summary).toBe("explored 1 file");
+    expect(activity.summary).toBe("Explored 1 file");
     expect(activity.counters.exploredFiles).toEqual(["*.md"]);
   });
 

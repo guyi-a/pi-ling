@@ -5,6 +5,7 @@ import type {
   StreamFrameEnvelope,
   TimelineEnvelope,
   TimelineSnapshot,
+  TimelineUserAttachment,
 } from "@pi-ling/contracts";
 
 interface ItemBase {
@@ -16,6 +17,7 @@ interface ItemBase {
 export interface UserTimelineItem extends ItemBase {
   kind: "user";
   text: string;
+  attachments?: TimelineUserAttachment[];
 }
 
 export interface AssistantTimelineItem extends ItemBase {
@@ -154,6 +156,9 @@ function applyEvent(
           runId,
           createdSeq: seq,
           text: event.prompt,
+          ...(event.attachments && event.attachments.length > 0
+            ? { attachments: event.attachments }
+            : {}),
         },
       ];
       runs = { ...runs, [runId]: { id: runId, status: "running" } };

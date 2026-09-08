@@ -201,21 +201,13 @@ Runtime delta
 
 结论：`RunMessageBuffer` 目前不承担任何用户可见职责。清理前，新增 Runtime 不得依赖它传递文本；若未来要恢复真实 token 流式，需要先在 Renderer 补一条真正的 delta 渲染路径，而不是直接复用现有通道。
 
-### 已知问题：`#publish` 全量重投影
+### `#publish` 增量投影（已修复）
 
-`PiAgentSession` 与 `DshAgentSession` 的 `#publish` 在每个 durable 事件上都会重新加载该会话的**全部** `session_events` 并从零投影整条 timeline，再 `slice` 掉已发送前缀：
+`PiAgentSession` 与 `DshAgentSession` 现已使用有状态的 `TimelineProjector`：`appendSessionEvent` 返回 envelope 后直接 `push`，O(1) 增量 emit，不再每次全量 `loadSessionEvents` + 重投影。
 
-```ts
-this.#store.appendTimeline(this.#session.id, runId, event);
-const projected = this.snapshot(); // loadSessionEvents 全量读取 + 排序
-for (const next of projected.events.slice(this.#projectedSeq)) {
-  this.#emit(next);
-}
-```
+`projectTimelineSnapshot` 保留为薄 wrapper（`TimelineProjector` 批量 fold + frames），供 `snapshot()` 与测试使用。
 
-开销随会话历史线性增长、随单个 Run 内事件数平方增长（`M·N₀ + M²/2` 量级）。此外 `appendTimeline` 写入的 `timeline_events` 行在该路径上不会被读回（仅迁移期 `loadSnapshot` 使用），每个事件附带一次无用 INSERT。
-
-尚未修复。修复方向是增量投影：维护投影器状态，只对新事件做增量映射，不重放历史。
+改动二（已完成）：`reconcile()` 不再写入 legacy `timeline_events`；热路径与崩溃恢复均只追加 `session_events`，UI 通过 `TimelineProjector` 投影。
 
 ## 跨 Runtime 上下文是另一项问题
 

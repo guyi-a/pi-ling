@@ -30,6 +30,8 @@ export const IPC_CHANNELS = {
   terminalKill: "terminal:kill",
   terminalOutput: "terminal:output",
   terminalExit: "terminal:exit",
+  attachmentSaveImage: "attachment:save-image",
+  attachmentPickImages: "attachment:pick-images",
 } as const;
 
 export interface AppInfo {
@@ -49,10 +51,25 @@ export interface AgentStatus {
   workspace?: WorkspaceInfo;
 }
 
+export interface PromptAttachment {
+  id: string;
+  relativePath: string;
+  name: string;
+  mediaType: string;
+}
+
+export interface SavedAttachmentImage {
+  path: string;
+  name: string;
+  relativePath: string;
+  mediaType: string;
+}
+
 export interface AgentPromptRequest {
   requestId: string;
   prompt: string;
   sessionId?: string;
+  attachments?: PromptAttachment[];
 }
 
 export interface AgentPromptAccepted {
@@ -355,8 +372,19 @@ export type WorkspaceFileContent =
   | { kind: "missing" }
   | { kind: "error"; message: string };
 
+export interface TimelineUserAttachment {
+  relativePath: string;
+  name: string;
+  mediaType: string;
+}
+
 export type TimelineEvent =
-  | { type: "run_start"; userItemId: string; prompt: string }
+  | {
+      type: "run_start";
+      userItemId: string;
+      prompt: string;
+      attachments?: TimelineUserAttachment[];
+    }
   | {
       type: "run_end";
       status: "completed" | "cancelled" | "error" | "crashed";
@@ -500,6 +528,13 @@ export interface DesktopApi {
   terminalInput(sessionId: string, data: Uint8Array): Promise<void>;
   terminalResize(sessionId: string, cols: number, rows: number): Promise<void>;
   terminalKill(sessionId: string): Promise<void>;
+  saveAttachmentImage(
+    workspaceRoot: string,
+    bytes: Uint8Array,
+    mimeType: string,
+    suggestedName?: string,
+  ): Promise<SavedAttachmentImage>;
+  pickAttachmentImages(workspaceRoot: string): Promise<SavedAttachmentImage[]>;
   onTerminalOutput(listener: (event: TerminalOutputEvent) => void): () => void;
   onTerminalExit(listener: (event: TerminalExitEvent) => void): () => void;
   onTimelineEvent(listener: (event: TimelineEnvelope) => void): () => void;

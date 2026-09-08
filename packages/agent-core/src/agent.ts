@@ -80,22 +80,21 @@ export class Agent {
   }
 
   async prompt(
-    text: string,
+    input: string | UserMessage,
     options: { runId?: string } = {},
   ): Promise<void> {
     if (this.#active) {
       throw new Error("Agent is already processing a prompt");
     }
-    const value = text.trim();
-    if (!value) {
+    const prompt = typeof input === "string" ? buildTextPrompt(input) : input;
+    if (
+      typeof prompt.content === "string"
+        ? prompt.content.trim().length === 0
+        : prompt.content.length === 0
+    ) {
       throw new Error("Prompt cannot be empty");
     }
 
-    const prompt: UserMessage = {
-      role: "user",
-      content: [{ type: "text", text: value }],
-      timestamp: Date.now(),
-    };
     const controller = new AbortController();
     const runId = options.runId ?? randomUUID();
     this.#state.isStreaming = true;
@@ -242,4 +241,16 @@ export class Agent {
       }
     }
   }
+}
+
+function buildTextPrompt(text: string): UserMessage {
+  const value = text.trim();
+  if (!value) {
+    throw new Error("Prompt cannot be empty");
+  }
+  return {
+    role: "user",
+    content: [{ type: "text", text: value }],
+    timestamp: Date.now(),
+  };
 }

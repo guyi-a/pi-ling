@@ -48,6 +48,8 @@ const TERMINAL_RESIZE_CHANNEL = "terminal:resize";
 const TERMINAL_KILL_CHANNEL = "terminal:kill";
 const TERMINAL_OUTPUT_CHANNEL = "terminal:output";
 const TERMINAL_EXIT_CHANNEL = "terminal:exit";
+const ATTACHMENT_SAVE_IMAGE_CHANNEL = "attachment:save-image";
+const ATTACHMENT_PICK_IMAGES_CHANNEL = "attachment:pick-images";
 
 function toUint8Array(data: unknown): Uint8Array {
   if (data instanceof Uint8Array) return data;
@@ -109,6 +111,21 @@ const desktopApi: DesktopApi = {
     ipcRenderer.invoke(TERMINAL_RESIZE_CHANNEL, sessionId, cols, rows),
   terminalKill: (sessionId: string) =>
     ipcRenderer.invoke(TERMINAL_KILL_CHANNEL, sessionId),
+  saveAttachmentImage: (
+    workspaceRoot: string,
+    bytes: Uint8Array,
+    mimeType: string,
+    suggestedName?: string,
+  ) =>
+    ipcRenderer.invoke(
+      ATTACHMENT_SAVE_IMAGE_CHANNEL,
+      workspaceRoot,
+      bytes,
+      mimeType,
+      suggestedName,
+    ),
+  pickAttachmentImages: (workspaceRoot: string) =>
+    ipcRenderer.invoke(ATTACHMENT_PICK_IMAGES_CHANNEL, workspaceRoot),
   onTerminalOutput: (listener: (event: TerminalOutputEvent) => void) => {
     const handler = (
       _event: Electron.IpcRendererEvent,

@@ -9,6 +9,7 @@ import type {
   Message,
   Model,
   ToolCall,
+  UserMessage,
 } from "@earendil-works/pi-ai";
 
 import {
@@ -99,6 +100,7 @@ export class CodingAgent {
           `The workspace root is ${workspace.root}.`,
           "Use the provided tools to inspect and modify the workspace.",
           "Never claim a file or command changed unless the tool succeeded.",
+          "When the user message already includes image content, understand it directly and do not call read_image for the same image.",
         ].join("\n"),
         model: options.model,
         thinkingLevel: "high",
@@ -157,8 +159,12 @@ export class CodingAgent {
     return this.#changes.exportBaselines();
   }
 
-  prompt(text: string, runId?: string): Promise<void> {
-    return this.#agent.prompt(text, runId ? { runId } : {});
+  prompt(input: string | UserMessage, runId?: string): Promise<void> {
+    return this.#agent.prompt(input, runId ? { runId } : {});
+  }
+
+  setModel(model: Parameters<Agent["setModel"]>[0]): void {
+    this.#agent.setModel(model);
   }
 
   cancel(): void {
