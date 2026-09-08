@@ -53,6 +53,8 @@ export function ChatView(props: {
   ) => Promise<void>;
   onApprovalModeChange: (mode: ApprovalMode) => Promise<void>;
   onRuntimeChange: (runtime: RuntimeKind) => void;
+  runtimeError?: string | null;
+  onDismissRuntimeError?: () => void;
 }) {
   const {
     sessionId,
@@ -71,6 +73,8 @@ export function ChatView(props: {
     onApproval,
     onApprovalModeChange,
     onRuntimeChange,
+    runtimeError,
+    onDismissRuntimeError,
   } = props;
   const [prompt, setPrompt] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
@@ -224,6 +228,21 @@ export function ChatView(props: {
             disabled={!workspaceReady}
           />
           {sendError ? <div className="message-error">{sendError}</div> : null}
+          {runtimeError ? (
+            <div className="message-error">
+              {runtimeError}
+              {onDismissRuntimeError ? (
+                <button
+                  type="button"
+                  className="message-error-dismiss"
+                  aria-label="关闭"
+                  onClick={onDismissRuntimeError}
+                >
+                  ×
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           <div className="composer-footer">
             <div className="composer-controls">
               <RuntimePicker

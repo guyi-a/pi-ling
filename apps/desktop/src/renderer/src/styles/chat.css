@@ -64,6 +64,24 @@
   background: var(--danger-tint);
   font-family: "Cascadia Code", Consolas, monospace;
   font-size: 13px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.message-error-dismiss {
+  margin-left: auto;
+  padding: 0 4px;
+  color: var(--muted-2);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.message-error-dismiss:hover {
+  color: var(--text);
 }
 
 .message-usage {

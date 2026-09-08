@@ -97,12 +97,6 @@ function nativeMessages(
       for (const block of message.content) {
         if (block.type === "text") {
           content.push({ type: "text", text: block.text });
-        } else if (block.type === "reasoning") {
-          content.push({
-            type: "thinking",
-            thinking: block.text,
-            thinkingSignature: block.signature ?? "reasoning_content",
-          });
         } else if (block.type === "tool-call") {
           toolNames.set(block.toolCallId, block.name);
           content.push({
@@ -112,7 +106,9 @@ function nativeMessages(
             arguments: block.input,
           });
         }
+        // reasoning blocks are not valid in openai-completions (DeepSeek) — skip
       }
+      if (content.length === 0) continue;
       output.push({
         role: "assistant",
         content,

@@ -23,6 +23,15 @@ function messageText(
     .join("");
 }
 
+function assistantToolCallIds(message: CanonicalMessage): string[] {
+  return message.content
+    .filter(
+      (block): block is Extract<CanonicalContentBlock, { type: "tool-call" }> =>
+        block.type === "tool-call",
+    )
+    .map((block) => block.toolCallId);
+}
+
 export function projectCanonicalMessages(
   events: readonly SessionEventEnvelope[],
 ): CanonicalMessage[] {
@@ -34,7 +43,31 @@ export function projectCanonicalMessages(
     messages.push(message);
   };
 
-  for (const envelope of [...events].sort((a, b) => a.seq - b.seq)) {
+  const sorted = [...events].sort((a, b) => a.seq - b.seq);
+  // A DSH turn commits its assistant message (which declares its tool calls)
+  // only when the turn ends, so a tool.result.committed can land before the
+  // assistant message that declares it. DeepSeek/Anthropic both require the
+  // declaration to precede its result, so pre-index declaring messages here
+  // and splice them in ahead of any early tool result.
+  const declaringByCallId = new Map<string, CanonicalMessage>();
+  for (const envelope of sorted) {
+    if (envelope.event.kind !== "message.assistant.committed") continue;
+    for (const callId of assistantToolCallIds(envelope.event.message)) {
+      declaringByCallId.set(
+        callId,
+        envelope.event.message,
+      );
+    }
+  }
+
+  const declaredCallIds = new Set<string>();
+  const declare = (message: CanonicalMessage) => {
+    for (const callId of assistantToolCallIds(message)) {
+      declaredCallIds.add(callId);
+    }
+  };
+
+  for (const envelope of sorted) {
     const event = envelope.event;
     if (event.kind === "run.started") {
       append(event.userMessage);
@@ -42,7 +75,15 @@ export function projectCanonicalMessages(
       append(event.message);
     } else if (event.kind === "message.assistant.committed") {
       append(event.message);
+      declare(event.message);
     } else if (event.kind === "tool.result.committed") {
+      if (!declaredCallIds.has(event.result.toolCallId)) {
+        const declaring = declaringByCallId.get(event.result.toolCallId);
+        if (declaring && !seen.has(declaring.id)) {
+          append(declaring);
+          declare(declaring);
+        }
+      }
       append({
         id: envelope.messageId ?? `tool:${event.result.toolCallId}`,
         role: "tool",

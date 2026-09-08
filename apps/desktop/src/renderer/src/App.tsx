@@ -94,6 +94,7 @@ export function App() {
     () => new Set(),
   );
   const [showDshNotice, setShowDshNotice] = useState(false);
+  const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const [changesSource, setChangesSource] = useState<ChangesSourceId>(
     DEFAULT_CHANGES_SOURCE,
   );
@@ -416,11 +417,18 @@ export function App() {
       setShowDshNotice(true);
       return;
     }
+    setRuntimeError(null);
     if (!status?.workspace) {
       await chooseWorkspace(runtimeKind);
       return;
     }
-    applyActivation(await window.piLing.switchRuntime(runtimeKind));
+    try {
+      applyActivation(await window.piLing.switchRuntime(runtimeKind));
+    } catch (error) {
+      setRuntimeError(
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   }
 
   const modelLabel = !status?.configured
@@ -516,6 +524,8 @@ export function App() {
                 onRuntimeChange={(runtime) => {
                   void activateRuntime(runtime);
                 }}
+                runtimeError={runtimeError}
+                onDismissRuntimeError={() => setRuntimeError(null)}
               />
             </section>
             {rightPanelOpen ? (
