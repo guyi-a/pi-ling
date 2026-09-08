@@ -101,4 +101,30 @@ describe("Workspace and tools", () => {
     );
     expect(timedOut.timedOut).toBe(true);
   });
+
+  it("finds files with glob and deletes captured files", async () => {
+    await fs.mkdir(path.join(root, "src"), { recursive: true });
+    await fs.writeFile(path.join(root, "src", "a.ts"), "export {}");
+    await fs.writeFile(path.join(root, "src", "b.md"), "hello");
+
+    const matches = await workspace.glob("**/*.{ts,md}");
+    expect(matches).toEqual(
+      expect.arrayContaining(["src/a.ts", "src/b.md"]),
+    );
+
+    const changes = new ChangeTracker(workspace);
+    await changes.capture("src/b.md");
+    await workspace.deleteFile("src/b.md");
+    await expect(fs.stat(path.join(root, "src", "b.md"))).rejects.toBeDefined();
+    expect(await changes.changedFiles()).toEqual([
+      expect.objectContaining({ path: "src/b.md", status: "deleted" }),
+    ]);
+  });
+
+  it("reads supported image files as base64", async () => {
+    await fs.writeFile(path.join(root, "photo.png"), Buffer.from("png-bytes"));
+    const image = await workspace.readImage("photo.png");
+    expect(image.mimeType).toBe("image/png");
+    expect(image.data).toBe(Buffer.from("png-bytes").toString("base64"));
+  });
 });

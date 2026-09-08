@@ -1,5 +1,5 @@
 import type { ChangedFile, FileDiff } from "@pi-ling/contracts";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { sourceDef } from "./changes-source";
 import type { ChangesSourceId } from "./changes-source";
@@ -12,15 +12,18 @@ const STATUS_LABEL: Record<ChangedFile["status"], string> = {
   deleted: "D",
 };
 
+const AUTO_COLLAPSE_FILE_COUNT = 6;
+
 export function ChangesView(props: {
   source: ChangesSourceId;
   files: ChangedFile[];
   getDiff: (path: string) => Promise<FileDiff | undefined>;
   onSourceChange: (source: ChangesSourceId) => void;
-  loading?: boolean;
+  loading?: boolean | undefined;
 }) {
-  const { source, files, getDiff, onSourceChange } = props;
+  const { source, files, getDiff, onSourceChange, loading } = props;
   const currentDef = sourceDef(source);
+  const collapseByDefault = files.length > AUTO_COLLAPSE_FILE_COUNT;
 
   return (
     <aside className="changes-panel" aria-label="Changes">
@@ -31,7 +34,13 @@ export function ChangesView(props: {
         ) : null}
       </div>
 
-      {files.length === 0 ? (
+      {loading ? (
+        <div className="changes-empty">
+          <span className="changes-empty-mark">{currentDef.label.slice(0, 1)}</span>
+          <strong>{currentDef.label}</strong>
+          <p>正在加载变更…</p>
+        </div>
+      ) : files.length === 0 ? (
         <div className="changes-empty">
           <span className="changes-empty-mark">
             {currentDef.label.slice(0, 1)}
@@ -45,6 +54,7 @@ export function ChangesView(props: {
             <FileSection
               file={file}
               getDiff={getDiff}
+              defaultCollapsed={collapseByDefault}
               key={file.path}
             />
           ))}
@@ -57,13 +67,51 @@ export function ChangesView(props: {
 function FileSection(props: {
   file: ChangedFile;
   getDiff: (path: string) => Promise<FileDiff | undefined>;
+  defaultCollapsed: boolean;
 }) {
-  const { file, getDiff } = props;
+  const { file, getDiff, defaultCollapsed } = props;
   const [diff, setDiff] = useState<FileDiff | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  const [shouldLoad, setShouldLoad] = useState(false);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const skipDiff =
+    file.sensitive || file.binary || file.tooLarge;
 
   useEffect(() => {
+    setCollapsed(defaultCollapsed);
+    setDiff(undefined);
+    setError(null);
+    setShouldLoad(false);
+  }, [defaultCollapsed, file.path]);
+
+  useEffect(() => {
+    if (collapsed || skipDiff) {
+      setShouldLoad(false);
+      return;
+    }
+    const node = bodyRef.current;
+    if (!node) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setShouldLoad(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) {
+          setShouldLoad(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "160px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [collapsed, skipDiff, file.path]);
+
+  useEffect(() => {
+    if (!shouldLoad || skipDiff) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -83,7 +131,7 @@ function FileSection(props: {
     return () => {
       cancelled = true;
     };
-  }, [file.path, getDiff]);
+  }, [file.path, getDiff, shouldLoad, skipDiff]);
 
   const stats = diff
     ? diffStats(diff.patch)
@@ -91,7 +139,13 @@ function FileSection(props: {
 
   return (
     <section className="file-section" aria-label={file.path}>
-      <div className="file-section-header">
+      <button
+        className="file-section-header"
+        type="button"
+        onClick={() => setCollapsed((current) => !current)}
+        aria-expanded={!collapsed}
+      >
+        <span className={`file-chevron${collapsed ? " is-collapsed" : ""}`} />
         <span
           className={`file-status status-${file.status}`}
           title={file.status}
@@ -109,9 +163,12 @@ function FileSection(props: {
             <span className="diff-delete">-{stats.deletions}</span>
           ) : null}
         </span>
-      </div>
+      </button>
 
-      <div className="file-section-body">
+      <div
+        ref={bodyRef}
+        className={`file-section-body${collapsed ? " is-collapsed" : ""}`}
+      >
         {error ? (
           <div className="changes-empty-mini">{error}</div>
         ) : file.sensitive ? (
@@ -133,11 +190,11 @@ function FileSection(props: {
             patch={diff.patch}
             truncated={diff.truncated}
           />
-        ) : (
+        ) : shouldLoad ? (
           <div className="changes-empty-mini">
             该文件没有可展示的文本差异。
           </div>
-        )}
+        ) : null}
       </div>
     </section>
   );

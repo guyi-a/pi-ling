@@ -86,6 +86,9 @@ export function immediatePresentationRunIds(
     if (item.kind === "approval" && item.status === "pending") {
       runIds.add(item.runId);
     }
+    if (item.kind === "tool" && item.status === "awaiting-approval") {
+      runIds.add(item.runId);
+    }
   }
   for (const run of Object.values(runs)) {
     if (
@@ -296,12 +299,10 @@ export function useMessagePresentation(input: {
             : undefined,
       };
     });
-    for (const item of blockedMessages) input.onComplete(item.id);
   }, [
     assistants,
     input.fastForwardRunIds,
     input.liveMessageIds,
-    input.onComplete,
     toolById,
   ]);
 
@@ -352,7 +353,14 @@ export function useMessagePresentation(input: {
               )
             : { ...value, current: undefined };
         });
-        input.onComplete(item.id);
+        const item = assistantById.get(current.id);
+        if (
+          item &&
+          item.stopReason !== "toolUse" &&
+          !input.fastForwardRunIds.has(item.runId)
+        ) {
+          input.onComplete(item.id);
+        }
       }, remaining);
       return () => window.clearTimeout(timer);
     }

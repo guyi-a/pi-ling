@@ -1,4 +1,5 @@
-import type { TimelineItem, TimelineRun } from "../timeline/reducer";
+import type { TimelineItem, TimelineRun, ToolTimelineItem } from "../timeline/reducer";
+import { editToolCallIds } from "./run-changes";
 import {
   classifyTool,
   toolAction,
@@ -10,14 +11,10 @@ import type {
   RunPhase,
 } from "./types";
 
-function filePath(item: { arguments: Record<string, unknown> }): string | undefined {
-  const value =
-    item.arguments["path"] ??
-    item.arguments["file"] ??
-    item.arguments["file_path"] ??
-    item.arguments["filePath"];
-  return typeof value === "string" && value.trim()
-    ? value.replaceAll("\\", "/").toLowerCase()
+function exploreTarget(tool: ToolTimelineItem): string | undefined {
+  const target = toolTarget(tool).trim();
+  return target
+    ? target.replaceAll("\\", "/").toLowerCase()
     : undefined;
 }
 
@@ -46,6 +43,11 @@ function summary(counters: RunActivityCounters): string {
   }
   if (counters.failedToolCount) {
     parts.push(`${counters.failedToolCount} failed`);
+  }
+  if (parts.length === 0 && counters.toolCount) {
+    parts.push(
+      `Used ${counters.toolCount} ${counters.toolCount === 1 ? "tool" : "tools"}`,
+    );
   }
   if (parts.length === 0) return "";
   return parts.join(", ");
@@ -89,11 +91,14 @@ export function projectRunActivities(input: {
     const allChanges = items
       .filter((item) => item.kind === "changes")
       .sort((a, b) => a.createdSeq - b.createdSeq);
-    const changes = input.visibleToolIds
-      ? allChanges.filter((change) =>
-          input.visibleToolIds!.has(change.callId),
-        )
-      : allChanges;
+    const editCallIds = editToolCallIds(items, runId);
+    const changes = (
+      input.visibleToolIds
+        ? allChanges.filter((change) =>
+            input.visibleToolIds!.has(change.callId),
+          )
+        : allChanges
+    ).filter((change) => editCallIds.has(change.callId));
     const assistants = items
       .filter((item) => item.kind === "assistant")
       .sort((a, b) => a.createdSeq - b.createdSeq);
@@ -109,9 +114,9 @@ export function projectRunActivities(input: {
         continue;
       }
       const category = classifyTool(tool);
-      const path = filePath(tool);
-      if (category === "edit" && path) edited.add(path);
-      if (category === "explore" && path) explored.add(path);
+      const target = exploreTarget(tool);
+      if (category === "edit" && target) edited.add(target);
+      if (category === "explore" && target) explored.add(target);
       if (category === "command" || category === "verify") commandCount += 1;
     }
     let additions: number | undefined;
@@ -188,9 +193,9 @@ export function projectRunActivities(input: {
           ? "verifying"
           : category === "edit"
             ? "editing"
-            : category === "explore"
+            : category === "explore" || category === "network"
               ? "exploring"
-              : category === "command"
+              : category === "command" || category === "agent"
                 ? "running"
                 : "planning";
       currentAction = {
@@ -213,6 +218,7 @@ export function projectRunActivities(input: {
     const finalAssistant =
       lifecycle !== "running" &&
       !hasUnsettledWork &&
+      !pendingApproval &&
       lastSegment &&
       lastSegment.tools.length === 0 &&
       lastSegment.content.trim() &&
@@ -259,7 +265,7 @@ export function projectRunActivities(input: {
 
 export function activityPhaseLabel(phase: RunPhase): string {
   return {
-    planning: "",
+    planning: "Planning next steps",
     exploring: "Exploring codebase",
     editing: "Editing files",
     running: "Running command",

@@ -3,8 +3,8 @@
 pi-ling 的内置 Coding Harness。它组合 `@pi-ling/agent-core` 与以下产品能力：
 
 - Workspace 路径边界
-- `read_file`、`list_files`、`grep`
-- `write_file`、`edit_file`、`run_command`
+- `read_file`、`list_files`、`grep`、`glob`、`read_image`
+- `write_file`、`edit_file`、`delete`、`run_command`
 - effect 推导与 Allow once / Deny 审批
 - 本轮文件 baseline、changed files 和 Diff
 

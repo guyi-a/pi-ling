@@ -10,6 +10,8 @@ export const IPC_CHANNELS = {
   approvalResolve: "approval:resolve",
   changesGet: "changes:get",
   diffGet: "diff:get",
+  workspaceTree: "workspace:tree",
+  workspaceReadFile: "workspace:read-file",
   sessionsList: "sessions:list",
   sessionsCreate: "sessions:create",
   sessionsSwitch: "sessions:switch",
@@ -22,6 +24,12 @@ export const IPC_CHANNELS = {
   sessionApprovalMode: "session:approval-mode",
   sessionRuntime: "session:runtime",
   themeSet: "theme:set",
+  terminalStart: "terminal:start",
+  terminalInput: "terminal:input",
+  terminalResize: "terminal:resize",
+  terminalKill: "terminal:kill",
+  terminalOutput: "terminal:output",
+  terminalExit: "terminal:exit",
 } as const;
 
 export interface AppInfo {
@@ -84,6 +92,13 @@ export type SessionLifecycle =
 export type ApprovalMode = "manual" | "accept-write" | "auto";
 export type RuntimeKind = "native" | "dsh" | "claude";
 export type AppTheme = "dark" | "light";
+/** 变更面板的数据来源；agent=当前会话基线的改动（非 git），其余为 git 作用域 */
+export type ChangesSource =
+  | "agent"
+  | "uncommitted"
+  | "staged"
+  | "unstaged"
+  | "last-agent-turn";
 
 export const SESSION_EVENT_SCHEMA_VERSION = 1;
 
@@ -293,6 +308,8 @@ export interface ChangedFile {
   tooLarge: boolean;
   additions?: number;
   deletions?: number;
+  /** 变更位于暂存区（index）还是工作区；Uncommitted 视图可能同时含两者 */
+  staged?: boolean;
 }
 
 export interface FileDiff {
@@ -300,6 +317,43 @@ export interface FileDiff {
   patch: string;
   truncated: boolean;
 }
+
+export interface WorkspaceTreeNode {
+  name: string;
+  /** 相对工作区根目录的路径，用 "/" 分隔；目录以 "/" 结尾。 */
+  path: string;
+  kind: "file" | "dir";
+  size?: number;
+}
+
+export interface WorkspaceTreeResult {
+  workspaceRootName: string;
+  entries: WorkspaceTreeNode[];
+  /** 目录项数量超过上限，已截断。 */
+  truncated?: boolean;
+}
+
+export type WorkspaceFileKind =
+  | "markdown"
+  | "text"
+  | "image"
+  | "binary"
+  | "unsupported";
+
+export type WorkspaceFileContent =
+  | {
+      kind: "markdown" | "text";
+      path: string;
+      name: string;
+      content: string;
+      size: number;
+      truncated?: boolean;
+    }
+  | { kind: "image"; path: string; name: string; size: number }
+  | { kind: "binary"; path: string; name: string; size: number }
+  | { kind: "unsupported"; path: string; name: string; size: number }
+  | { kind: "missing" }
+  | { kind: "error"; message: string };
 
 export type TimelineEvent =
   | { type: "run_start"; userItemId: string; prompt: string }
@@ -393,6 +447,28 @@ export interface TimelineSnapshot {
   events: TimelineEnvelope[];
 }
 
+export interface TerminalStartRequest {
+  cwd: string;
+  cols: number;
+  rows: number;
+}
+
+export interface TerminalStartResult {
+  sessionId: string;
+  cwd: string;
+  shell: string;
+}
+
+export interface TerminalOutputEvent {
+  sessionId: string;
+  data: Uint8Array;
+}
+
+export interface TerminalExitEvent {
+  sessionId: string;
+  exitCode: number | null;
+}
+
 export interface DesktopApi {
   getAppInfo(): Promise<AppInfo>;
   getAgentStatus(): Promise<AgentStatus>;
@@ -400,8 +476,10 @@ export interface DesktopApi {
   cancelPrompt(requestId: string): Promise<boolean>;
   selectWorkspace(runtimeKind?: RuntimeKind): Promise<SessionActivation | undefined>;
   resolveApproval(decision: ApprovalDecisionRequest): Promise<boolean>;
-  getChanges(): Promise<ChangedFile[]>;
-  getDiff(path: string): Promise<FileDiff | undefined>;
+  getChanges(source?: ChangesSource): Promise<ChangedFile[]>;
+  getDiff(path: string, source?: ChangesSource): Promise<FileDiff | undefined>;
+  workspaceTree(root: string): Promise<WorkspaceTreeResult>;
+  readFile(root: string, subpath: string): Promise<WorkspaceFileContent>;
   getTimelineSnapshot(sessionId?: string): Promise<TimelineSnapshot>;
   listSessions(): Promise<SessionSummary[]>;
   listWorkspaces(includeArchived?: boolean): Promise<WorkspaceListEntry[]>;
@@ -418,6 +496,12 @@ export interface DesktopApi {
   setApprovalMode(mode: ApprovalMode): Promise<SessionSummary>;
   switchRuntime(runtimeKind: RuntimeKind): Promise<SessionActivation>;
   setTheme(theme: AppTheme): Promise<void>;
+  terminalStart(request: TerminalStartRequest): Promise<TerminalStartResult>;
+  terminalInput(sessionId: string, data: Uint8Array): Promise<void>;
+  terminalResize(sessionId: string, cols: number, rows: number): Promise<void>;
+  terminalKill(sessionId: string): Promise<void>;
+  onTerminalOutput(listener: (event: TerminalOutputEvent) => void): () => void;
+  onTerminalExit(listener: (event: TerminalExitEvent) => void): () => void;
   onTimelineEvent(listener: (event: TimelineEnvelope) => void): () => void;
   onStreamFrame(listener: (frame: StreamFrameEnvelope) => void): () => void;
 }

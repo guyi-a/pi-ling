@@ -7,3 +7,4 @@ linkWorkspacePackages: true
 onlyBuiltDependencies:
   - electron
   - esbuild
+  - node-pty

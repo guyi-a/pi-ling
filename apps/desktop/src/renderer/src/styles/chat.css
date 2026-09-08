@@ -150,8 +150,33 @@
 }
 
 .composer-wrap {
+  position: relative;
+  z-index: 1;
+  overflow: visible;
   padding: 8px 20px 14px;
   background: var(--editor-bg);
+}
+
+.composer-stack {
+  position: relative;
+  z-index: 1;
+  overflow: visible;
+  width: min(var(--content-width), 100%);
+  margin: 0 auto;
+}
+
+.composer-stack.has-approval-overlay {
+  z-index: 4;
+}
+
+.composer-stack.has-approval-overlay .composer {
+  pointer-events: none;
+  user-select: none;
+}
+
+.composer-stack .composer {
+  width: 100%;
+  margin: 0;
 }
 
 .composer {
@@ -330,6 +355,17 @@
 .runtime-picker > summary:hover {
   color: var(--text-soft);
   background: var(--surface-hover);
+}
+
+.runtime-picker.is-switching > summary {
+  color: var(--text-soft);
+  cursor: wait;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .runtime-picker > summary svg {
@@ -598,4 +634,94 @@
   padding: 7px 9px;
   border: 1px solid var(--border);
   text-align: left;
+}
+
+.turn-changes-card {
+  margin: -6px 0 22px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+}
+
+.turn-changes-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.turn-changes-title {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.turn-changes-review {
+  padding: 2px 8px;
+  color: var(--muted);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.turn-changes-review:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.turn-changes-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.turn-changes-file {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 6px;
+  color: inherit;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.turn-changes-file:hover {
+  background: var(--surface-hover);
+}
+
+.turn-changes-badge {
+  min-width: 1.5rem;
+  color: var(--muted-2);
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.turn-changes-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-soft);
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.turn-changes-stats {
+  display: inline-flex;
+  gap: 6px;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
 }

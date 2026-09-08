@@ -88,7 +88,7 @@ export function createUiFixture(name: UiFixtureName): UiFixture {
     provider: "deepseek",
     runtimeKind: "native",
     availableRuntimes: ["native", "dsh"],
-    model: "deepseek-v4-flash",
+    model: "deepseek-v4-pro",
     configured: true,
     approvalMode: "manual",
     workspace: session.workspace,

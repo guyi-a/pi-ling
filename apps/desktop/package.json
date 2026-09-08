@@ -13,16 +13,26 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@aiden0z/pptx-renderer": "^1.2.4",
     "@earendil-works/pi-ai": "0.85.0",
     "@pi-ling/coding-agent": "workspace:*",
     "@pi-ling/contracts": "workspace:*",
     "@pi-ling/dsh-runtime": "workspace:*",
     "@pi-ling/runtime-contracts": "workspace:*",
     "@pi-ling/session-events": "workspace:*",
+    "@shikijs/engine-javascript": "4.4.3",
+    "@shikijs/langs": "4.4.3",
+    "@shikijs/themes": "4.4.3",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "docx-preview": "^0.4.0",
+    "node-pty": "^1.0.0",
     "lucide-react": "1.27.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "streamdown": "2.5.0"
+    "shiki": "^4.4.3",
+    "streamdown": "2.5.0",
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-llm-mock-server": "link:../../.dsh-source/packages/test-support/llm-mock-server",

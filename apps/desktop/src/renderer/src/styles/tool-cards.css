@@ -1,0 +1,73 @@
+.tool-rich-card .tool-rich-body {
+  margin: 0 0 0 22px;
+  padding: 4px 0 6px;
+}
+
+.tool-rich-empty {
+  margin: 0;
+  color: var(--muted-2);
+  font-size: 12px;
+}
+
+.tool-todo-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.tool-plan-body,
+.tool-web-search-body,
+.tool-subagent-body {
+  display: grid;
+  gap: 6px;
+}
+
+.tool-plan-preview,
+.tool-web-search-output,
+.tool-subagent-output {
+  margin: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  color: var(--text-soft);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--code-bg);
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.tool-plan-details summary,
+.tool-read-image-open {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.tool-read-image-open {
+  width: fit-content;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.tool-web-search-query,
+.tool-subagent-task {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.tool-subagent-agent {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.tool-entry.tool-rich-card .tool-entry-details {
+  margin-left: 22px;
+}

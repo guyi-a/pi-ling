@@ -143,11 +143,17 @@ Canonical Messages、UI Timeline 和 Eval 都由这份 Event Log 投影，不再
 - tool argument delta
 - 高频 progress
 
-Frame 进入 Electron Main 的 `RunMessageBuffer`，按 `sessionId + runId`
-隔离，约 16ms 合并后通过 Electron IPC 推送。
+完整 Assistant message 提交后写入 Session Event Log。
 
-完整 Assistant message 提交后写入 Session Event Log，并释放已确认持久化的
-Buffer。
+用户可见的 Assistant 文本**不由 delta frame 驱动**。Renderer 只消费已提交
+的完整 message，并按短语/小段自适应释放，形成展示层流式效果。
+
+`RunMessageBuffer` 与 `timeline:frame` 通道当前仍存在于 Main，按
+`sessionId + runId` 隔离并做 16ms 合并，但没有任何 frame kind 同时具备
+生产者和消费者（Main 只发 `assistant.text.delta` /
+`assistant.reasoning.delta`，Renderer 只处理 `tool.status`）。它属于设计
+变更后未清理的悬空管道，实现细节与已知问题见
+[`agent-streaming-and-run-rendering.md`](agent-streaming-and-run-rendering.md)。
 
 ## Runtime 原生投影
 

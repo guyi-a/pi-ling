@@ -30,7 +30,7 @@ describe("NativeRuntimeAdapter", () => {
           sessionId: "native-pi-ai",
           workspaceRoot,
           provider: "deepseek",
-          model: "deepseek-v4-flash",
+          model: "deepseek-v4-pro",
         }),
       ).resolves.toEqual({
         sessionId: "native-pi-ai",

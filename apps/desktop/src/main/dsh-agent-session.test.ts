@@ -170,6 +170,11 @@ describe("DshAgentSession", () => {
       "assistant_end",
       "run_end",
     ]);
+    const turnStarts = session
+      .snapshot()
+      .events.filter(({ event }) => event.type === "turn_start")
+      .map(({ event }) => (event.type === "turn_start" ? event.turn : 0));
+    expect(turnStarts).toEqual([1, 2]);
     expect(
       session
         .snapshot()
@@ -211,6 +216,155 @@ describe("DshAgentSession", () => {
     expect(emitted.map(({ seq }) => seq)).toEqual(
       emitted.map((_, index) => index + 1),
     );
+    await session.dispose();
+  });
+
+  it("emits changes after a write tool modifies a file", async () => {
+    const target = path.join(directory, "b.md");
+    await fs.writeFile(target, "hi", "utf8");
+    const summary = store.createSession({
+      workspaceRoot: directory,
+      runtimeKind: "dsh",
+      runtimeVersion: "0.1.3-alpha.1",
+    });
+    const runtime = new FakeDshRuntime();
+    let sendDone: () => void = () => {};
+    const sendFinished = new Promise<void>((resolve) => {
+      sendDone = resolve;
+    });
+    runtime.send = async (sessionId, runId) => {
+      await runtime.emit({ type: "run_start", sessionId, runId });
+      await runtime.emit({
+        type: "tool",
+        sessionId,
+        runId,
+        executionGroupId: `${runId}:exec`,
+        callId: "call-write",
+        title: "write",
+        kind: "edit",
+        status: "running",
+        input: { file_path: "b.md", content: "hiworld" },
+      });
+      await fs.writeFile(target, "hiworld", "utf8");
+      await runtime.emit({
+        type: "tool",
+        sessionId,
+        runId,
+        executionGroupId: `${runId}:exec`,
+        callId: "call-write",
+        title: "write",
+        kind: "edit",
+        status: "completed",
+        output: "ok",
+      });
+      await runtime.emit({
+        type: "run_end",
+        sessionId,
+        runId,
+        status: "completed",
+      });
+      sendDone();
+    };
+    const session = await DshAgentSession.open({
+      store,
+      session: summary,
+      runtime,
+      emit: () => {},
+      buffer: new RunMessageBuffer(() => {}),
+      availableRuntimes: ["native", "dsh"],
+    });
+    session.startPrompt("run-write", "append");
+    await sendFinished;
+
+    const eventTypes = session
+      .snapshot()
+      .events.map(({ event }) => event.type);
+    expect(eventTypes).toContain("tool_end");
+    expect(
+      store.loadSessionEvents(summary.id).some(
+        (entry) => entry.event.kind === "changes.committed",
+      ),
+    ).toBe(true);
+    const changes = session
+      .snapshot()
+      .events.find(({ event }) => event.type === "changes")?.event;
+    expect(changes).toMatchObject({
+      type: "changes",
+      files: [
+        expect.objectContaining({
+          path: "b.md",
+          status: "modified",
+          additions: expect.any(Number),
+        }),
+      ],
+    });
+    await session.dispose();
+  });
+
+  it("emits changes when DSH passes an absolute file path", async () => {
+    const target = path.join(directory, "b.md");
+    await fs.writeFile(target, "hiworld", "utf8");
+    const summary = store.createSession({
+      workspaceRoot: directory,
+      runtimeKind: "dsh",
+      runtimeVersion: "0.1.3-alpha.1",
+    });
+    const runtime = new FakeDshRuntime();
+    let sendDone: () => void = () => {};
+    const sendFinished = new Promise<void>((resolve) => {
+      sendDone = resolve;
+    });
+    runtime.send = async (sessionId, runId) => {
+      await runtime.emit({ type: "run_start", sessionId, runId });
+      await runtime.emit({
+        type: "tool",
+        sessionId,
+        runId,
+        executionGroupId: `${runId}:exec`,
+        callId: "call-write-abs",
+        title: "write",
+        kind: "edit",
+        status: "running",
+        input: { file_path: target, content: "hi" },
+      });
+      await fs.writeFile(target, "hi", "utf8");
+      await runtime.emit({
+        type: "tool",
+        sessionId,
+        runId,
+        executionGroupId: `${runId}:exec`,
+        callId: "call-write-abs",
+        title: "write",
+        kind: "edit",
+        status: "completed",
+        output: "ok",
+      });
+      await runtime.emit({
+        type: "run_end",
+        sessionId,
+        runId,
+        status: "completed",
+      });
+      sendDone();
+    };
+    const session = await DshAgentSession.open({
+      store,
+      session: summary,
+      runtime,
+      emit: () => {},
+      buffer: new RunMessageBuffer(() => {}),
+      availableRuntimes: ["native", "dsh"],
+    });
+    session.startPrompt("run-abs", "rewrite");
+    await sendFinished;
+
+    const changes = session
+      .snapshot()
+      .events.find(({ event }) => event.type === "changes")?.event;
+    expect(changes).toMatchObject({
+      type: "changes",
+      files: [expect.objectContaining({ path: "b.md" })],
+    });
     await session.dispose();
   });
 

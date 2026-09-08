@@ -15,10 +15,12 @@ import type {
   TimelineRun,
 } from "../../timeline/reducer";
 import { projectRunActivities } from "../../run-activity/project-run-activity";
+import { changesFilesByRunId } from "../../run-activity/run-changes";
 import { ApprovalModePicker } from "./ApprovalModePicker";
 import { ApprovalDock } from "./ApprovalDock";
 import { MessageItem } from "./MessageItem";
 import { RunActivityBlock } from "./RunActivityBlock";
+import { TurnChangesCard } from "./TurnChangesCard";
 import { RuntimePicker } from "./RuntimePicker";
 import {
   immediatePresentationRunIds,
@@ -55,6 +57,9 @@ export function ChatView(props: {
   onRuntimeChange: (runtime: RuntimeKind) => void;
   runtimeError?: string | null;
   onDismissRuntimeError?: () => void;
+  onReviewTurnChanges?: (runId: string) => void;
+  runtimeSwitching?: boolean;
+  runtimeSwitchTarget?: RuntimeKind | null;
 }) {
   const {
     sessionId,
@@ -75,6 +80,9 @@ export function ChatView(props: {
     onRuntimeChange,
     runtimeError,
     onDismissRuntimeError,
+    onReviewTurnChanges,
+    runtimeSwitching,
+    runtimeSwitchTarget,
   } = props;
   const [prompt, setPrompt] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
@@ -174,6 +182,23 @@ export function ChatView(props: {
           />,
         );
       }
+      const turnFiles = changesFilesByRunId(items, activity.runId, {
+        editToolsOnly: true,
+      });
+      if (
+        turnFiles.length > 0 &&
+        activity.viewMode === "settled" &&
+        complete &&
+        props.onReviewTurnChanges
+      ) {
+        rendered.push(
+          <TurnChangesCard
+            files={turnFiles}
+            onReview={() => props.onReviewTurnChanges?.(activity.runId)}
+            key={`${activity.runId}:turn-changes`}
+          />,
+        );
+      }
     }
   }
 
@@ -198,13 +223,12 @@ export function ChatView(props: {
       </div>
 
       <div className="composer-wrap">
-        <ApprovalDock
-          approvals={pendingApprovals}
-          onDecision={(approval, approved) => {
-            void onApproval(approval, approved);
-          }}
-        />
-        <form className="composer" onSubmit={submit}>
+        <div
+          className={`composer-stack${
+            pendingApprovals.length > 0 ? " has-approval-overlay" : ""
+          }`}
+        >
+          <form className="composer" onSubmit={submit}>
           <textarea
             ref={textareaRef}
             value={prompt}
@@ -249,6 +273,8 @@ export function ChatView(props: {
                 value={runtimeKind}
                 available={availableRuntimes}
                 disabled={Boolean(activeRunId)}
+                switching={Boolean(runtimeSwitching)}
+                switchingTo={runtimeSwitchTarget ?? null}
                 onChange={onRuntimeChange}
               />
               <ApprovalModePicker
@@ -282,6 +308,13 @@ export function ChatView(props: {
             )}
           </div>
         </form>
+          <ApprovalDock
+            approvals={pendingApprovals}
+            onDecision={(approval, approved) => {
+              void onApproval(approval, approved);
+            }}
+          />
+        </div>
       </div>
     </section>
   );

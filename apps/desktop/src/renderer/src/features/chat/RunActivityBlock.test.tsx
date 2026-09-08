@@ -45,8 +45,8 @@ describe("RunActivityBlock", () => {
     );
     expect(html).toContain("Edited 1 file");
     expect(html).not.toContain("Working");
-    expect(html).toContain("Thinking");
     expect(html).toContain("pnpm test");
+    expect(html).not.toContain("Thinking");
     expect(html).toContain('aria-live="polite"');
     expect(html).toContain('aria-expanded="false"');
     expect(html).not.toContain("run-activity-details");
@@ -129,6 +129,7 @@ describe("RunActivityBlock", () => {
           summary: "",
           tools: [],
           thinking: "considering",
+          currentAction: undefined,
         })}
       />,
     );
@@ -136,4 +137,80 @@ describe("RunActivityBlock", () => {
     expect(html).not.toContain("Thought through the task");
     expect(html).not.toContain("run-activity-summary");
   });
+
+  it("auto-expands read-only tool history after completion", () => {
+    const assistant = {
+      kind: "assistant" as const,
+      id: "assistant",
+      runId: "run",
+      turnId: "turn",
+      createdSeq: 1,
+      text: "I will list markdown files.",
+      thinking: "",
+      status: "completed" as const,
+      stopReason: "toolUse",
+    };
+    const tool = {
+      kind: "tool" as const,
+      id: "tool",
+      runId: "run",
+      turnId: "turn",
+      createdSeq: 2,
+      callId: "tool",
+      tool: "glob",
+      arguments: { glob_pattern: "*.md", target_directory: "." },
+      status: "completed" as const,
+    };
+    const model = activity({
+      lifecycle: "completed",
+      viewMode: "settled",
+      phase: "completed",
+      summary: "explored 1 file",
+      counters: {
+        editedFiles: [],
+        exploredFiles: ["*.md"],
+        commandCount: 0,
+        toolCount: 1,
+        failedToolCount: 0,
+        approvalCount: 0,
+        pendingApprovalCount: 0,
+      },
+      tools: [tool],
+      segments: [
+        {
+          turnId: "turn",
+          content: assistant.text,
+          assistant,
+          tools: [tool],
+        },
+      ],
+      workSegments: [],
+    });
+    delete model.currentAction;
+    const html = renderToStaticMarkup(
+      <RunActivityBlock activity={model} />,
+    );
+    expect(html).toContain("explored 1 file");
+    expect(html).toContain("Glob");
+    expect(html).toContain("*.md");
+    expect(html).toContain('aria-expanded="true"');
+    expect(html).toContain("run-activity-details");
+  });
+
+  it("falls back to the phase label when planning with no active tool", () => {
+    const planning = activity({
+      phase: "planning",
+      tools: [],
+      thinking: "",
+      hasActivity: true,
+    });
+    delete planning.currentAction;
+    const html = renderToStaticMarkup(
+      <RunActivityBlock activity={planning} />,
+    );
+    expect(html).not.toContain("Thinking");
+    expect(html).not.toContain("thinking-card");
+    expect(html).toContain("Planning next steps");
+  });
 });
+

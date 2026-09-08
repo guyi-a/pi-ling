@@ -11,6 +11,7 @@ import type {
 import {
   useCallback,
   useEffect,
+  useMemo,
   useReducer,
   useRef,
   useState,
@@ -22,13 +23,18 @@ import {
   AppTitleBar,
   WorkbenchPanel,
 } from "./features/shell/WorkbenchChrome";
+import {
+  refreshFilesFromOutside,
+  useFilesStore,
+} from "./features/files/store";
 import { SettingsView } from "./features/settings/SettingsView";
 import { Sidebar } from "./features/threads/Sidebar";
 import {
   DEFAULT_CHANGES_SOURCE,
   type ChangesSourceId,
 } from "./features/details/changes-source";
-import { lastAgentTurnChanges } from "./run-activity/run-changes";
+import { lastAgentTurnChanges, changesFilesByRunId } from "./run-activity/run-changes";
+import { bindChangesNavigation } from "./features/details/changes-navigation";
 import { applyTheme, readInitialTheme } from "./theme";
 import type { ApprovalTimelineItem } from "./timeline/reducer";
 import {
@@ -69,9 +75,35 @@ const initialSidebarArchived =
   new URLSearchParams(window.location.search).get("sidebar-view") ===
   "archived";
 
+function areChangedFilesEqual(
+  left: readonly ChangedFile[],
+  right: readonly ChangedFile[],
+): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((file, index) => {
+    const other = right[index];
+    return (
+      other !== undefined &&
+      file.path === other.path &&
+      file.status === other.status &&
+      file.additions === other.additions &&
+      file.deletions === other.deletions &&
+      file.sensitive === other.sensitive &&
+      file.binary === other.binary &&
+      file.tooLarge === other.tooLarge
+    );
+  });
+}
+
+function isFileAffectingTool(tool: string): boolean {
+  const lower = tool.toLowerCase();
+  return /(write|edit|patch|create_file|str_replace|delete|rename|move)/.test(
+    lower,
+  );
+}
+
 export function App() {
-  const [theme, setTheme] = useState(readInitialTheme);
-  const [activeView, setActiveView] = useState<"agent" | "settings">(
+  const [theme, setTheme] = useState(readInitialTheme);  const [activeView, setActiveView] = useState<"agent" | "settings">(
     initialView,
   );
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
@@ -95,10 +127,18 @@ export function App() {
   );
   const [showDshNotice, setShowDshNotice] = useState(false);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
+  const [runtimeSwitching, setRuntimeSwitching] = useState(false);
+  const [runtimeSwitchTarget, setRuntimeSwitchTarget] =
+    useState<RuntimeKind | null>(null);
   const [changesSource, setChangesSource] = useState<ChangesSourceId>(
     DEFAULT_CHANGES_SOURCE,
   );
   const [changesFiles, setChangesFiles] = useState<ChangedFile[]>([]);
+  const [changesLoading, setChangesLoading] = useState(true);
+  const [reviewRunId, setReviewRunId] = useState<string | null>(null);
+  const [requestedWorkbenchTab, setRequestedWorkbenchTab] = useState<
+    "files" | "changes" | "terminal" | "trace" | "eval" | null
+  >(null);
   const [rightPanelWidth, setRightPanelWidth] = useState<number | null>(() => {
     const stored = localStorage.getItem("pi-ling.workbench.width");
     if (!stored) return null;
@@ -149,9 +189,16 @@ export function App() {
         envelope.event.type === "run_end" ||
         envelope.event.type === "approval_requested" ||
         envelope.event.type === "approval_resolved" ||
-        envelope.event.type === "changes"
+        envelope.event.type === "changes" ||
+        (envelope.event.type === "tool_end" &&
+          isFileAffectingTool(envelope.event.tool))
       ) {
         void window.piLing.listWorkspaces(true).then(setWorkspaces);
+        refreshFilesFromOutside();
+        debouncedRefreshChangesRef.current?.();
+      }
+      if (envelope.event.type === "run_start") {
+        refreshFilesFromOutside();
       }
     });
     const unsubscribeFrames = window.piLing.onStreamFrame(
@@ -207,16 +254,6 @@ export function App() {
     }
   }, [pendingRunId, timeline.runs]);
 
-  useEffect(() => {
-    if (changesSource === "last-agent-turn") {
-      setChangesFiles(
-        lastAgentTurnChanges(timeline.items, timeline.runs),
-      );
-    } else {
-      void window.piLing.getChanges().then(setChangesFiles);
-    }
-  }, [changesSource, timeline]);
-
   const activeRunId =
     pendingRunId ??
     Object.values(timeline.runs).find((run) => run.status === "running")?.id ??
@@ -230,15 +267,148 @@ export function App() {
     });
   }, []);
 
-  function refreshChanges(source: ChangesSourceId = changesSource) {
-    if (source === "last-agent-turn") {
-      setChangesFiles(
-        lastAgentTurnChanges(timeline.items, timeline.runs),
+  const lastTurnChanges = useMemo(
+    () => lastAgentTurnChanges(timeline.items, timeline.runs),
+    [timeline.items, timeline.runs],
+  );
+  const traceEvents = useMemo(
+    () =>
+      Object.values(timeline.received).sort(
+        (left, right) => left.seq - right.seq,
+      ),
+    [timeline.received],
+  );
+  const lastTurnChangesRef = useRef(lastTurnChanges);
+  lastTurnChangesRef.current = lastTurnChanges;
+  const changesSourceRef = useRef(changesSource);
+  changesSourceRef.current = changesSource;
+
+  const refreshChanges = useCallback((source?: ChangesSourceId) => {
+    const resolved = source ?? changesSourceRef.current;
+    if (resolved === "last-agent-turn") {
+      setChangesLoading(false);
+      setChangesFiles((current) => {
+        const next = lastTurnChangesRef.current;
+        return areChangedFilesEqual(current, next) ? current : next;
+      });
+      return;
+    }
+    setChangesLoading(true);
+    setChangesFiles([]);
+    void window.piLing
+      .getChanges(resolved)
+      .then(setChangesFiles)
+      .finally(() => {
+        setChangesLoading(false);
+      });
+  }, []);
+
+  const debouncedRefreshChangesRef = useRef<(() => void) | null>(null);
+  if (!debouncedRefreshChangesRef.current) {
+    debouncedRefreshChangesRef.current = (() => {
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      return () => {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => {
+          refreshChanges();
+        }, 120);
+      };
+    })();
+  }
+
+  useEffect(() => {
+    if (changesSource === "last-agent-turn") {
+      setChangesLoading(false);
+      setChangesFiles((current) =>
+        areChangedFilesEqual(current, lastTurnChanges)
+          ? current
+          : lastTurnChanges,
       );
       return;
     }
-    void window.piLing.getChanges().then(setChangesFiles);
-  }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      setChangesLoading(true);
+      setChangesFiles([]);
+      void window.piLing
+        .getChanges(changesSource)
+        .then((files) => {
+          if (!cancelled) setChangesFiles(files);
+        })
+        .finally(() => {
+          if (!cancelled) setChangesLoading(false);
+        });
+    }, 120);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [changesSource]);
+
+  useEffect(() => {
+    if (changesSource !== "last-agent-turn") return;
+    setChangesLoading(false);
+    setChangesFiles((current) =>
+      areChangedFilesEqual(current, lastTurnChanges)
+        ? current
+        : lastTurnChanges,
+    );
+  }, [changesSource, lastTurnChanges]);
+
+  const displayedChangesFiles = useMemo(() => {
+    if (changesSource !== "last-agent-turn") return changesFiles;
+    if (reviewRunId) {
+      return changesFilesByRunId(timeline.items, reviewRunId);
+    }
+    return lastTurnChanges;
+  }, [
+    changesSource,
+    changesFiles,
+    lastTurnChanges,
+    reviewRunId,
+    timeline.items,
+  ]);
+
+  const openAgentTurnReview = useCallback((runId: string) => {
+    setReviewRunId(runId);
+    setChangesSource("last-agent-turn");
+    setChangesLoading(false);
+    setRightPanelOpen(true);
+    setRequestedWorkbenchTab("changes");
+  }, []);
+
+  useEffect(() => {
+    bindChangesNavigation({
+      activateChangesTab: () => {
+        setRightPanelOpen(true);
+        setRequestedWorkbenchTab("changes");
+      },
+      onReviewRun: (runId) => {
+        setReviewRunId(runId);
+        setChangesSource("last-agent-turn");
+        setChangesLoading(false);
+        setRightPanelOpen(true);
+        setRequestedWorkbenchTab("changes");
+      },
+    });
+    return () => {
+      bindChangesNavigation({
+        activateChangesTab: () => {},
+        onReviewRun: () => {},
+      });
+    };
+  }, []);
+
+  const workspaceRoot = status?.workspace?.root;
+
+  useEffect(() => {
+    useFilesStore.getState().resetForRoot();
+  }, [workspaceRoot]);
+
+  const loadDiff = useCallback(
+    (path: string) => window.piLing.getDiff(path, changesSourceRef.current),
+    [],
+  );
 
   function startResize(event: React.PointerEvent<HTMLDivElement>) {
     event.preventDefault();
@@ -409,7 +579,7 @@ export function App() {
   }
 
   async function activateRuntime(runtimeKind: RuntimeKind) {
-    if (runtimeKind === status?.runtimeKind) return;
+    if (runtimeKind === status?.runtimeKind || runtimeSwitching) return;
     if (
       runtimeKind === "dsh" &&
       localStorage.getItem("pi-ling.dsh-safety-accepted") !== "1"
@@ -418,16 +588,21 @@ export function App() {
       return;
     }
     setRuntimeError(null);
-    if (!status?.workspace) {
-      await chooseWorkspace(runtimeKind);
-      return;
-    }
+    setRuntimeSwitching(true);
+    setRuntimeSwitchTarget(runtimeKind);
     try {
+      if (!status?.workspace) {
+        await chooseWorkspace(runtimeKind);
+        return;
+      }
       applyActivation(await window.piLing.switchRuntime(runtimeKind));
     } catch (error) {
       setRuntimeError(
         error instanceof Error ? error.message : String(error),
       );
+    } finally {
+      setRuntimeSwitching(false);
+      setRuntimeSwitchTarget(null);
     }
   }
 
@@ -526,6 +701,9 @@ export function App() {
                 }}
                 runtimeError={runtimeError}
                 onDismissRuntimeError={() => setRuntimeError(null)}
+                onReviewTurnChanges={openAgentTurnReview}
+                runtimeSwitching={runtimeSwitching}
+                runtimeSwitchTarget={runtimeSwitchTarget}
               />
             </section>
             {rightPanelOpen ? (
@@ -549,12 +727,23 @@ export function App() {
                   }
                 }}
                 changesSource={changesSource}
-                changesFiles={changesFiles}
+                changesFiles={displayedChangesFiles}
+                changesLoading={changesLoading}
                 onChangeSource={(source) => {
+                  setReviewRunId(null);
                   setChangesSource(source);
                   refreshChanges(source);
                 }}
-                onLoadDiff={(path) => window.piLing.getDiff(path)}
+                onLoadDiff={loadDiff}
+                filesRoot={workspaceRoot}
+                terminalRoot={workspaceRoot}
+                traceSessionId={timeline.sessionId}
+                traceEvents={traceEvents}
+                traceRuns={timeline.runs}
+                traceActiveRunId={activeRunId}
+                streaming={Boolean(activeRunId)}
+                requestedTab={requestedWorkbenchTab}
+                onRequestedTabApplied={() => setRequestedWorkbenchTab(null)}
               />
             ) : null}
           </>

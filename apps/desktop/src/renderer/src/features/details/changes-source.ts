@@ -1,13 +1,12 @@
 import type { ChangedFile } from "@pi-ling/contracts";
-import { GitBranch, GitCommit, Layers, StickyNote, Upload } from "lucide-react";
+import { GitBranch, Layers, StickyNote, Upload } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 export type ChangesSourceId =
   | "last-agent-turn"
   | "uncommitted"
   | "staged"
-  | "unstaged"
-  | "commits";
+  | "unstaged";
 
 export interface ChangesSourceDef {
   id: ChangesSourceId;
@@ -37,22 +36,15 @@ export const CHANGES_SOURCES: ChangesSourceDef[] = [
     id: "staged",
     label: "Staged",
     icon: Layers,
-    enabled: false,
-    description: "已暂存改动（即将上线）",
+    enabled: true,
+    description: "已暂存（index）相对 HEAD 的改动",
   },
   {
     id: "unstaged",
     label: "Unstaged",
     icon: Upload,
-    enabled: false,
-    description: "未暂存改动（即将上线）",
-  },
-  {
-    id: "commits",
-    label: "Commits",
-    icon: GitCommit,
-    enabled: false,
-    description: "提交记录（即将上线）",
+    enabled: true,
+    description: "工作区相对暂存区的未暂存改动",
   },
 ];
 

@@ -150,6 +150,75 @@ describe("CodingAgent", () => {
     ).toBe(true);
   });
 
+  it("does not emit changes after read-only tools", async () => {
+    await fs.writeFile(path.join(root, "existing.md"), "hello\n", "utf8");
+    const responses = [
+      responseWithTool({
+        type: "toolCall",
+        id: "glob-1",
+        name: "glob",
+        arguments: { glob_pattern: "*.md", target_directory: "." },
+      }),
+      responseWithText("Found markdown files."),
+    ];
+    const observed: CodingAgentEvent[] = [];
+    const agent = await CodingAgent.create({
+      workspaceRoot: root,
+      model,
+      approvalMode: "accept-write",
+      streamFn: () => responses.shift()!,
+      emit: (event) => {
+        observed.push(event);
+      },
+    });
+
+    await agent.prompt("List markdown files", "glob-run");
+
+    expect(
+      observed.some((event) => event.type === "changes"),
+    ).toBe(false);
+  });
+
+  it("does not replay session changes after a later read-only tool", async () => {
+    const responses = [
+      responseWithTool({
+        type: "toolCall",
+        id: "write-1",
+        name: "write_file",
+        arguments: { path: "hello.txt", content: "hello\n" },
+      }),
+      responseWithText("Written."),
+      responseWithTool({
+        type: "toolCall",
+        id: "glob-1",
+        name: "glob",
+        arguments: { glob_pattern: "*.txt", target_directory: "." },
+      }),
+      responseWithText("Listed."),
+    ];
+    const observed: CodingAgentEvent[] = [];
+    const agent = await CodingAgent.create({
+      workspaceRoot: root,
+      model,
+      approvalMode: "accept-write",
+      streamFn: () => responses.shift()!,
+      emit: (event) => {
+        observed.push(event);
+      },
+    });
+
+    await agent.prompt("Create hello.txt", "write-run");
+    await agent.prompt("List text files", "glob-run");
+
+    const changesEvents = observed.filter(
+      (event): event is Extract<CodingAgentEvent, { type: "changes" }> =>
+        event.type === "changes",
+    );
+    expect(changesEvents).toHaveLength(1);
+    expect(changesEvents[0]?.runId).toBe("write-run");
+    expect(changesEvents[0]?.callId).toBe("write-1");
+  });
+
   it("pauses a write for approval, executes it, and continues", async () => {
     const responses = [
       responseWithTool({

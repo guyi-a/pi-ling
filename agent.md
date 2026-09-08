@@ -127,14 +127,20 @@ interface RuntimeAdapter {
   Session Event Log 投影，不维护互相独立的消息与 Timeline 事实。
 - Runtime 原生 Transcript 只作为可重建的 Resume projection；通过
   `runtime_sessions` 保存 external id、同步水位和 capability。
-- Durable Event 只在完整语义边界写 SQLite；text/reasoning delta 进入
-  Electron Main `RunMessageBuffer`，约 16ms 合并后通过 IPC 推送。
+- Durable Event 只在完整语义边界写 SQLite；text/reasoning delta 不写库。
+- 用户可见的 Assistant 文本不消费 text/reasoning delta。完整 Assistant
+  message 先提交 SQLite，再由 Renderer presentation queue 按短语、标点和
+  Markdown 边界自适应释放。详见
+  [`docs/agent-streaming-and-run-rendering.md`](docs/agent-streaming-and-run-rendering.md)。
+- `RunMessageBuffer` 及 `timeline:frame` 通道仍在 Main 中运行，但当前没有
+  任何 frame kind 同时有生产者和消费者，属于设计变更后未清理的悬空管道；
+  新 Runtime 不应依赖它传递用户可见文本。
 - 事件统一使用 `sessionId`、`runId`、`turnId`、`messageId`、
   `toolCallId` 和会话内单调递增 `seq`。
 - “当前选中 Session”与“正在运行的 Session”分离；切换页面不得
   cancel/dispose 后台 Run。
-- snapshot、Main Buffer 和实时 frame 按 Session 隔离并幂等合并；过期
-  activation/snapshot 不得覆盖当前页面。
+- snapshot 与实时事件按 Session 隔离并幂等合并；过期 activation/snapshot
+  不得覆盖当前页面。
 - Renderer 按整个 Run 聚合执行活动，完成后压缩摘要，展开后显示原始
   Tool、Approval、Output 和 Error。
 - 页面采用紧凑暗色工作台布局，不使用宣传式 Hero；用户消息气泡与 assistant 平铺内容保持清晰区分。
@@ -197,7 +203,8 @@ Renderer 输入 Prompt
 
 1. 定义 versioned Session Event 与 Canonical Message projection。
 2. 将 SQLite 迁移为 `session_events + runtime_sessions`，保留旧表兼容。
-3. 实现 Main `RunMessageBuffer`、16ms delta merge 和 Session reconnect。
+3. 实现 Session reconnect；用户可见文本改由 committed message 驱动
+   presentation queue，不再依赖 delta frame。
 4. 解耦 selected Session 与 active Runs。
 5. 让 Native 使用统一 Event Log。
 6. 将 DSH Transcript PoC 演进为可分发 Cordis bridge bundle，并补 ACP
@@ -262,6 +269,20 @@ Renderer 输入 Prompt
   sidecar 插件支持 append 模式（open write + append + flush），切回 DSH 时
   按 `lastSyncedCanonicalSeq` 水位追平新增历史；Attachment/Compaction 待有
   真实数据流后再做。
+
+## 流式展示现状（2026-09-08 复核）
+
+- 用户可见的流式效果由 Renderer presentation queue 产生，不是模型 token 流：
+  完整 Assistant message 先落 `session_events`，`assistant_end` 到达后
+  `useMessagePresentation` 才对完整文本分块逐块 reveal。
+- `RunMessageBuffer`、`timeline:frame`、`applyStreamFrame`、
+  `SessionActivation.bufferFrames` 和 `projectTimelineSnapshot` 的 `frames`
+  参数均为悬空管道：Main 只发 `assistant.text.delta` /
+  `assistant.reasoning.delta`，Renderer 只处理 `tool.status`，两者不相交。
+- `#publish` 每个 durable 事件都全量重投影整条 timeline，开销随历史线性、
+  随单 Run 事件数平方增长；`timeline_events` 的写入在该路径上不被读回。
+- 结论：Claude Runtime 若要提供原生 partial streaming，必须先在 Renderer
+  补真实 delta 渲染路径，不能假定现有 frame 通道可用。
 
 ## 开发约束
 

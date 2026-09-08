@@ -2,7 +2,7 @@ import type { ChangedFile } from "@pi-ling/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { TimelineItem } from "../timeline/reducer";
-import { lastAgentTurnChanges } from "./run-changes";
+import { changesFilesByRunId, lastAgentTurnChanges } from "./run-changes";
 
 function changesItem(
   runId: string,
@@ -40,5 +40,66 @@ describe("lastAgentTurnChanges", () => {
 
   it("returns empty when there are no changes items", () => {
     expect(lastAgentTurnChanges([], {})).toEqual([]);
+  });
+});
+
+describe("changesFilesByRunId", () => {
+  it("returns files for a specific run", () => {
+    const items: TimelineItem[] = [
+      changesItem("run-1", 1, [
+        { path: "a.ts", status: "modified", binary: false, sensitive: false, tooLarge: false },
+      ]),
+      changesItem("run-2", 5, [
+        { path: "b.ts", status: "added", binary: false, sensitive: false, tooLarge: false, additions: 2 },
+      ]),
+    ];
+    expect(changesFilesByRunId(items, "run-2")).toEqual([
+      {
+        path: "b.ts",
+        status: "added",
+        binary: false,
+        sensitive: false,
+        tooLarge: false,
+        additions: 2,
+      },
+    ]);
+  });
+
+  it("filters out changes from read-only tools when editToolsOnly is set", () => {
+    const items: TimelineItem[] = [
+      {
+        kind: "tool",
+        id: "tool:glob",
+        runId: "run-2",
+        turnId: "turn",
+        createdSeq: 1,
+        callId: "glob-call",
+        tool: "glob",
+        arguments: { glob_pattern: "*.md" },
+        status: "completed",
+      },
+      {
+        kind: "changes",
+        id: "changes:2",
+        runId: "run-2",
+        createdSeq: 2,
+        turnId: "turn",
+        callId: "glob-call",
+        files: [
+          {
+            path: "a.md",
+            status: "added",
+            binary: false,
+            sensitive: false,
+            tooLarge: false,
+            additions: 1,
+          },
+        ],
+      },
+    ];
+    expect(changesFilesByRunId(items, "run-2")).toHaveLength(1);
+    expect(changesFilesByRunId(items, "run-2", { editToolsOnly: true })).toEqual(
+      [],
+    );
   });
 });

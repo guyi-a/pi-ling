@@ -31,6 +31,7 @@ import {
 } from "@pi-ling/session-events";
 
 import { RunMessageBuffer } from "./run-message-buffer.js";
+import { diffLineStats } from "./diff-stats.js";
 import {
   canonicalFromMessage,
   SessionStore,
@@ -38,7 +39,7 @@ import {
 } from "./session-store/session-store.js";
 
 const PROVIDER = "deepseek";
-const MODEL = "deepseek-v4-flash";
+const MODEL = "deepseek-v4-pro";
 const models = createModels();
 models.setProvider(deepseekProvider());
 
@@ -62,19 +63,6 @@ function emptyUsage(): Usage {
 function turnNumber(turnId: string): number {
   const value = Number(turnId.match(/:turn:(\d+)$/)?.[1]);
   return Number.isFinite(value) && value > 0 ? value : 1;
-}
-
-function diffLineStats(patch: string): {
-  additions: number;
-  deletions: number;
-} {
-  let additions = 0;
-  let deletions = 0;
-  for (const line of patch.split(/\r?\n/)) {
-    if (line.startsWith("+") && !line.startsWith("+++")) additions += 1;
-    if (line.startsWith("-") && !line.startsWith("---")) deletions += 1;
-  }
-  return { additions, deletions };
 }
 
 function nativeMessages(

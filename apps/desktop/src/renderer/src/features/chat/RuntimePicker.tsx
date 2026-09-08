@@ -1,34 +1,54 @@
 import type { RuntimeKind } from "@pi-ling/contracts";
-import { Bot, ChevronDown, FlaskConical } from "lucide-react";
+import { Bot, ChevronDown, FlaskConical, LoaderCircle } from "lucide-react";
 import { useState } from "react";
 
 export function RuntimePicker(props: {
   value: RuntimeKind;
   available: RuntimeKind[];
   disabled: boolean;
+  switching?: boolean;
+  switchingTo?: RuntimeKind | null;
   onChange: (runtime: RuntimeKind) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const busy = Boolean(props.switching);
+  const target = props.switchingTo ?? props.value;
+  const label =
+    busy
+      ? target === "dsh"
+        ? "切换 DSH…"
+        : "切换 Native…"
+      : props.value === "dsh"
+        ? "DSH"
+        : "Native";
   return (
     <details
-      className="runtime-picker"
+      className={`runtime-picker${busy ? " is-switching" : ""}`}
       open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
       <summary
         aria-label="Runtime"
+        aria-busy={busy}
         onClick={(event) => {
-          if (props.disabled) event.preventDefault();
+          if (props.disabled || busy) event.preventDefault();
         }}
       >
-        {props.value === "dsh" ? <FlaskConical /> : <Bot />}
-        {props.value === "dsh" ? "DSH" : "Native"}
+        {busy ? (
+          <LoaderCircle className="runtime-switch-spinner" />
+        ) : target === "dsh" ? (
+          <FlaskConical />
+        ) : (
+          <Bot />
+        )}
+        {label}
         <ChevronDown />
       </summary>
       <div className="runtime-menu">
         <button
           type="button"
           className={props.value === "native" ? "selected" : ""}
+          disabled={busy}
           onClick={() => {
             setOpen(false);
             props.onChange("native");
@@ -42,7 +62,7 @@ export function RuntimePicker(props: {
         </button>
         <button
           type="button"
-          disabled={!props.available.includes("dsh")}
+          disabled={busy || !props.available.includes("dsh")}
           className={props.value === "dsh" ? "selected" : ""}
           onClick={() => {
             setOpen(false);

@@ -116,6 +116,17 @@ describe("message presentation", () => {
             reason: "write",
           },
         },
+        {
+          kind: "tool",
+          id: "tool",
+          runId: "approval-run",
+          turnId: "turn",
+          createdSeq: 2,
+          callId: "tool",
+          tool: "pwsh",
+          arguments: { command: "pnpm test" },
+          status: "awaiting-approval",
+        },
       ],
       {
         "failed-run": { id: "failed-run", status: "error" },
@@ -125,6 +136,35 @@ describe("message presentation", () => {
     expect([...approvalRunIds]).toEqual([
       "approval-run",
       "failed-run",
+    ]);
+  });
+
+  it("queues resumed assistant text after approval fast-forward", () => {
+    const units = pendingPresentationUnits({
+      items: [
+        {
+          kind: "assistant",
+          id: "assistant",
+          runId: "run",
+          turnId: "turn",
+          createdSeq: 3,
+          text: "Before tool.\nAfter approval.",
+          thinking: "",
+          status: "completed",
+          stopReason: "stop",
+        },
+      ],
+      liveMessageIds: new Set(["assistant"]),
+      revealedChunks: { assistant: 1 },
+      visibleToolIds: new Set(),
+    });
+    expect(units).toEqual([
+      {
+        kind: "message",
+        id: "assistant",
+        runId: "run",
+        createdSeq: 3,
+      },
     ]);
   });
 });

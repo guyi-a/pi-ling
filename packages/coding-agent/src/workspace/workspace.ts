@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import { glob as fsGlob } from "node:fs/promises";
 import path from "node:path";
 
 const IGNORED_DIRECTORIES = new Set([
@@ -12,6 +13,16 @@ const IGNORED_DIRECTORIES = new Set([
   "vendor",
   "__pycache__",
 ]);
+
+const IMAGE_MIME_TYPES: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".svg": "image/svg+xml",
+  ".bmp": "image/bmp",
+};
 
 export interface WorkspaceEntry {
   path: string;
@@ -120,6 +131,62 @@ export class Workspace {
       }
     }
     return matches;
+  }
+
+  async glob(
+    pattern: string,
+    userPath = ".",
+    maxResults = 500,
+  ): Promise<string[]> {
+    const start = await this.resolve(userPath);
+    const stats = await fs.stat(start);
+    const cwd = stats.isDirectory() ? start : path.dirname(start);
+    const matches = fsGlob(pattern, { cwd });
+    const output: string[] = [];
+    for await (const match of matches) {
+      if (output.length >= maxResults) break;
+      const absolute = path.resolve(cwd, String(match));
+      const entryStats = await fs.stat(absolute);
+      if (!entryStats.isFile()) continue;
+      this.#assertInside(absolute);
+      const real = await fs.realpath(absolute);
+      this.#assertRealInside(real);
+      output.push(this.relative(absolute));
+    }
+    return output.sort((left, right) => left.localeCompare(right));
+  }
+
+  async deleteFile(userPath: string): Promise<void> {
+    const absolute = await this.resolve(userPath);
+    const stats = await fs.stat(absolute);
+    if (!stats.isFile()) {
+      throw new Error(`Not a file: ${userPath}`);
+    }
+    await fs.unlink(absolute);
+  }
+
+  async readImage(
+    userPath: string,
+    maxBytes = 4 * 1024 * 1024,
+  ): Promise<{ data: string; mimeType: string; size: number }> {
+    const absolute = await this.resolve(userPath);
+    const stats = await fs.stat(absolute);
+    if (!stats.isFile()) {
+      throw new Error(`Not a file: ${userPath}`);
+    }
+    if (stats.size > maxBytes) {
+      throw new Error(`Image exceeds ${maxBytes} bytes: ${userPath}`);
+    }
+    const mimeType = IMAGE_MIME_TYPES[path.extname(absolute).toLowerCase()];
+    if (!mimeType) {
+      throw new Error(`Unsupported image type: ${userPath}`);
+    }
+    const bytes = await fs.readFile(absolute);
+    return {
+      data: bytes.toString("base64"),
+      mimeType,
+      size: stats.size,
+    };
   }
 
   async #walk(

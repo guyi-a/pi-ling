@@ -7,13 +7,13 @@ import type { Workspace } from "../workspace/workspace.js";
 export type Effect =
   | {
       kind: "filesystem-read";
-      operation: "read" | "list" | "grep";
+      operation: "read" | "list" | "grep" | "glob" | "read_image";
       path: string;
       scope: "workspace";
     }
   | {
       kind: "filesystem-write";
-      operation: "write" | "edit";
+      operation: "write" | "edit" | "delete";
       path: string;
       scope: "workspace";
     }
@@ -66,30 +66,54 @@ export async function deriveEffect(
   if (
     call.name === "read_file" ||
     call.name === "list_files" ||
-    call.name === "grep"
+    call.name === "grep" ||
+    call.name === "glob" ||
+    call.name === "read_image"
   ) {
     const userPath =
-      typeof arguments_["path"] === "string" ? arguments_["path"] : ".";
+      call.name === "glob"
+        ? typeof arguments_["target_directory"] === "string"
+          ? arguments_["target_directory"]
+          : "."
+        : typeof arguments_["path"] === "string"
+          ? arguments_["path"]
+          : ".";
+    const operation =
+      call.name === "read_file"
+        ? "read"
+        : call.name === "grep"
+          ? "grep"
+          : call.name === "glob"
+            ? "glob"
+            : call.name === "read_image"
+              ? "read_image"
+              : "list";
     return {
       kind: "filesystem-read",
-      operation:
-        call.name === "read_file"
-          ? "read"
-          : call.name === "grep"
-            ? "grep"
-            : "list",
+      operation,
       path: await workspace.resolve(userPath),
       scope: "workspace",
     };
   }
-  if (call.name === "write_file" || call.name === "edit_file") {
+  if (
+    call.name === "write_file" ||
+    call.name === "edit_file" ||
+    call.name === "delete" ||
+    call.name === "delete_file"
+  ) {
     const userPath = arguments_["path"];
     if (typeof userPath !== "string") {
       return { kind: "unknown", note: "write path is missing" };
     }
+    const operation =
+      call.name === "write_file"
+        ? "write"
+        : call.name === "delete" || call.name === "delete_file"
+          ? "delete"
+          : "edit";
     return {
       kind: "filesystem-write",
-      operation: call.name === "write_file" ? "write" : "edit",
+      operation,
       path: await workspace.resolve(userPath),
       scope: "workspace",
     };

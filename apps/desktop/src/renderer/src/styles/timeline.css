@@ -444,22 +444,78 @@
 }
 
 .approval-dock {
-  position: relative;
-  width: min(var(--content-width), 100%);
-  margin: 0 auto 8px;
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 3;
+  display: flex;
+  width: 100%;
+  min-height: 100%;
+  max-height: min(70vh, 420px);
+  margin: 0;
 }
 
-.approval-dock .approval-card {
+.approval-dock .approval-card.pending {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  min-height: 100%;
+  max-height: inherit;
   margin: 0;
-  box-shadow: var(--shadow);
+  padding: 12px 14px 10px;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--input-bg) 94%, var(--window-bg));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--focus) 70%, transparent),
+    0 10px 28px rgb(0 0 0 / 22%);
+  backdrop-filter: blur(10px);
+}
+
+.approval-dock .approval-card-body {
+  flex: 1 1 auto;
+  min-height: 72px;
+  overflow-y: auto;
+}
+
+.approval-dock .approval-target {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.approval-dock .approval-reason {
+  margin-top: 4px;
+}
+
+.approval-dock .approval-details {
+  margin-top: 6px;
+}
+
+.approval-dock .approval-details pre {
+  max-height: 120px;
+}
+
+.approval-dock .approval-actions {
+  flex-shrink: 0;
+  margin-top: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .approval-dock-count {
   position: absolute;
-  top: 12px;
-  right: 14px;
+  top: 10px;
+  right: 12px;
   z-index: 1;
+  padding: 2px 6px;
   color: var(--muted-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-2) 88%, transparent);
   font-size: 11px;
 }
 
@@ -503,15 +559,38 @@
 }
 
 .approval-target {
-  margin: 8px 0 3px;
-  color: var(--text-soft);
-  font-size: 14px;
+  margin: 0;
+  color: var(--text);
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.45;
+  word-break: break-word;
 }
 
 .approval-reason {
   margin: 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.approval-details {
+  margin-top: 0;
+}
+
+.approval-details summary {
+  cursor: pointer;
+  color: var(--muted-2);
+  font-size: 12px;
+}
+
+.approval-details pre {
+  max-height: 120px;
+  margin-top: 6px;
+}
+
+.approval-dock .approval-actions {
+  margin-top: 0;
 }
 
 .approval-actions {

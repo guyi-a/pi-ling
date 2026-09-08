@@ -10,6 +10,7 @@ export default defineConfig({
   main: {
     build: {
       rollupOptions: {
+        external: ["node-pty"],
         input: resolve(root, "src/main/index.ts"),
         output: {
           format: "es",
@@ -31,5 +32,13 @@ export default defineConfig({
   renderer: {
     root: resolve(root, "src/renderer"),
     plugins: [react()],
+    optimizeDeps: {
+      include: [
+        "@shikijs/engine-javascript",
+        "@shikijs/themes/github-light",
+        "@shikijs/themes/github-dark",
+        "@shikijs/langs/typescript",
+      ],
+    },
   },
 });

@@ -4,6 +4,7 @@
   "private": true,
   "packageManager": "pnpm@10.33.2",
   "scripts": {
+    "postinstall": "electron-rebuild -f -w node-pty",
     "build": "pnpm build:packages && pnpm --filter @pi-ling/desktop build",
     "build:packages": "pnpm --filter @pi-ling/runtime-contracts build && pnpm --filter @pi-ling/session-events build && pnpm --filter @pi-ling/agent-core build && pnpm --filter @pi-ling/coding-agent build && pnpm --filter @pi-ling/native-runtime build && pnpm --filter @pi-ling/dsh-runtime build && pnpm --filter @pi-ling/dsh-transcript build && pnpm --filter @pi-ling/claude-transcript build",
     "dsh:setup": "node scripts/setup-dsh.mjs",
@@ -11,5 +12,8 @@
     "dev": "pnpm build:packages && pnpm --filter @pi-ling/desktop dev",
     "test": "pnpm build:packages && pnpm --filter \"@pi-ling/*\" --if-present test",
     "typecheck": "pnpm -r --if-present typecheck"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^3.7.2"
   }
 }

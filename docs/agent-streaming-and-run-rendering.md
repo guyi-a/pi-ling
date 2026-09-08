@@ -77,7 +77,7 @@ Map<sessionId, Map<runId, BufferedRun>>
 - 最后 frame sequence
 - Run 是否结束
 
-Buffer 是 Runtime 内部的临时状态，不是长期事实源。Tool status 等瞬态状态仍可消费；Assistant text/reasoning 必须等待完整消息提交后才进入用户可见投影。
+Buffer 是 Runtime 内部的临时状态，不是长期事实源。Assistant text/reasoning 必须等待完整消息提交后才进入用户可见投影；Tool status 一类纯瞬态状态在设计上允许直接消费，但当前没有 Runtime 生产它（见下方“悬空的 frame 管道”）。
 
 ## Session 切换行为
 
@@ -165,6 +165,58 @@ Thinking
 - selected Session 与后台 active Runs 已解耦；snapshot/history 不重播动画。
 - Run Activity 的 active 与 settled 都使用默认收起的摘要；active 额外显示 spinner 和 current action。
 
+### 用户可见文本的真实链路
+
+```text
+Runtime delta
+  → 会话包装类累加为完整 message
+  → session_events 落库（message.assistant.committed）
+  → #publish 重新投影出 assistant_text_delta 等 timeline 事件
+  → IPC timeline:event
+  → App.tsx 收到 assistant_end 时把 messageId 加入 liveMessageIds
+  → useMessagePresentation 对完整文本分块并按 24–55ms 逐块 reveal
+```
+
+分块规则位于 `use-message-presentation.ts`：`splitPresentationChunks` 在标点处满 10 字符切分，或硬切 24 字符，代码块整体作为一块；`chunkDelay` 按剩余块数在 24–55ms 之间自适应。
+
+打字机的启动条件是 `assistant_end`，即消息**已经完整落库之后**，因此展示动画不可能领先于持久化。
+
+### 悬空的 frame 管道
+
+改为「committed message 驱动展示」后，旧的 delta 传输链路未清理，当前处于接通但无效的状态：
+
+| frame kind | 生产者 | 消费者 |
+| --- | --- | --- |
+| `assistant.text.delta` | `pi-agent-session.ts`、`dsh-agent-session.ts` | 无 |
+| `assistant.reasoning.delta` | `pi-agent-session.ts`、`dsh-agent-session.ts` | 无 |
+| `tool.arguments.delta` | 无 | 无 |
+| `tool.status` | 无 | `timeline/reducer.ts` `applyStreamFrame` |
+
+生产集与消费集不相交，`applyStreamFrame` 对 delta frame 只推进 `frameSeqByRun` 去重水位，文本被丢弃。
+
+同类悬空点：
+
+- `projectTimelineSnapshot` 的 `frames` 参数在生产代码中从未传入，仅测试使用；
+- `SessionActivation.bufferFrames` 在切换会话时 dispatch 进 reducer，同样只推进水位。
+
+结论：`RunMessageBuffer` 目前不承担任何用户可见职责。清理前，新增 Runtime 不得依赖它传递文本；若未来要恢复真实 token 流式，需要先在 Renderer 补一条真正的 delta 渲染路径，而不是直接复用现有通道。
+
+### 已知问题：`#publish` 全量重投影
+
+`PiAgentSession` 与 `DshAgentSession` 的 `#publish` 在每个 durable 事件上都会重新加载该会话的**全部** `session_events` 并从零投影整条 timeline，再 `slice` 掉已发送前缀：
+
+```ts
+this.#store.appendTimeline(this.#session.id, runId, event);
+const projected = this.snapshot(); // loadSessionEvents 全量读取 + 排序
+for (const next of projected.events.slice(this.#projectedSeq)) {
+  this.#emit(next);
+}
+```
+
+开销随会话历史线性增长、随单个 Run 内事件数平方增长（`M·N₀ + M²/2` 量级）。此外 `appendTimeline` 写入的 `timeline_events` 行在该路径上不会被读回（仅迁移期 `loadSnapshot` 使用），每个事件附带一次无用 INSERT。
+
+尚未修复。修复方向是增量投影：维护投影器状态，只对新事件做增量映射，不重放历史。
+
 ## 跨 Runtime 上下文是另一项问题
 
 UI Timeline 连续不代表模型上下文连续。
@@ -200,12 +252,13 @@ Native 与 DSH 切换时没有自动同步模型历史。该问题需要 canonic
 
 研究和 PoC 已完成。后续实施顺序：
 
-1. 定义 Runtime 无关的 durable event 与 transient frame 合约。
-2. 实现 Main `RunMessageBuffer` 和 16ms delta 合并。
-3. 解耦“当前选中 Session”与“后台运行 Session”。
-4. 实现 snapshot + buffer reconnect。
-5. 接入 DSH/Claude Runtime projection。
-6. 实现 Cursor 式 Run activity projector。
+1. 定义 Runtime 无关的 durable event 与 transient frame 合约。（已完成）
+2. 解耦“当前选中 Session”与“后台运行 Session”。（已完成）
+3. 实现 snapshot reconnect。（已完成）
+4. 接入 DSH/Claude Runtime projection。（DSH 已完成，Claude 待做）
+5. 实现 Cursor 式 Run activity projector。（已完成）
+6. 清理悬空的 delta frame 管道，或补齐 Renderer 侧真实 delta 渲染路径。
+7. 修复 `#publish` 全量重投影，改为增量投影。
 
 ## 参考
 

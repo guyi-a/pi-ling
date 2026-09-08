@@ -12,7 +12,12 @@ export function ApprovalDock(props: {
   if (!current) return null;
 
   return (
-    <section className="approval-dock" aria-label="Pending approval">
+    <section
+      className="approval-dock"
+      aria-label="Pending approval"
+      role="dialog"
+      aria-modal="true"
+    >
       {props.approvals.length > 1 ? (
         <div className="approval-dock-count">
           1/{props.approvals.length}

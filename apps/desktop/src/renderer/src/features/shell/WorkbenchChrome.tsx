@@ -1,4 +1,4 @@
-import type { ChangedFile, FileDiff } from "@pi-ling/contracts";
+import type { ChangedFile, FileDiff, TimelineEnvelope } from "@pi-ling/contracts";
 import type { RuntimeKind } from "@pi-ling/contracts";
 import {
   ChevronsRight,
@@ -6,10 +6,27 @@ import {
   PanelRight,
   Plus,
 } from "lucide-react";
-import { useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 
 import type { ChangesSourceId } from "../details/changes-source";
 import { ChangesView } from "../details/ChangesView";
+import { FilesPanel } from "../files/FilesPanel";
+import { bindFilesTabActivator, useFilesStore } from "../files/store";
+import { TerminalEmptyState } from "../terminal/TerminalEmptyState";
+
+import type { TimelineRun } from "../../timeline/reducer";
+
+const TerminalPanel = lazy(() =>
+  import("../terminal/TerminalView").then((module) => ({
+    default: module.TerminalPanel,
+  })),
+);
+
+const TracePanel = lazy(() =>
+  import("../trace/TraceView").then((module) => ({
+    default: module.TracePanel,
+  })),
+);
 
 export function AppTitleBar() {
   return (
@@ -71,16 +88,19 @@ export function AgentPaneToolbar(props: {
   );
 }
 
+const WORKBENCH_TAB_STORAGE_KEY = "pi-ling.workbench.tab";
+
 const workbenchTabs = [
+  {
+    id: "files",
+    label: "Files",
+    description:
+      "选择工作区后，可在此浏览文件并预览内容（仅只读）。",
+  },
   {
     id: "changes",
     label: "Changes",
     description: "Agent file changes will appear here.",
-  },
-  {
-    id: "files",
-    label: "Files",
-    description: "The workspace file explorer is not connected yet.",
   },
   {
     id: "terminal",
@@ -101,15 +121,71 @@ const workbenchTabs = [
 
 type WorkbenchTab = (typeof workbenchTabs)[number]["id"];
 
+function readInitialWorkbenchTab(): WorkbenchTab {
+  if (typeof localStorage === "undefined") return "files";
+  const stored = localStorage.getItem(WORKBENCH_TAB_STORAGE_KEY);
+  if (stored && workbenchTabs.some((tab) => tab.id === stored)) {
+    return stored as WorkbenchTab;
+  }
+  return "files";
+}
+
 export function WorkbenchPanel(props: {
   onClose: () => void;
   changesSource?: ChangesSourceId;
   changesFiles?: ChangedFile[];
+  changesLoading?: boolean;
   onChangeSource?: (source: ChangesSourceId) => void;
   onLoadDiff?: (path: string) => Promise<FileDiff | undefined>;
+  filesRoot?: string | undefined;
+  terminalRoot?: string | undefined;
+  traceSessionId?: string | null;
+  traceEvents?: TimelineEnvelope[];
+  traceRuns?: Record<string, TimelineRun>;
+  traceActiveRunId?: string | null;
+  streaming?: boolean;
+  initialTab?: WorkbenchTab;
+  requestedTab?: WorkbenchTab | null;
+  onRequestedTabApplied?: () => void;
 }) {
-  const [activeTab, setActiveTab] = useState<WorkbenchTab>("changes");
+  const [activeTab, setActiveTab] = useState<WorkbenchTab>(
+    () => props.initialTab ?? props.requestedTab ?? readInitialWorkbenchTab(),
+  );
+  const [terminalMounted, setTerminalMounted] = useState(
+    () => activeTab === "terminal",
+  );
+  const [traceMounted, setTraceMounted] = useState(
+    () => activeTab === "trace",
+  );
   const active = workbenchTabs.find((tab) => tab.id === activeTab)!;
+
+  useEffect(() => {
+    if (activeTab === "terminal") setTerminalMounted(true);
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab === "trace") setTraceMounted(true);
+  }, [activeTab]);
+
+  useEffect(() => {
+    bindFilesTabActivator(() => setActiveTab("files"));
+    return () => bindFilesTabActivator(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!props.requestedTab) return;
+    setActiveTab(props.requestedTab);
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(WORKBENCH_TAB_STORAGE_KEY, props.requestedTab);
+    }
+    props.onRequestedTabApplied?.();
+  }, [props.requestedTab, props.onRequestedTabApplied]);
+
+  useEffect(() => {
+    if (props.streaming && props.filesRoot) {
+      useFilesStore.getState().refreshFiles();
+    }
+  }, [props.filesRoot, props.streaming]);
 
   const renderChanges =
     activeTab === "changes" &&
@@ -117,6 +193,13 @@ export function WorkbenchPanel(props: {
     props.changesFiles &&
     props.onChangeSource &&
     props.onLoadDiff;
+
+  const showTerminalEmpty = activeTab === "terminal" && !props.terminalRoot;
+  const showGenericEmpty =
+    activeTab !== "files" &&
+    activeTab !== "changes" &&
+    activeTab !== "terminal" &&
+    activeTab !== "trace";
 
   return (
     <aside className="workbench-panel" aria-label="Workbench">
@@ -131,7 +214,12 @@ export function WorkbenchPanel(props: {
               role="tab"
               aria-selected={activeTab === tab.id}
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => {
+                setActiveTab(tab.id);
+                if (typeof localStorage !== "undefined") {
+                  localStorage.setItem(WORKBENCH_TAB_STORAGE_KEY, tab.id);
+                }
+              }}
             >
               {tab.label}
             </button>
@@ -150,20 +238,46 @@ export function WorkbenchPanel(props: {
         </button>
       </header>
       <div className="workbench-body" role="tabpanel">
-        {renderChanges ? (
+        {activeTab === "files" ? (
+          <FilesPanel {...(props.filesRoot ? { root: props.filesRoot } : {})} />
+        ) : renderChanges ? (
           <ChangesView
             source={props.changesSource!}
             files={props.changesFiles!}
+            loading={props.changesLoading}
             onSourceChange={props.onChangeSource!}
             getDiff={props.onLoadDiff!}
           />
-        ) : (
+        ) : showTerminalEmpty ? (
+          <TerminalEmptyState />
+        ) : showGenericEmpty ? (
           <div className="workbench-empty">
             <span className="empty-pane-mark">{active.label.slice(0, 1)}</span>
             <strong>{active.label}</strong>
             <p>{active.description}</p>
           </div>
-        )}
+        ) : null}
+        {terminalMounted && props.terminalRoot ? (
+          <Suspense fallback={null}>
+            <TerminalPanel
+              key={props.terminalRoot}
+              root={props.terminalRoot}
+              active={activeTab === "terminal"}
+            />
+          </Suspense>
+        ) : null}
+        {traceMounted ? (
+          <Suspense fallback={null}>
+            <TracePanel
+              key={props.traceSessionId ?? "no-session"}
+              sessionId={props.traceSessionId ?? null}
+              events={props.traceEvents ?? []}
+              runs={props.traceRuns ?? {}}
+              activeRunId={props.traceActiveRunId ?? null}
+              active={activeTab === "trace"}
+            />
+          </Suspense>
+        ) : null}
       </div>
     </aside>
   );

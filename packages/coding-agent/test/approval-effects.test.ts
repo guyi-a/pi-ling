@@ -95,6 +95,40 @@ describe("effects and approval", () => {
     ).toBe("sensitive file");
   });
 
+  it("allows glob and read_image while requiring delete approval", async () => {
+    const glob = await deriveEffect(
+      {
+        type: "toolCall",
+        id: "glob",
+        name: "glob",
+        arguments: { glob_pattern: "**/*.ts", target_directory: "." },
+      },
+      workspace,
+    );
+    const image = await deriveEffect(
+      {
+        type: "toolCall",
+        id: "image",
+        name: "read_image",
+        arguments: { path: "photo.png" },
+      },
+      workspace,
+    );
+    const del = await deriveEffect(
+      {
+        type: "toolCall",
+        id: "delete",
+        name: "delete",
+        arguments: { path: "photo.png" },
+      },
+      workspace,
+    );
+    expect(approvalReason(glob)).toBeUndefined();
+    expect(approvalReason(image)).toBeUndefined();
+    expect(approvalReason(del)).toContain("delete");
+    expect(approvalReason(del, "accept-write")).toBeUndefined();
+  });
+
   it("locks the product approval matrix across all modes", () => {
     const modes: ApprovalMode[] = ["manual", "accept-write", "auto"];
     const cases: Array<{

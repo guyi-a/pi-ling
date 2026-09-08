@@ -37,6 +37,7 @@ describe("workbench chrome", () => {
   it("renders ChangesView when changes props are provided", () => {
     const html = renderToStaticMarkup(
       <WorkbenchPanel
+        initialTab="changes"
         onClose={() => {}}
         changesSource="uncommitted"
         changesFiles={[

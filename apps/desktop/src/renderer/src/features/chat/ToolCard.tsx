@@ -8,9 +8,10 @@ import {
 import { useState } from "react";
 
 import {
-  toolLabel,
-  toolTarget,
-} from "../../run-activity/tool-taxonomy";
+  resolveToolLabel,
+  resolveToolRenderer,
+  resolveToolTarget,
+} from "../../run-activity/tool-registry";
 import type { ToolTimelineItem } from "../../timeline/reducer";
 
 const statusLabel: Record<ToolTimelineItem["status"], string> = {
@@ -23,9 +24,7 @@ const statusLabel: Record<ToolTimelineItem["status"], string> = {
   cancelled: "Not run",
 };
 
-export function ToolCard(props: {
-  item: ToolTimelineItem;
-}) {
+export function DefaultToolCard(props: { item: ToolTimelineItem }) {
   const { item } = props;
   const [open, setOpen] = useState(item.status === "failed");
   const StateIcon =
@@ -37,16 +36,14 @@ export function ToolCard(props: {
           ? X
           : item.status === "cancelled"
             ? CircleSlash
-          : null;
-  const target = toolTarget(item);
+            : null;
+  const target = resolveToolTarget(item);
   const expandable =
     Object.keys(item.arguments).length > 0 || Boolean(item.output);
 
   return (
     <div
-      className={`tool-entry ${item.status} ${
-        open ? "expanded" : ""
-      }`}
+      className={`tool-entry ${item.status} ${open ? "expanded" : ""}`}
     >
       <button
         className="tool-entry-row"
@@ -61,7 +58,7 @@ export function ToolCard(props: {
         ) : (
           <span className="tool-entry-dot" />
         )}
-        <span className="tool-entry-label">{toolLabel(item)}</span>
+        <span className="tool-entry-label">{resolveToolLabel(item)}</span>
         <span className="tool-entry-target" title={target}>
           {target}
         </span>
@@ -85,4 +82,12 @@ export function ToolCard(props: {
       ) : null}
     </div>
   );
+}
+
+export function ToolCard(props: { item: ToolTimelineItem }) {
+  const Renderer = resolveToolRenderer(props.item);
+  if (Renderer) {
+    return <Renderer item={props.item} />;
+  }
+  return <DefaultToolCard item={props.item} />;
 }

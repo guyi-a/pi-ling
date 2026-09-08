@@ -226,6 +226,27 @@ describe("projectRunActivities", () => {
     });
   });
 
+  it("counts glob and grep toward explored files in the summary", () => {
+    const activity = projectRunActivities({
+      items: [
+        {
+          kind: "tool",
+          id: "glob",
+          runId: "run",
+          turnId: "turn",
+          createdSeq: 1,
+          callId: "glob",
+          tool: "glob",
+          arguments: { glob_pattern: "*.md", target_directory: "." },
+          status: "completed",
+        },
+      ],
+      runs: { run: { id: "run", status: "completed" } },
+    })[0]!;
+    expect(activity.summary).toBe("explored 1 file");
+    expect(activity.counters.exploredFiles).toEqual(["*.md"]);
+  });
+
   it("does not create a fallback summary without presented tools", () => {
     const activity = project(
       [

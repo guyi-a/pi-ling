@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 
 import type { AssistantTimelineItem } from "../../timeline/reducer";
 import type { RunActivityModel } from "../../run-activity/types";
+import { activityPhaseLabel } from "../../run-activity/project-run-activity";
 import { Markdown } from "./Markdown";
 import { ThinkingCard } from "./ThinkingCard";
 import { ToolCard } from "./ToolCard";
@@ -23,11 +24,21 @@ export function RunActivityBlock(props: {
   const active = activity.viewMode === "active";
   const failed =
     activity.lifecycle === "error" || activity.lifecycle === "crashed";
-  const [open, setOpen] = useState(Boolean(props.forceOpen || failed));
+  const readOnlyToolRun =
+    activity.tools.length > 0 &&
+    activity.counters.editedFiles.length === 0 &&
+    activity.changes.length === 0;
+  const [open, setOpen] = useState(
+    Boolean(props.forceOpen || failed || readOnlyToolRun),
+  );
 
   useEffect(() => {
+    if (readOnlyToolRun && activity.viewMode === "settled") {
+      setOpen(true);
+      return;
+    }
     if (!active && !failed && !props.forceOpen) setOpen(false);
-  }, [active, failed, props.forceOpen]);
+  }, [active, failed, props.forceOpen, readOnlyToolRun, activity.viewMode]);
 
   if (!activity.hasActivity) return null;
 
@@ -66,55 +77,54 @@ export function RunActivityBlock(props: {
       <ThinkingCard content={activity.thinking} streaming={active} />
 
       {activity.summary ? (
-        <>
-          <button
-            className="run-activity-summary"
-            type="button"
-            aria-expanded={open}
-            onClick={() => setOpen((current) => !current)}
-          >
-            <ChevronRight className="run-activity-chevron" />
-            <StatusIcon className="run-activity-status" />
-            <span className="run-activity-summary-text">
-              {activity.summary}
-            </span>
-            {additions !== undefined || deletions !== undefined ? (
-              <span
-                className="run-activity-diff"
-                aria-label={`${additions ?? 0} additions, ${
-                  deletions ?? 0
-                } deletions`}
-              >
-                <span className="diff-add">+{additions ?? 0}</span>
-                <span className="diff-delete">-{deletions ?? 0}</span>
-              </span>
-            ) : null}
-          </button>
-          {active ? (
-            <div
-              className="run-activity-live-slot"
-              aria-live="polite"
-              aria-atomic="true"
+        <button
+          className="run-activity-summary"
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((current) => !current)}
+        >
+          <ChevronRight className="run-activity-chevron" />
+          <StatusIcon className="run-activity-status" />
+          <span className="run-activity-summary-text">{activity.summary}</span>
+          {additions !== undefined || deletions !== undefined ? (
+            <span
+              className="run-activity-diff"
+              aria-label={`${additions ?? 0} additions, ${
+                deletions ?? 0
+              } deletions`}
             >
-              {activity.currentAction ? (
-                <span
-                  className="run-activity-atomic"
-                  title={`${activity.currentAction.verb} ${activity.currentAction.target}`}
-                >
-                  {activity.currentAction.verb}{" "}
-                  <strong>{activity.currentAction.target}</strong>
-                </span>
-              ) : null}
-            </div>
-          ) : failed ? (
-            <div className="run-activity-failure">
-              Execution failed
-            </div>
+              <span className="diff-add">+{additions ?? 0}</span>
+              <span className="diff-delete">-{deletions ?? 0}</span>
+            </span>
           ) : null}
-        </>
+        </button>
       ) : null}
 
-      {open && activity.summary ? (
+      {active ? (
+        <div
+          className="run-activity-live-slot"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          {activity.currentAction ? (
+            <span
+              className="run-activity-atomic"
+              title={`${activity.currentAction.verb} ${activity.currentAction.target}`}
+            >
+              {activity.currentAction.verb}{" "}
+              <strong>{activity.currentAction.target}</strong>
+            </span>
+          ) : (
+            <span className="run-activity-atomic">
+              {activityPhaseLabel(activity.phase)}
+            </span>
+          )}
+        </div>
+      ) : failed ? (
+        <div className="run-activity-failure">Execution failed</div>
+      ) : null}
+
+      {open && (activity.summary || activity.tools.length > 0) ? (
         <div className="run-activity-details">
           {renderedSegments.map((segment) => {
             const text = displayText(segment.assistant);

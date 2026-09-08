@@ -1,4 +1,4 @@
-import { memo, useState } from "react";
+import { memo, useDeferredValue, useMemo, useState } from "react";
 
 export type DiffLineKind = "add" | "delete" | "context" | "hunk" | "meta";
 
@@ -123,10 +123,18 @@ export const UnifiedDiffView = memo(function UnifiedDiffView(props: {
   truncated?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const lines = parseUnifiedDiff(props.patch);
-  const rendered = collapseContext(
-    lines,
-    expanded ? Infinity : COLLAPSE_THRESHOLD,
+  const deferredPatch = useDeferredValue(props.patch);
+  const lines = useMemo(
+    () => parseUnifiedDiff(deferredPatch),
+    [deferredPatch],
+  );
+  const rendered = useMemo(
+    () =>
+      collapseContext(
+        lines,
+        expanded ? Infinity : COLLAPSE_THRESHOLD,
+      ),
+    [expanded, lines],
   );
 
   return (
@@ -143,7 +151,7 @@ export const UnifiedDiffView = memo(function UnifiedDiffView(props: {
               >
                 <span className="diff-collapsed-count" />
                 <span className="diff-collapsed-label">
-                  {line.count} unmodified lines
+                  {line.count} 行未修改
                 </span>
               </button>
             );
@@ -153,11 +161,12 @@ export const UnifiedDiffView = memo(function UnifiedDiffView(props: {
               className={`diff-line diff-${line.kind}`}
               key={`${index}:${line.kind}`}
             >
-              <span className="diff-gutter diff-gutter-old">
-                {line.kind === "delete" ? line.oldLine ?? "" : ""}
-              </span>
-              <span className="diff-gutter diff-gutter-new">
-                {line.kind === "add" ? line.newLine ?? "" : ""}
+              <span className="diff-gutter">
+                {line.kind === "add"
+                  ? line.newLine ?? ""
+                  : line.kind === "delete"
+                    ? line.oldLine ?? ""
+                    : line.newLine ?? ""}
               </span>
               <span className="diff-sign">
                 {line.kind === "add"

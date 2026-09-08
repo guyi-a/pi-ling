@@ -1,5 +1,6 @@
 import { Check, ShieldAlert, X } from "lucide-react";
 
+import { toolNameLabel, toolTarget } from "../../run-activity/tool-taxonomy";
 import type { ApprovalTimelineItem } from "../../timeline/reducer";
 
 function target(item: ApprovalTimelineItem): string {
@@ -9,6 +10,25 @@ function target(item: ApprovalTimelineItem): string {
   }
   if (typeof effect["command"] === "string") {
     return effect["command"];
+  }
+
+  const fromArguments = toolTarget({
+    kind: "tool",
+    id: item.id,
+    runId: item.runId,
+    turnId: item.turnId,
+    createdSeq: item.createdSeq,
+    callId: item.approval.callId,
+    tool: item.approval.tool,
+    arguments: item.approval.arguments,
+    status: "requested",
+  });
+  if (fromArguments !== item.approval.tool) {
+    return fromArguments;
+  }
+
+  if (typeof effect["note"] === "string" && effect["note"]) {
+    return effect["note"];
   }
   return item.approval.tool;
 }
@@ -33,24 +53,26 @@ export function ApprovalCard(props: {
     <div className="approval-card pending">
       <div className="approval-title">
         <ShieldAlert />
-        Approval required · {item.approval.tool}
+        需要审批 · {toolNameLabel(item.approval.tool)}
       </div>
-      <div className="approval-target">{target(item)}</div>
-      <p className="approval-reason">{item.approval.reason}</p>
-      <details className="tool-arguments">
-        <summary>Show full arguments</summary>
-        <pre>{JSON.stringify(item.approval.arguments, null, 2)}</pre>
-      </details>
+      <div className="approval-card-body">
+        <div className="approval-target">{target(item)}</div>
+        <p className="approval-reason">{item.approval.reason}</p>
+        <details className="approval-details">
+          <summary>查看完整参数</summary>
+          <pre>{JSON.stringify(item.approval.arguments, null, 2)}</pre>
+        </details>
+      </div>
       <div className="approval-actions">
         <button type="button" onClick={() => onDecision(item, false)}>
-          Deny
+          拒绝
         </button>
         <button
           className="allow"
           type="button"
           onClick={() => onDecision(item, true)}
         >
-          Allow once
+          允许一次
         </button>
       </div>
     </div>

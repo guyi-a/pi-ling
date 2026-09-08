@@ -70,7 +70,7 @@ describe("chat components", () => {
       renderToStaticMarkup(
         <ApprovalCard item={base} onDecision={() => {}} />,
       ),
-    ).toContain("Allow once");
+    ).toContain("允许一次");
     expect(
       renderToStaticMarkup(
         <ApprovalCard
@@ -79,6 +79,22 @@ describe("chat components", () => {
         />,
       ),
     ).toContain("Allowed");
+    expect(
+      renderToStaticMarkup(
+        <ApprovalCard
+          item={{
+            ...base,
+            approval: {
+              ...base.approval,
+              tool: "pwsh",
+              arguments: { command: 'Remove-Item -Path "E:\\pi-ling\\b.md"' },
+              effect: { kind: "unknown", note: "delete operation requires approval" },
+            },
+          }}
+          onDecision={() => {}}
+        />,
+      ),
+    ).toContain("Remove-Item -Path");
   });
 
   it("submits Enter only outside composition and without Shift", () => {

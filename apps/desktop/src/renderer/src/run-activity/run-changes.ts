@@ -1,6 +1,12 @@
 import type { ChangedFile } from "@pi-ling/contracts";
 
-import type { ChangesTimelineItem, TimelineItem, TimelineRun } from "../timeline/reducer";
+import type {
+  ChangesTimelineItem,
+  TimelineItem,
+  TimelineRun,
+  ToolTimelineItem,
+} from "../timeline/reducer";
+import { classifyTool } from "./tool-taxonomy";
 
 /**
  * 从 timeline 中按「最新有改动的 run」聚合出 Last Agent Turn 的文件改动。
@@ -34,13 +40,36 @@ export function lastAgentTurnChanges(
   );
 }
 
+export function editToolCallIds(
+  items: readonly TimelineItem[],
+  runId: string,
+): Set<string> {
+  return new Set(
+    items
+      .filter(
+        (item): item is ToolTimelineItem =>
+          item.kind === "tool" &&
+          item.runId === runId &&
+          item.status !== "denied" &&
+          item.status !== "cancelled",
+      )
+      .filter((tool) => classifyTool(tool) === "edit")
+      .map((tool) => tool.callId),
+  );
+}
+
 export function changesFilesByRunId(
   items: readonly TimelineItem[],
   runId: string,
+  options?: { editToolsOnly?: boolean },
 ): ChangedFile[] {
+  const editCallIds = options?.editToolsOnly
+    ? editToolCallIds(items, runId)
+    : undefined;
   const byPath = new Map<string, ChangedFile>();
   for (const item of items) {
     if (item.kind !== "changes" || item.runId !== runId) continue;
+    if (editCallIds && !editCallIds.has(item.callId)) continue;
     for (const file of item.files) {
       byPath.set(file.path, file);
     }

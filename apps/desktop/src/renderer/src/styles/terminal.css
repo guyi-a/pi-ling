@@ -1,0 +1,225 @@
+.workbench-body:has(.terminal-panel) {
+  display: block;
+  padding: 0;
+}
+
+.terminal-panel {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #171717;
+}
+
+.terminal-panel.is-hidden {
+  display: none;
+}
+
+.terminal-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", monospace;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.45);
+  flex: 0 0 auto;
+}
+
+.terminal-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+
+.terminal-status-dot.status-ready {
+  background: #34d399;
+}
+
+.terminal-status-dot.status-connecting {
+  background: #fbbf24;
+}
+
+.terminal-status-dot.status-exited,
+.terminal-status-dot.status-error {
+  background: #f87171;
+}
+
+.terminal-cwd {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-exit-code,
+.terminal-shell-label {
+  flex: 0 0 auto;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.terminal-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 4px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.terminal-icon-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.terminal-icon-button.active {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.terminal-icon-button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.terminal-tab-count {
+  margin-left: 2px;
+  font-size: 9px;
+}
+
+.terminal-list-popover {
+  position: absolute;
+  top: 36px;
+  right: 8px;
+  z-index: 30;
+  min-width: 12rem;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  background: #222;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.terminal-list-empty {
+  padding: 8px 12px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.terminal-list-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", monospace;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+  text-align: left;
+  cursor: pointer;
+}
+
+.terminal-list-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.terminal-list-item.active {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.terminal-list-label {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-list-exit {
+  flex: 0 0 auto;
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.terminal-instances {
+  position: relative;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.terminal-host {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  padding: 4px 6px;
+}
+
+.terminal-host.is-hidden {
+  display: none;
+}
+
+.terminal-host.is-visible {
+  display: block;
+}
+
+.terminal-host .xterm {
+  height: 100%;
+}
+
+.terminal-create-placeholder {
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+}
+
+.terminal-create-placeholder:hover {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.terminal-empty {
+  min-height: 0;
+  flex: 1 1 auto;
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+  color: var(--muted-2);
+}
+
+.terminal-empty strong {
+  color: var(--text-soft);
+  font-size: 14px;
+}
+
+.terminal-empty p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+}

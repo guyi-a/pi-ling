@@ -207,11 +207,44 @@
   position: sticky;
   top: 0;
   z-index: 2;
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 7px;
   padding: 5px 10px;
+  color: inherit;
+  border: 0;
   background: var(--workbench-bg);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.file-section-header:hover {
+  background: var(--surface-hover);
+}
+
+.file-chevron {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  color: var(--muted);
+  transition: transform 120ms ease;
+}
+
+.file-chevron::before {
+  content: "";
+  display: block;
+  width: 6px;
+  height: 6px;
+  margin: 3px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.file-chevron.is-collapsed {
+  transform: rotate(-90deg);
 }
 
 .file-status {
@@ -265,6 +298,10 @@
   overflow: hidden;
 }
 
+.file-section-body.is-collapsed {
+  display: none;
+}
+
 /* Unified diff 行级渲染 */
 .unified-diff {
   min-width: 0;
@@ -281,7 +318,7 @@
 
 .diff-line {
   display: grid;
-  grid-template-columns: 2.5rem 2.5rem 1.25rem max-content;
+  grid-template-columns: 2.75rem 1.25rem max-content;
   align-items: center;
   min-height: 20px;
   padding-right: 12px;

@@ -5,6 +5,7 @@ import type {
   AgentStatus,
   ApprovalMode,
   ChangedFile,
+  ChangesSource,
   CreateSessionRequest,
   FileDiff,
   RuntimeKind,
@@ -19,6 +20,7 @@ import type {
 } from "@pi-ling/contracts";
 
 import { DshAgentSession } from "./dsh-agent-session.js";
+import { gitDiff, gitScopedFiles } from "./git-diff.js";
 import { PiAgentSession } from "./pi-agent-session.js";
 import { RunMessageBuffer } from "./run-message-buffer.js";
 import { SessionStore } from "./session-store/session-store.js";
@@ -194,7 +196,7 @@ export class SessionSupervisor {
         runtimeKind: "native",
         availableRuntimes: this.availableRuntimes,
         provider: "deepseek",
-        model: "deepseek-v4-flash",
+        model: "deepseek-v4-pro",
         configured: Boolean(process.env["DEEPSEEK_API_KEY"]?.trim()),
         approvalMode: "manual",
       }
@@ -254,14 +256,33 @@ export class SessionSupervisor {
     return active?.resolveApproval(callId, decision) ?? Promise.resolve(false);
   }
 
-  changedFiles(): Promise<ChangedFile[]> {
+  changedFiles(source: ChangesSource = "agent"): Promise<ChangedFile[]> {
+    if (source !== "agent" && source !== "last-agent-turn") {
+      const session = this.#selectedSessionId
+        ? this.#store.getSession(this.#selectedSessionId)
+        : undefined;
+      const root = session?.workspace.root;
+      if (!root) return Promise.resolve([]);
+      return gitScopedFiles(root, source);
+    }
     const active = this.#selectedSessionId
       ? this.#sessions.get(this.#selectedSessionId)
       : undefined;
     return active?.changedFiles() ?? Promise.resolve([]);
   }
 
-  diff(path: string): Promise<FileDiff | undefined> {
+  diff(
+    path: string,
+    source: ChangesSource = "agent",
+  ): Promise<FileDiff | undefined> {
+    if (source !== "agent" && source !== "last-agent-turn") {
+      const session = this.#selectedSessionId
+        ? this.#store.getSession(this.#selectedSessionId)
+        : undefined;
+      const root = session?.workspace.root;
+      if (!root) return Promise.resolve(undefined);
+      return gitDiff(root, path, undefined, source);
+    }
     const active = this.#selectedSessionId
       ? this.#sessions.get(this.#selectedSessionId)
       : undefined;

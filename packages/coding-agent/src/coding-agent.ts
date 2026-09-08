@@ -112,12 +112,22 @@ export class CodingAgent {
     this.#agent.subscribe(async (event) => {
       await this.#emit({ type: "agent", event });
       if (event.type === "tool_execution_end") {
+        if (event.result.isError) return;
+        let effect;
+        try {
+          effect = await deriveEffect(event.toolCall, this.workspace);
+        } catch {
+          return;
+        }
+        if (effect.kind !== "filesystem-write") return;
+        const files = await this.#changes.changedFiles();
+        if (files.length === 0) return;
         await this.#emit({
           type: "changes",
           runId: event.runId,
           turnId: event.turnId,
           callId: event.toolCall.id,
-          files: await this.#changes.changedFiles(),
+          files,
         });
       }
     });

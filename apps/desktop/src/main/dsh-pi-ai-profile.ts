@@ -16,5 +16,5 @@ export const DSH_PI_AI_PROFILE_PATCH = `
   name: '@deepseek-ai/dsh-acp'
   config:
     provider: deepseek
-    model: deepseek-v4-flash
+    model: deepseek-v4-pro
 `.trimStart();

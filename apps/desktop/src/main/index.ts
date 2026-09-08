@@ -17,9 +17,13 @@ import type {
   SessionActivation,
   SessionSummary,
   StreamFrameEnvelope,
+  TerminalStartRequest,
+  TerminalStartResult,
   TimelineSnapshot,
   WorkspaceListEntry,
   WorkspaceSummary,
+  WorkspaceTreeResult,
+  WorkspaceFileContent,
 } from "@pi-ling/contracts";
 import { DshRuntimeAdapter } from "@pi-ling/dsh-runtime";
 import {
@@ -36,6 +40,14 @@ import {
 import { resolveDshLaunchConfig } from "./dsh-launch-config.js";
 import { SessionStore } from "./session-store/session-store.js";
 import { SessionSupervisor } from "./session-supervisor.js";
+import { TerminalSupervisor } from "./terminal-supervisor.js";
+import { buildWorkspaceTree, readFileContent } from "./workspace-fs.js";
+import {
+  registerWorkspaceProtocolHandlers,
+  registerWorkspaceProtocolSchemes,
+} from "./workspace-protocol.js";
+
+registerWorkspaceProtocolSchemes();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const APP_INFO_CHANNEL = "app:get-info";
@@ -49,6 +61,8 @@ const WORKSPACE_SELECT_CHANNEL = "workspace:select";
 const APPROVAL_RESOLVE_CHANNEL = "approval:resolve";
 const CHANGES_GET_CHANNEL = "changes:get";
 const DIFF_GET_CHANNEL = "diff:get";
+const WORKSPACE_TREE_CHANNEL = "workspace:tree";
+const WORKSPACE_READ_FILE_CHANNEL = "workspace:read-file";
 const SESSIONS_LIST_CHANNEL = "sessions:list";
 const SESSIONS_CREATE_CHANNEL = "sessions:create";
 const SESSIONS_SWITCH_CHANNEL = "sessions:switch";
@@ -61,6 +75,10 @@ const WORKSPACES_ADD_CHANNEL = "workspaces:add";
 const SESSION_APPROVAL_MODE_CHANNEL = "session:approval-mode";
 const SESSION_RUNTIME_CHANNEL = "session:runtime";
 const THEME_SET_CHANNEL = "theme:set";
+const TERMINAL_START_CHANNEL = "terminal:start";
+const TERMINAL_INPUT_CHANNEL = "terminal:input";
+const TERMINAL_RESIZE_CHANNEL = "terminal:resize";
+const TERMINAL_KILL_CHANNEL = "terminal:kill";
 
 const windowThemeColors: Record<
   AppTheme,
@@ -80,6 +98,7 @@ try {
 
 let sessionStore: SessionStore | undefined;
 let dshRuntime: DshRuntimeAdapter | undefined;
+const terminalSupervisor = new TerminalSupervisor();
 const supervisors = new Map<
   number,
   { supervisor: SessionSupervisor; ready: Promise<void> }
@@ -164,6 +183,36 @@ function parseCreateSession(value: unknown): CreateSessionRequest {
       ? { runtimeKind: value.runtimeKind }
       : {}),
   };
+}
+
+function parseTerminalStartRequest(value: unknown): TerminalStartRequest {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("cwd" in value) ||
+    typeof value.cwd !== "string" ||
+    !value.cwd.trim() ||
+    !("cols" in value) ||
+    typeof value.cols !== "number" ||
+    !("rows" in value) ||
+    typeof value.rows !== "number"
+  ) {
+    throw new Error("Invalid terminal start request");
+  }
+  return {
+    cwd: value.cwd.trim(),
+    cols: value.cols,
+    rows: value.rows,
+  };
+}
+
+function parseTerminalInput(value: unknown): Uint8Array {
+  if (value instanceof Uint8Array) return value;
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  if (ArrayBuffer.isView(value)) {
+    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  }
+  throw new Error("Invalid terminal input");
 }
 
 async function getSupervisor(
@@ -403,19 +452,65 @@ ipcMain.handle(
   },
 );
 
+function normalizeChangesSource(
+  source: unknown,
+): "uncommitted" | "staged" | "unstaged" | "agent" {
+  // last-agent-turn 归到 agent（会话基线）；其余 git 作用域照传。
+  return source === "uncommitted" ||
+    source === "staged" ||
+    source === "unstaged"
+    ? source
+    : "agent";
+}
+
 ipcMain.handle(
   CHANGES_GET_CHANNEL,
-  async (event): Promise<ChangedFile[]> =>
-    (await getSupervisor(event.sender)).changedFiles(),
+  async (event, source: unknown): Promise<ChangedFile[]> =>
+    (await getSupervisor(event.sender)).changedFiles(
+      normalizeChangesSource(source),
+    ),
 );
 
 ipcMain.handle(
   DIFF_GET_CHANNEL,
-  async (event, userPath: unknown): Promise<FileDiff | undefined> => {
+  async (event, userPath: unknown, source: unknown): Promise<FileDiff | undefined> => {
     if (typeof userPath !== "string" || !userPath.trim()) {
       throw new Error("Invalid diff path");
     }
-    return (await getSupervisor(event.sender)).diff(userPath);
+    return (await getSupervisor(event.sender)).diff(
+      userPath,
+      normalizeChangesSource(source),
+    );
+  },
+);
+
+function parseWorkspaceRoot(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error("Invalid workspace root");
+  }
+  return value.trim();
+}
+
+ipcMain.handle(
+  WORKSPACE_TREE_CHANNEL,
+  async (event, root: unknown): Promise<WorkspaceTreeResult> => {
+    const resolvedRoot = parseWorkspaceRoot(root);
+    return buildWorkspaceTree(resolvedRoot);
+  },
+);
+
+ipcMain.handle(
+  WORKSPACE_READ_FILE_CHANNEL,
+  async (
+    event,
+    root: unknown,
+    subpath: unknown,
+  ): Promise<WorkspaceFileContent> => {
+    const resolvedRoot = parseWorkspaceRoot(root);
+    if (typeof subpath !== "string" || !subpath.trim()) {
+      throw new Error("Invalid file path");
+    }
+    return readFileContent(resolvedRoot, subpath.trim());
   },
 );
 
@@ -535,7 +630,56 @@ ipcMain.handle(
   },
 );
 
+ipcMain.handle(
+  TERMINAL_START_CHANNEL,
+  (event, request: unknown): TerminalStartResult =>
+    terminalSupervisor.start(event.sender, parseTerminalStartRequest(request)),
+);
+
+ipcMain.handle(
+  TERMINAL_INPUT_CHANNEL,
+  (event, sessionId: unknown, data: unknown): void => {
+    if (typeof sessionId !== "string" || sessionId.length === 0) {
+      throw new Error("Invalid terminal session");
+    }
+    terminalSupervisor.input(
+      event.sender.id,
+      sessionId,
+      parseTerminalInput(data),
+    );
+  },
+);
+
+ipcMain.handle(
+  TERMINAL_RESIZE_CHANNEL,
+  (
+    event,
+    sessionId: unknown,
+    cols: unknown,
+    rows: unknown,
+  ): void => {
+    if (typeof sessionId !== "string" || sessionId.length === 0) {
+      throw new Error("Invalid terminal session");
+    }
+    if (typeof cols !== "number" || typeof rows !== "number") {
+      throw new Error("Invalid terminal dimensions");
+    }
+    terminalSupervisor.resize(event.sender.id, sessionId, cols, rows);
+  },
+);
+
+ipcMain.handle(
+  TERMINAL_KILL_CHANNEL,
+  (event, sessionId: unknown): void => {
+    if (typeof sessionId !== "string" || sessionId.length === 0) {
+      throw new Error("Invalid terminal session");
+    }
+    terminalSupervisor.kill(event.sender.id, sessionId);
+  },
+);
+
 void app.whenReady().then(() => {
+  registerWorkspaceProtocolHandlers();
   Menu.setApplicationMenu(null);
   const dshLaunch = resolveDshLaunchConfig(
     process.env,
@@ -563,6 +707,7 @@ app.on("window-all-closed", () => {
     void entry.supervisor.dispose();
   }
   supervisors.clear();
+  terminalSupervisor.disposeAll();
   void dshRuntime?.dispose();
   if (process.platform !== "darwin") {
     app.quit();

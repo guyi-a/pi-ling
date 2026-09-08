@@ -3,5 +3,9 @@
 @import "./styles/sidebar.css";
 @import "./styles/chat.css";
 @import "./styles/timeline.css";
+@import "./styles/tool-cards.css";
 @import "./styles/settings.css";
 @import "./styles/changes.css";
+@import "./styles/files.css";
+@import "./styles/terminal.css";
+@import "./styles/trace.css";

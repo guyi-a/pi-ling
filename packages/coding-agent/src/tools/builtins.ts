@@ -142,5 +142,81 @@ export function createBuiltinTools(options: {
     },
   };
 
-  return [readFile, listFiles, grep, writeFile, editFile, runCommand];
+  const globTool: AgentTool = {
+    name: "glob",
+    label: "Glob files",
+    description:
+      "Find workspace files matching a glob pattern. Results are bounded.",
+    parameters: Type.Object({
+      glob_pattern: Type.String({ minLength: 1 }),
+      target_directory: Type.Optional(Type.String()),
+    }),
+    execute: async (_callId, arguments_) => {
+      const { glob_pattern, target_directory = "." } = arguments_ as {
+        glob_pattern: string;
+        target_directory?: string;
+      };
+      const matches = await options.workspace.glob(
+        glob_pattern,
+        target_directory,
+      );
+      return {
+        content: [{ type: "text", text: JSON.stringify(matches, null, 2) }],
+      };
+    },
+  };
+
+  const deleteTool: AgentTool = {
+    name: "delete",
+    label: "Delete file",
+    description: "Delete a file inside the current workspace.",
+    parameters: Type.Object({
+      path: Type.String({ minLength: 1 }),
+    }),
+    execute: async (_callId, arguments_) => {
+      const { path: userPath } = arguments_ as { path: string };
+      await options.changes.capture(userPath);
+      await options.workspace.deleteFile(userPath);
+      return { content: [{ type: "text", text: `Deleted ${userPath}` }] };
+    },
+  };
+
+  const readImage: AgentTool = {
+    name: "read_image",
+    label: "Read image",
+    description:
+      "Read an image file from the workspace and attach it for vision models.",
+    parameters: Type.Object({
+      path: Type.String({ minLength: 1 }),
+    }),
+    execute: async (_callId, arguments_) => {
+      const { path: userPath } = arguments_ as { path: string };
+      const image = await options.workspace.readImage(userPath);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Read image ${userPath} (${image.size} bytes)`,
+          },
+          {
+            type: "image",
+            data: image.data,
+            mimeType: image.mimeType,
+          },
+        ],
+      };
+    },
+  };
+
+  return [
+    readFile,
+    listFiles,
+    grep,
+    globTool,
+    readImage,
+    writeFile,
+    editFile,
+    deleteTool,
+    runCommand,
+  ];
 }

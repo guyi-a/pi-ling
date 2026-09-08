@@ -49,7 +49,7 @@ export class NativeRuntimeAdapter implements RuntimeAdapter {
   ): Promise<RuntimeSessionHandle> {
     const model = models.getModel(
       options.provider ?? "deepseek",
-      options.model ?? "deepseek-v4-flash",
+      options.model ?? "deepseek-v4-pro",
     );
     if (!model) throw new Error("Native runtime model is unavailable");
     let agent!: CodingAgent;
@@ -193,8 +193,14 @@ export class NativeRuntimeAdapter implements RuntimeAdapter {
         title: value.toolCall.name,
         status: value.result.isError ? "failed" : "completed",
         output: value.result.content
-          .filter((block) => block.type === "text")
-          .map((block) => block.text)
+          .map((block) =>
+            block.type === "text"
+              ? block.text
+              : block.type === "image"
+                ? `[image:${block.mimeType}]`
+                : "",
+          )
+          .filter(Boolean)
           .join("\n"),
       });
     } else if (value.type === "agent_end") {

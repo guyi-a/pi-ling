@@ -6,8 +6,8 @@ export function ThinkingCard(props: {
   streaming: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  if (!props.content && !props.streaming) return null;
-  const expandable = Boolean(props.content);
+  if (!props.content) return null;
+  const expandable = true;
   return (
     <div className={`thinking-card ${open ? "expanded" : ""}`}>
       <button

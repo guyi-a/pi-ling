@@ -236,7 +236,7 @@ export class DshRuntimeAdapter implements RuntimeAdapter {
         sessionId: append ?? options.sessionId,
         cwd: options.workspaceRoot,
         provider: options.provider ?? "deepseek",
-        model: options.model ?? "deepseek-v4-flash",
+        model: options.model ?? "deepseek-v4-pro",
         canonicalMessages: options.canonicalMessages,
         ...(mode === "append" ? { startTurn: options.startTurn ?? 1 } : {}),
         doneFile: donePath,

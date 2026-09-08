@@ -1,0 +1,221 @@
+.workbench-body:has(.trace-panel) {
+  display: block;
+  padding: 0;
+}
+
+.trace-panel {
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--workbench-bg);
+}
+
+.trace-panel.is-hidden {
+  display: none;
+}
+
+.trace-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", monospace;
+  font-size: 11px;
+  color: var(--muted-2);
+  flex: 0 0 auto;
+}
+
+.trace-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--muted-3);
+  flex: 0 0 auto;
+}
+
+.trace-status-dot.is-running {
+  background: #34d399;
+}
+
+.trace-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.trace-filter-label {
+  color: var(--muted-2);
+}
+
+.trace-filter-select {
+  min-width: 0;
+  max-width: 160px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--surface-1);
+  color: var(--text-soft);
+  font: inherit;
+  padding: 2px 6px;
+  outline: none;
+}
+
+.trace-filter-select:focus,
+.trace-filter-select:focus-visible {
+  outline: none;
+  box-shadow: none;
+  border-color: var(--border-subtle);
+}
+
+.trace-event-count {
+  margin-left: auto;
+  color: var(--muted-2);
+}
+
+.trace-event-list {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+}
+
+.trace-list-empty,
+.trace-empty {
+  min-height: 0;
+  flex: 1 1 auto;
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+  color: var(--muted-2);
+}
+
+.trace-empty strong,
+.trace-list-empty {
+  color: var(--text-soft);
+  font-size: 14px;
+}
+
+.trace-empty p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.trace-event-row {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.trace-event-row.is-muted .trace-event-label {
+  opacity: 0.72;
+}
+
+.trace-muted-group .trace-event-label {
+  color: var(--muted-1);
+  font-style: italic;
+}
+
+.trace-muted-group-items {
+  list-style: none;
+  margin: 0;
+  padding: 0 10px 10px 34px;
+  display: grid;
+  gap: 4px;
+}
+
+.trace-muted-group-item {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  color: var(--muted-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", monospace;
+  font-size: 11px;
+}
+
+.trace-event-summary {
+  display: grid;
+  grid-template-columns: auto auto auto auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-soft);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.trace-event-summary:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.trace-event-chevron {
+  width: 14px;
+  height: 14px;
+  color: var(--muted-2);
+  transition: transform 0.15s ease;
+}
+
+.trace-event-row.is-open .trace-event-chevron {
+  transform: rotate(90deg);
+}
+
+.trace-event-seq {
+  color: var(--muted-2);
+}
+
+.trace-event-time,
+.trace-event-run {
+  color: var(--muted-2);
+}
+
+.trace-event-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trace-event-row.tone-tool .trace-event-label {
+  color: #93c5fd;
+}
+
+.trace-event-row.tone-model .trace-event-label {
+  color: #c4b5fd;
+}
+
+.trace-event-row.tone-approval .trace-event-label {
+  color: #fcd34d;
+}
+
+.trace-event-row.tone-error .trace-event-label {
+  color: #fca5a5;
+}
+
+.trace-event-row.tone-run .trace-event-label {
+  color: #86efac;
+}
+
+.trace-event-detail {
+  margin: 0;
+  padding: 0 10px 10px 34px;
+  overflow: auto;
+  color: var(--muted-1);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

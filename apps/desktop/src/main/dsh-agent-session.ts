@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { ChangeTracker, Workspace } from "@pi-ling/coding-agent";
 import type {
   RuntimeAdapter,
   RuntimeEvent,
@@ -21,6 +22,11 @@ import type {
 import { projectCanonicalMessages, projectTimelineSnapshot } from "@pi-ling/session-events";
 
 import { evaluateDshApproval } from "./dsh-approval-policy.js";
+import {
+  isFileAffectingDshTool,
+  resolveToolWorkspacePath,
+} from "./dsh-tool-changes.js";
+import { diffLineStats } from "./diff-stats.js";
 import { RunMessageBuffer } from "./run-message-buffer.js";
 import { SessionStore } from "./session-store/session-store.js";
 
@@ -60,6 +66,9 @@ export class DshAgentSession {
   }> = [];
   #approvalMode: ApprovalMode;
   #contextUsage: ContextUsage | undefined;
+  #runTurn = 0;
+  #changes: ChangeTracker | null = null;
+  #workspaceRoot: string;
 
   private constructor(options: {
     store: SessionStore;
@@ -80,9 +89,10 @@ export class DshAgentSession {
       options.store.loadSessionEvents(options.session.id),
     ).lastSeq;
     this.#approvalMode = options.session.approvalMode;
-    this.#unsubscribe = this.#runtime.subscribe((event) =>
-      this.#handleRuntimeEvent(event),
-    );
+    this.#workspaceRoot = options.session.workspace.root;
+    this.#unsubscribe = this.#runtime.subscribe(async (event) => {
+      await this.#handleRuntimeEvent(event);
+    });
   }
 
   static async open(options: {
@@ -94,6 +104,15 @@ export class DshAgentSession {
     buffer: RunMessageBuffer;
   }): Promise<DshAgentSession> {
     const instance = new DshAgentSession(options);
+    try {
+      const workspace = await Workspace.open(options.session.workspace.root);
+      instance.#changes = new ChangeTracker(workspace);
+      instance.#changes.hydrateBaselines(
+        options.store.loadBaselines(options.session.id),
+      );
+    } catch {
+      instance.#changes = null;
+    }
     const externalSessionId = options.store.getRuntimeSessionId(
       options.session.id,
     );
@@ -105,7 +124,7 @@ export class DshAgentSession {
     const importOptions = {
       workspaceRoot: options.session.workspace.root,
       provider: "deepseek",
-      model: "deepseek-v4-flash",
+      model: "deepseek-v4-pro",
     };
 
     if (!externalSessionId) {
@@ -188,7 +207,7 @@ export class DshAgentSession {
       runtimeKind: "dsh",
       availableRuntimes: this.#availableRuntimes,
       provider: "deepseek",
-      model: "deepseek-v4-flash",
+      model: "deepseek-v4-pro",
       configured: Boolean(process.env["DEEPSEEK_API_KEY"]?.trim()),
       approvalMode: this.#approvalMode,
       workspace: this.#session.workspace,
@@ -211,6 +230,7 @@ export class DshAgentSession {
     this.#assistantReasoning = "";
     this.#assistantToolCalls = [];
     this.#contextUsage = undefined;
+    this.#runTurn = 0;
     this.#store.setLifecycle(this.#session.id, "running", runId);
     const userMessage: CanonicalMessage = {
       id: `${runId}:user`,
@@ -294,11 +314,11 @@ export class DshAgentSession {
   }
 
   changedFiles(): Promise<ChangedFile[]> {
-    return Promise.resolve([]);
+    return this.#changes?.changedFiles() ?? Promise.resolve([]);
   }
 
-  diff(_path: string): Promise<FileDiff | undefined> {
-    return Promise.resolve(undefined);
+  diff(userPath: string): Promise<FileDiff | undefined> {
+    return this.#changes?.diff(userPath) ?? Promise.resolve(undefined);
   }
 
   setApprovalMode(mode: ApprovalMode): SessionSummary {
@@ -335,6 +355,8 @@ export class DshAgentSession {
       this.#closeAssistant(runId);
     }
     if (!this.#assistantOpen) {
+      this.#runTurn += 1;
+      const turn = this.#runTurn;
       this.#assistantOpen = true;
       this.#assistantMessageId = turnId;
       this.#assistantText = "";
@@ -346,9 +368,9 @@ export class DshAgentSession {
         runId,
         turnId,
         idempotencyKey: `turn:${turnId}:start`,
-        event: { kind: "turn.started", turn: 1 },
+        event: { kind: "turn.started", turn },
       });
-      this.#publish(runId, { type: "turn_start", turnId, turn: 1 });
+      this.#publish(runId, { type: "turn_start", turnId, turn });
       this.#publish(runId, {
         type: "assistant_start",
         turnId,
@@ -388,8 +410,6 @@ export class DshAgentSession {
       sourceRuntime: "dsh",
       createdAt: Date.now(),
     };
-    const isFinalAnswer =
-      effectiveStop !== "toolUse" && this.#assistantToolCalls.length === 0;
     this.#store.appendSessionEvent({
       sessionId: this.#session.id,
       runtimeKind: "dsh",
@@ -402,9 +422,7 @@ export class DshAgentSession {
         message,
         stopReason: effectiveStop,
         usage: { input: 0, output: 0, totalTokens: 0, cost: 0 },
-        ...(isFinalAnswer && this.#contextUsage
-          ? { contextUsage: this.#contextUsage }
-          : {}),
+        ...(this.#contextUsage ? { contextUsage: this.#contextUsage } : {}),
       },
     });
     this.#buffer.commitMessage(this.#session.id, runId, turnId);
@@ -413,9 +431,7 @@ export class DshAgentSession {
       turnId,
       itemId: turnId,
       stopReason: effectiveStop,
-      ...(isFinalAnswer && this.#contextUsage
-        ? { contextUsage: this.#contextUsage }
-        : {}),
+      ...(this.#contextUsage ? { contextUsage: this.#contextUsage } : {}),
     });
     this.#assistantOpen = false;
     this.#assistantMessageId = null;
@@ -529,6 +545,7 @@ export class DshAgentSession {
         });
       }
       if (event.status === "running") {
+        await this.#captureToolFile(event.title, arguments_, event.kind);
         this.#store.appendSessionEvent({
           sessionId: this.#session.id,
           runtimeKind: "dsh",
@@ -577,6 +594,16 @@ export class DshAgentSession {
           isError: event.status === "failed",
           output: event.output ?? "",
         });
+        if (event.status !== "failed") {
+          await this.#emitToolChanges(
+            runId,
+            turnId,
+            event.callId,
+            event.title,
+            arguments_,
+            event.kind,
+          );
+        }
       }
     } else if (event.type === "permission") {
       await this.#handlePermission(event);
@@ -593,6 +620,76 @@ export class DshAgentSession {
       this.#store.setLifecycle(this.#session.id, "idle");
       this.#buffer.endRun(this.#session.id, runId);
     }
+  }
+
+  async #captureToolFile(
+    title: string,
+    input: Record<string, unknown>,
+    toolKind?: string,
+  ): Promise<void> {
+    if (!this.#changes || !isFileAffectingDshTool(title, toolKind)) return;
+    const userPath = resolveToolWorkspacePath(input, this.#workspaceRoot);
+    if (!userPath) return;
+    try {
+      await this.#changes.capture(userPath);
+    } catch {
+      /* 路径无效或文件不可读时跳过，避免阻断 tool 流程 */
+    }
+  }
+
+  async #emitToolChanges(
+    runId: string,
+    turnId: string,
+    callId: string,
+    title: string,
+    input: Record<string, unknown>,
+    toolKind?: string,
+  ): Promise<void> {
+    if (!this.#changes || !isFileAffectingDshTool(title, toolKind)) return;
+    const userPath = resolveToolWorkspacePath(input, this.#workspaceRoot);
+    if (userPath) {
+      try {
+        await this.#changes.capture(userPath);
+      } catch {
+        /* ignore */
+      }
+    }
+    let files;
+    try {
+      files = await Promise.all(
+        (await this.#changes.changedFiles()).map(async (file) => {
+          if (file.binary || file.sensitive || file.tooLarge) return file;
+          const diff = await this.#changes!.diff(file.path);
+          return diff ? { ...file, ...diffLineStats(diff.patch) } : file;
+        }),
+      );
+    } catch {
+      return;
+    }
+    if (files.length === 0) return;
+    for (const baseline of this.#changes.exportBaselines()) {
+      this.#store.saveBaseline(this.#session.id, baseline);
+    }
+    this.#store.appendSessionEvent({
+      sessionId: this.#session.id,
+      runtimeKind: "dsh",
+      runId,
+      turnId,
+      toolCallId: callId,
+      idempotencyKey: `changes:${callId}`,
+      event: {
+        kind: "changes.committed",
+        callId,
+        files,
+      },
+    });
+    this.#publish(runId, {
+      type: "changes",
+      turnId,
+      itemId: `${callId}:changes`,
+      callId,
+      files,
+    });
   }
 
   async #handlePermission(
