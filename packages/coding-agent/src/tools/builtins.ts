@@ -3,6 +3,7 @@ import type { AgentTool } from "@pi-ling/agent-core";
 
 import type { Workspace } from "../workspace/workspace.js";
 import { CommandRunner } from "./command-runner.js";
+import { createPlanTools } from "./meta-tools.js";
 
 export interface ChangeCapture {
   capture(path: string): Promise<void>;
@@ -218,5 +219,6 @@ export function createBuiltinTools(options: {
     editFile,
     deleteTool,
     runCommand,
+    ...createPlanTools(),
   ];
 }

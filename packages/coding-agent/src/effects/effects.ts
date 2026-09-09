@@ -23,6 +23,7 @@ export type Effect =
       cwd: string;
       classification: "harmless" | "normal" | "destructive";
     }
+  | { kind: "meta"; operation: "plan" | "todo" }
   | { kind: "unknown"; note: string };
 
 export type ApprovalMode = "manual" | "accept-write" | "auto";
@@ -130,6 +131,16 @@ export async function deriveEffect(
       classification: classifyCommand(command),
     };
   }
+  if (
+    call.name === "create_plan" ||
+    call.name === "update_plan" ||
+    call.name === "todo_write"
+  ) {
+    return {
+      kind: "meta",
+      operation: call.name === "todo_write" ? "todo" : "plan",
+    };
+  }
   return {
     kind: "unknown",
     note: `No effect derivation for tool ${call.name}`,
@@ -162,6 +173,9 @@ export function approvalReason(
   mode: ApprovalMode = "manual",
   call?: ToolCall,
 ): string | undefined {
+  if (effect.kind === "meta") {
+    return undefined;
+  }
   if (effect.kind === "unknown") {
     return effect.note;
   }

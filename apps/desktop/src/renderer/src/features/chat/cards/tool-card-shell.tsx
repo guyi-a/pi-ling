@@ -27,10 +27,15 @@ export function ToolCardShell(props: {
   item: ToolTimelineItem;
   children?: ReactNode;
   defaultOpen?: boolean;
+  keepCollapsed?: boolean;
+  disableExpand?: boolean;
+  hideRawDetails?: boolean;
 }) {
-  const { item, children, defaultOpen = false } = props;
+  const { item, children, defaultOpen = false, keepCollapsed = false } = props;
   const [open, setOpen] = useState(
-    defaultOpen || item.status === "failed" || Boolean(children),
+    keepCollapsed
+      ? false
+      : defaultOpen || item.status === "failed",
   );
   const StateIcon =
     item.status === "running"
@@ -44,9 +49,10 @@ export function ToolCardShell(props: {
             : null;
   const target = resolveToolTarget(item);
   const expandable =
-    Boolean(children) ||
-    Object.keys(item.arguments).length > 0 ||
-    Boolean(item.output);
+    !props.disableExpand &&
+    (Boolean(children) ||
+      Object.keys(item.arguments).length > 0 ||
+      Boolean(item.output));
 
   return (
     <div
@@ -76,7 +82,8 @@ export function ToolCardShell(props: {
       {open ? (
         <>
           {children ? <div className="tool-rich-body">{children}</div> : null}
-          {Object.keys(item.arguments).length > 0 || item.output ? (
+          {!props.hideRawDetails &&
+          (Object.keys(item.arguments).length > 0 || item.output) ? (
             <div className="tool-entry-details">
               {Object.keys(item.arguments).length > 0 ? (
                 <section>

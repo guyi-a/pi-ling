@@ -33,6 +33,7 @@
   --sidebar-width: 218px;
   --workbench-width: clamp(380px, 46vw, 860px);
   --content-width: 760px;
+  --message-scroll-cushion: 42vh;
   --titlebar-height: 30px;
   --pane-toolbar-height: 35px;
   --radius-sm: 3px;

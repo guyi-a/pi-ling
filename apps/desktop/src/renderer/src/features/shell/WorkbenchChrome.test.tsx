@@ -30,6 +30,7 @@ describe("workbench chrome", () => {
     expect(html).toContain("Changes");
     expect(html).toContain("Files");
     expect(html).toContain("Terminal");
+    expect(html).toContain("Plans");
     expect(html).toContain("Trace");
     expect(html).toContain("Eval");
   });

@@ -686,6 +686,20 @@ export class DshAgentSession {
         }),
       );
     }
+    const allowOption = event.options.find(
+      (option) =>
+        option.kind === "allow_once" || option.kind === "allow_always",
+    );
+    if (
+      event.title.trim().toLowerCase() === "exit_plan_mode" &&
+      allowOption
+    ) {
+      await this.#runtime.resolvePermission({
+        permissionId: event.permissionId,
+        optionId: allowOption.optionId,
+      });
+      return;
+    }
     const evaluation = evaluateDshApproval(
       {
         callId: event.callId,
@@ -695,10 +709,6 @@ export class DshAgentSession {
       },
       mode,
       this.#session.workspace.root,
-    );
-    const allowOption = event.options.find(
-      (option) =>
-        option.kind === "allow_once" || option.kind === "allow_always",
     );
     if (!evaluation.reason && allowOption) {
       await this.#runtime.resolvePermission({

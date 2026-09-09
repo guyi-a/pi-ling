@@ -32,6 +32,7 @@ import {
 } from "./attachments-store";
 import { MessageItem } from "./MessageItem";
 import { RunActivityBlock } from "./RunActivityBlock";
+import { TurnBlock } from "./TurnBlock";
 import { TurnChangesCard } from "./TurnChangesCard";
 import { RuntimePicker } from "./RuntimePicker";
 import {
@@ -127,7 +128,9 @@ export function ChatView(props: {
   const pendingApprovals = items
     .filter(
       (item): item is ApprovalTimelineItem =>
-        item.kind === "approval" && item.status === "pending",
+        item.kind === "approval" &&
+        item.status === "pending" &&
+        item.approval.tool.trim().toLowerCase() !== "exit_plan_mode",
     )
     .sort((left, right) => left.createdSeq - right.createdSeq);
 
@@ -229,17 +232,10 @@ export function ChatView(props: {
       ? { currentToolId: presentation.currentToolId }
       : {}),
   })) {
-    if (activity.user) {
-      rendered.push(
-        <MessageItem
-          item={activity.user}
-          workspaceRoot={workspaceRoot}
-          key={activity.user.id}
-        />,
-      );
-    }
+    const turnParts: ReactNode[] = [];
+
     if (activity.hasActivity) {
-      rendered.push(
+      turnParts.push(
         <RunActivityBlock
           activity={activity}
           displayText={presentation.textFor}
@@ -248,11 +244,12 @@ export function ChatView(props: {
         />,
       );
     }
+
     if (activity.finalAssistant) {
       const text = presentation.textFor(activity.finalAssistant);
       const complete = presentation.isComplete(activity.finalAssistant);
       if (text || complete) {
-        rendered.push(
+        turnParts.push(
           <MessageItem
             item={{
               ...activity.finalAssistant,
@@ -275,7 +272,7 @@ export function ChatView(props: {
         complete &&
         props.onReviewTurnChanges
       ) {
-        rendered.push(
+        turnParts.push(
           <TurnChangesCard
             files={turnFiles}
             onReview={() => props.onReviewTurnChanges?.(activity.runId)}
@@ -284,12 +281,26 @@ export function ChatView(props: {
         );
       }
     }
+
+    if (turnParts.length === 0 && !activity.user) continue;
+
+    rendered.push(
+      <TurnBlock
+        key={`${activity.runId}:turn`}
+        {...(activity.user ? { user: activity.user } : {})}
+        workspaceRoot={workspaceRoot}
+      >
+        {turnParts}
+      </TurnBlock>,
+    );
   }
 
   return (
     <section className="content" aria-label="会话">
       <div
-        className="message-list"
+        className={`message-list${
+          pendingApprovals.length > 0 ? " has-composer-overlay" : ""
+        }`}
         ref={scrollRef}
         onScroll={(event) => {
           const node = event.currentTarget;
@@ -348,11 +359,6 @@ export function ChatView(props: {
             disabled={!workspaceReady}
           />
           {sendError ? <div className="message-error">{sendError}</div> : null}
-          {!attachmentsEnabled && workspaceReady ? (
-            <div className="composer-hint">
-              图片附件仅 Native 运行时可读
-            </div>
-          ) : null}
           {runtimeError ? (
             <div className="message-error">
               {runtimeError}

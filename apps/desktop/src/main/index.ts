@@ -27,6 +27,21 @@ import type {
   WorkspaceFileContent,
 } from "@pi-ling/contracts";
 import { DshRuntimeAdapter } from "@pi-ling/dsh-runtime";
+
+import {
+  cancelEvalRun,
+  clearEvalTaskOverride,
+  compareEvalRuns,
+  getEvalSnapshot,
+  getEvalTaskDetail,
+  getEvalWorkbenchState,
+  openEvalCatalog,
+  runEvalSuite,
+  runEvalTask,
+  saveEvalTaskOverride,
+  validateEvalCatalog,
+  getEvalRunResults,
+} from "./eval-handlers.js";
 import {
   app,
   BrowserWindow,
@@ -85,6 +100,18 @@ const TERMINAL_INPUT_CHANNEL = "terminal:input";
 const TERMINAL_RESIZE_CHANNEL = "terminal:resize";
 const TERMINAL_KILL_CHANNEL = "terminal:kill";
 const ATTACHMENT_SAVE_IMAGE_CHANNEL = "attachment:save-image";
+const EVAL_SNAPSHOT_CHANNEL = "eval:snapshot";
+const EVAL_GET_STATE_CHANNEL = "eval:get-state";
+const EVAL_RUN_SUITE_CHANNEL = "eval:run-suite";
+const EVAL_RUN_TASK_CHANNEL = "eval:run-task";
+const EVAL_CANCEL_CHANNEL = "eval:cancel";
+const EVAL_COMPARE_CHANNEL = "eval:compare";
+const EVAL_TASK_DETAIL_CHANNEL = "eval:get-task-detail";
+const EVAL_SAVE_OVERRIDE_CHANNEL = "eval:save-task-override";
+const EVAL_CLEAR_OVERRIDE_CHANNEL = "eval:clear-task-override";
+const EVAL_OPEN_CATALOG_CHANNEL = "eval:open-catalog";
+const EVAL_VALIDATE_CATALOG_CHANNEL = "eval:validate-catalog";
+const EVAL_RUN_RESULTS_CHANNEL = "eval:get-run-results";
 const ATTACHMENT_PICK_IMAGES_CHANNEL = "attachment:pick-images";
 
 const windowThemeColors: Record<
@@ -789,6 +816,80 @@ ipcMain.handle(
     }
     return saved;
   },
+);
+
+ipcMain.handle(
+  EVAL_SNAPSHOT_CHANNEL,
+  async (): Promise<Awaited<ReturnType<typeof getEvalSnapshot>>> =>
+    getEvalSnapshot(),
+);
+
+ipcMain.handle(
+  EVAL_GET_STATE_CHANNEL,
+  async (event): Promise<Awaited<ReturnType<typeof getEvalWorkbenchState>>> =>
+    getEvalWorkbenchState(event.sender),
+);
+
+ipcMain.handle(
+  EVAL_RUN_SUITE_CHANNEL,
+  async (event, request): Promise<Awaited<ReturnType<typeof runEvalSuite>>> =>
+    runEvalSuite(event.sender, request),
+);
+
+ipcMain.handle(
+  EVAL_RUN_TASK_CHANNEL,
+  async (event, request): Promise<Awaited<ReturnType<typeof runEvalTask>>> =>
+    runEvalTask(event.sender, request),
+);
+
+ipcMain.handle(
+  EVAL_CANCEL_CHANNEL,
+  async (event): Promise<boolean> => cancelEvalRun(event.sender),
+);
+
+ipcMain.handle(
+  EVAL_COMPARE_CHANNEL,
+  async (_event, request): Promise<Awaited<ReturnType<typeof compareEvalRuns>>> =>
+    compareEvalRuns(request),
+);
+
+ipcMain.handle(
+  EVAL_TASK_DETAIL_CHANNEL,
+  async (_event, taskId: string): Promise<Awaited<ReturnType<typeof getEvalTaskDetail>>> =>
+    getEvalTaskDetail(taskId),
+);
+
+ipcMain.handle(
+  EVAL_SAVE_OVERRIDE_CHANNEL,
+  async (_event, request): Promise<Awaited<ReturnType<typeof saveEvalTaskOverride>>> =>
+    saveEvalTaskOverride(request),
+);
+
+ipcMain.handle(
+  EVAL_CLEAR_OVERRIDE_CHANNEL,
+  async (_event, taskId: string): Promise<Awaited<ReturnType<typeof clearEvalTaskOverride>>> =>
+    clearEvalTaskOverride(taskId),
+);
+
+ipcMain.handle(
+  EVAL_OPEN_CATALOG_CHANNEL,
+  async (): Promise<boolean> => openEvalCatalog(),
+);
+
+ipcMain.handle(
+  EVAL_VALIDATE_CATALOG_CHANNEL,
+  async (): Promise<Awaited<ReturnType<typeof validateEvalCatalog>>> =>
+    validateEvalCatalog(),
+);
+
+ipcMain.handle(
+  EVAL_RUN_RESULTS_CHANNEL,
+  async (
+    _event,
+    experiment: string,
+    variant: string,
+  ): Promise<Awaited<ReturnType<typeof getEvalRunResults>>> =>
+    getEvalRunResults(experiment, variant),
 );
 
 void app.whenReady().then(() => {

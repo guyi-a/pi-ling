@@ -101,6 +101,8 @@ export class CodingAgent {
           "Use the provided tools to inspect and modify the workspace.",
           "Never claim a file or command changed unless the tool succeeded.",
           "When the user message already includes image content, understand it directly and do not call read_image for the same image.",
+          "For multi-step work that needs user confirmation, call create_plan with a markdown plan and update_plan to revise it. After presenting the plan, stop and do not write files or run commands until the user Builds.",
+          "During execution runs, use todo_write to track steps. Use merge=true for incremental updates by id and keep at most one todo in_progress.",
         ].join("\n"),
         model: options.model,
         thinkingLevel: "high",

@@ -8,8 +8,13 @@ import {
 import { useEffect, useState } from "react";
 
 import type { AssistantTimelineItem } from "../../timeline/reducer";
+import { isPlanToolName } from "../plans/project-session-plans";
 import type { RunActivityModel } from "../../run-activity/types";
 import { activityPhaseLabel } from "../../run-activity/project-run-activity";
+import {
+  runTodoSummary,
+  todoStatusGlyph,
+} from "../../run-activity/project-run-todos";
 import { Markdown } from "./Markdown";
 import { ThinkingCard } from "./ThinkingCard";
 import { ToolCard } from "./ToolCard";
@@ -29,6 +34,7 @@ export function RunActivityBlock(props: {
     activity.counters.editedFiles.length === 0 &&
     activity.changes.length === 0;
   const [open, setOpen] = useState(Boolean(props.forceOpen || failed));
+  const [todosOpen, setTodosOpen] = useState(false);
 
   useEffect(() => {
     if (!active && !failed && !props.forceOpen) setOpen(false);
@@ -63,7 +69,8 @@ export function RunActivityBlock(props: {
     !open &&
     !active &&
     readOnlyToolRun &&
-    activity.tools.length > 0;
+    activity.tools.length > 0 &&
+    !activity.tools.some((tool) => isPlanToolName(tool.tool));
 
   return (
     <section
@@ -97,6 +104,37 @@ export function RunActivityBlock(props: {
             </span>
           ) : null}
         </button>
+      ) : null}
+
+      {activity.todos ? (
+        <>
+          <button
+            className="run-activity-todos-summary"
+            type="button"
+            aria-expanded={todosOpen}
+            onClick={() => setTodosOpen((current) => !current)}
+          >
+            <ChevronRight className="run-activity-chevron" />
+            <span className="run-activity-todos-summary-text">
+              {runTodoSummary(activity.todos)}
+            </span>
+          </button>
+          {todosOpen ? (
+            <ul className="run-activity-todos-list">
+              {activity.todos.todos.map((todo) => (
+                <li
+                  className={`run-activity-todo run-activity-todo-${todo.status}`}
+                  key={todo.id}
+                >
+                  <span className="run-activity-todo-glyph" aria-hidden="true">
+                    {todoStatusGlyph(todo.status)}
+                  </span>
+                  <span>{todo.content}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </>
       ) : null}
 
       {active ? (

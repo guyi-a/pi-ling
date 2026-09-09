@@ -497,6 +497,225 @@ export interface TerminalExitEvent {
   exitCode: number | null;
 }
 
+export interface EvalCatalogStats {
+  total: number;
+  enabled: number;
+  disabled: number;
+  baseline: number;
+  judged: number;
+}
+
+export interface EvalLedgerSummary {
+  total: number;
+  passed: number;
+  failed: number;
+  skipped: number;
+  errors: number;
+}
+
+export interface EvalPanelSnapshot {
+  stats: EvalCatalogStats;
+  ledger?: EvalLedgerSummary;
+  ledgerPath: string;
+}
+
+export interface EvalScoringPolicy {
+  forbidden_paths: string[];
+  max_changed_files: number;
+  max_added_lines: number;
+  max_deleted_lines: number;
+}
+
+export interface EvalJudgeSpec {
+  type: "llm";
+  target: string;
+  rubric: string;
+}
+
+export interface EvalTaskView {
+  id: string;
+  title: string;
+  description: string;
+  difficulty?: string;
+  enabled: boolean;
+  baselineIncluded: boolean;
+  hasJudge: boolean;
+  promptPreview: string;
+  hasLocalOverride: boolean;
+}
+
+export interface EvalTaskDetail extends EvalTaskView {
+  prompt: string;
+  fixtureFiles: string[];
+  fixtureCommand: string;
+  verify: { name: string; command: string }[];
+  scoring: EvalScoringPolicy;
+  judge?: EvalJudgeSpec;
+}
+
+export interface EvalSuiteRunSummary {
+  experiment: string;
+  variant: string;
+  driver: string;
+  runtime?: string;
+  startedAt: string;
+  finishedAt: string;
+  total: number;
+  passed: number;
+  failed: number;
+  skipped: number;
+  errors: number;
+}
+
+export interface EvalRunResultView {
+  taskId: string;
+  title: string;
+  status: "passed" | "failed" | "skipped" | "error";
+  durationMs: number;
+  verifyPassed: number;
+  verifyTotal: number;
+  violations: string[];
+  toolCalls?: number;
+  judgeScore?: number;
+  judgeRationale?: string;
+  judgeError?: string;
+  error?: string;
+  verifyDetails: {
+    name: string;
+    exitCode: number;
+    stdout?: string;
+    stderr?: string;
+  }[];
+}
+
+export interface EvalLatestRun {
+  experiment: string;
+  variant: string;
+  results: EvalRunResultView[];
+}
+
+export interface EvalActiveRun {
+  runId: string;
+  index: number;
+  total: number;
+  taskId: string;
+  status: "running" | "cancelling";
+}
+
+export interface EvalWorkbenchState {
+  stats: EvalCatalogStats;
+  dataDir: string;
+  ledgerPath: string;
+  catalogPath: string;
+  overridesPath: string;
+  tasks: EvalTaskView[];
+  runs: EvalSuiteRunSummary[];
+  latestRun?: EvalLatestRun;
+  activeRun?: EvalActiveRun;
+  suggestedCompare?: EvalCompareRequest;
+}
+
+export interface EvalRunSuiteRequest {
+  driver: "reference" | "agent" | "noop";
+  runtime: "native" | "dsh";
+  scope: "baseline" | "full" | "selected";
+  taskIds?: string[];
+  variantLabel?: string;
+  judgeMode?: "auto" | "on" | "off";
+}
+
+export interface EvalRunTaskRequest {
+  taskId: string;
+  driver: "reference" | "agent";
+  runtime: "native" | "dsh";
+  variantLabel?: string;
+  judgeMode?: "auto" | "on" | "off";
+}
+
+export interface EvalRunAccepted {
+  runId: string;
+  experiment: string;
+  variant: string;
+}
+
+export interface EvalSuiteProgressEvent {
+  runId: string;
+  phase: "task-start" | "task-done" | "suite-done" | "suite-error";
+  index: number;
+  total: number;
+  taskId: string;
+  result?: EvalRunResultView;
+  error?: string;
+}
+
+export interface EvalCompareRequest {
+  experiment: string;
+  baselineVariant: string;
+  candidateVariant: string;
+  baselineRuntime?: string;
+  candidateRuntime?: string;
+}
+
+export interface EvalMeanDelta {
+  baseline: number;
+  candidate: number;
+  delta: number;
+}
+
+export interface EvalMetricsComparison {
+  duration_ms: EvalMeanDelta;
+  tool_calls: EvalMeanDelta;
+  validation_calls: EvalMeanDelta;
+  completion_gate_runs: EvalMeanDelta;
+  approval_interrupts: EvalMeanDelta;
+  judge_score: EvalMeanDelta;
+  judge_pairs: number;
+}
+
+export interface EvalComparisonSummary {
+  experiment: string;
+  baseline: string;
+  candidate: string;
+  baseline_samples: number;
+  candidate_samples: number;
+  pairs: number;
+  baseline_pass_rate: number;
+  candidate_pass_rate: number;
+  pass_rate_lift: number;
+  metrics: EvalMetricsComparison;
+  diagnostics: string[];
+}
+
+export interface EvalTaskComparisonRow {
+  taskId: string;
+  title: string;
+  baselineStatus: "passed" | "failed" | "skipped" | "error" | "missing";
+  candidateStatus: "passed" | "failed" | "skipped" | "error" | "missing";
+  statusChanged: boolean;
+  durationDeltaMs?: number;
+  toolCallsDelta?: number;
+  violations?: string[];
+}
+
+export interface EvalCompareView {
+  summary: EvalComparisonSummary;
+  taskRows: EvalTaskComparisonRow[];
+}
+
+export interface EvalTaskOverrideRequest {
+  taskId: string;
+  enabled?: boolean;
+  prompt?: string;
+  disabledReason?: string;
+  baselineIncluded?: boolean;
+}
+
+export interface EvalValidateCatalogResult {
+  valid: boolean;
+  message: string;
+  stats?: EvalCatalogStats;
+}
+
 export interface DesktopApi {
   getAppInfo(): Promise<AppInfo>;
   getAgentStatus(): Promise<AgentStatus>;
@@ -539,4 +758,22 @@ export interface DesktopApi {
   onTerminalExit(listener: (event: TerminalExitEvent) => void): () => void;
   onTimelineEvent(listener: (event: TimelineEnvelope) => void): () => void;
   onStreamFrame(listener: (frame: StreamFrameEnvelope) => void): () => void;
+  getEvalSnapshot(): Promise<EvalPanelSnapshot>;
+  getEvalState(): Promise<EvalWorkbenchState>;
+  runEvalSuite(request: EvalRunSuiteRequest): Promise<EvalRunAccepted>;
+  runEvalTask(request: EvalRunTaskRequest): Promise<EvalRunAccepted>;
+  cancelEvalRun(): Promise<boolean>;
+  compareEvalRuns(request: EvalCompareRequest): Promise<EvalCompareView>;
+  getEvalTaskDetail(taskId: string): Promise<EvalTaskDetail>;
+  saveEvalTaskOverride(
+    request: EvalTaskOverrideRequest,
+  ): Promise<EvalWorkbenchState>;
+  clearEvalTaskOverride(taskId: string): Promise<EvalWorkbenchState>;
+  openEvalCatalog(): Promise<boolean>;
+  validateEvalCatalog(): Promise<EvalValidateCatalogResult>;
+  getEvalRunResults(
+    experiment: string,
+    variant: string,
+  ): Promise<EvalRunResultView[]>;
+  onEvalProgress(listener: (event: EvalSuiteProgressEvent) => void): () => void;
 }

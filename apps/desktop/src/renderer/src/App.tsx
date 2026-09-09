@@ -36,6 +36,14 @@ import {
 } from "./features/details/changes-source";
 import { lastAgentTurnChanges, changesFilesByRunId } from "./run-activity/run-changes";
 import { bindChangesNavigation } from "./features/details/changes-navigation";
+import { bindPlansNavigation } from "./features/plans/plans-navigation";
+import {
+  buildPlanPrompt,
+  resolvePlanBuildRuns,
+  writePlanBuildRun,
+} from "./features/plans/plan-build-runs";
+import { findPlanReadyForBuild } from "./features/plans/project-session-plans";
+import type { SessionPlan } from "./features/plans/types";
 import { applyTheme, readInitialTheme } from "./theme";
 import type { ApprovalTimelineItem } from "./timeline/reducer";
 import {
@@ -138,8 +146,14 @@ export function App() {
   const [changesLoading, setChangesLoading] = useState(true);
   const [reviewRunId, setReviewRunId] = useState<string | null>(null);
   const [requestedWorkbenchTab, setRequestedWorkbenchTab] = useState<
-    "files" | "changes" | "terminal" | "trace" | "eval" | null
+    "files" | "changes" | "terminal" | "plans" | "trace" | "eval" | null
   >(null);
+  const [plansFocusRunId, setPlansFocusRunId] = useState<string | null>(null);
+  const [planBuildPending, setPlanBuildPending] = useState(false);
+  const [planBuildRuns, setPlanBuildRuns] = useState<Map<string, string>>(
+    () => new Map(),
+  );
+  const seenPlanReadyKeysRef = useRef(new Set<string>());
   const [rightPanelWidth, setRightPanelWidth] = useState<number | null>(() => {
     const stored = localStorage.getItem("pi-ling.workbench.width");
     if (!stored) return null;
@@ -400,6 +414,49 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => {
+    bindPlansNavigation({
+      activatePlansTab: (runId) => {
+        if (runId) setPlansFocusRunId(runId);
+        setRightPanelOpen(true);
+        setRequestedWorkbenchTab("plans");
+      },
+    });
+    return () => {
+      bindPlansNavigation({
+        activatePlansTab: () => {},
+      });
+    };
+  }, []);
+
+  useEffect(() => {
+    seenPlanReadyKeysRef.current.clear();
+    setPlansFocusRunId(null);
+    setPlanBuildPending(false);
+  }, [timeline.sessionId]);
+
+  useEffect(() => {
+    setPlanBuildRuns(
+      resolvePlanBuildRuns(timeline.sessionId, timeline.items),
+    );
+  }, [timeline.sessionId, timeline.items]);
+
+  useEffect(() => {
+    const ready = findPlanReadyForBuild({
+      items: timeline.items,
+      runs: timeline.runs,
+      runtimeKind: status?.runtimeKind ?? "native",
+      buildRunByPlanRunId: planBuildRuns,
+    });
+    if (!ready) return;
+    const key = `${ready.runId}:${ready.callId}`;
+    if (seenPlanReadyKeysRef.current.has(key)) return;
+    seenPlanReadyKeysRef.current.add(key);
+    setPlansFocusRunId(ready.runId);
+    setRightPanelOpen(true);
+    setRequestedWorkbenchTab("plans");
+  }, [timeline.items, timeline.runs, status?.runtimeKind, planBuildRuns]);
+
   const workspaceRoot = status?.workspace?.root;
 
   useEffect(() => {
@@ -469,8 +526,9 @@ export function App() {
   async function sendPrompt(
     prompt: string,
     attachments?: PromptAttachment[],
+    requestId?: string,
   ) {
-    const runId = crypto.randomUUID();
+    const runId = requestId ?? crypto.randomUUID();
     setPendingRunId(runId);
     try {
       await window.piLing.sendPrompt({
@@ -496,6 +554,48 @@ export function App() {
       ...(!approved ? { reason: "Denied by user" } : {}),
     });
   }
+
+  const resolvePlanDecision = useCallback(
+    async (plan: SessionPlan, approved: boolean) => {
+      if (!plan.pendingApproval) return;
+      const approval = timeline.items.find(
+        (item): item is ApprovalTimelineItem =>
+          item.kind === "approval" &&
+          item.id === plan.pendingApproval?.approvalItemId &&
+          item.status === "pending",
+      );
+      if (!approval) return;
+      setPlanBuildPending(true);
+      try {
+        await decide(approval, approved);
+      } finally {
+        setPlanBuildPending(false);
+      }
+    },
+    [timeline.items],
+  );
+
+  const handlePlanBuild = useCallback(
+    async (plan: SessionPlan) => {
+      const runtimeKind = status?.runtimeKind ?? "native";
+      if (runtimeKind === "dsh") {
+        await resolvePlanDecision(plan, true);
+        return;
+      }
+      if (plan.status !== "ready" || !timeline.sessionId) return;
+      const buildRunId = crypto.randomUUID();
+      setPlanBuildPending(true);
+      try {
+        setPlanBuildRuns(
+          writePlanBuildRun(timeline.sessionId, plan.runId, buildRunId),
+        );
+        await sendPrompt(buildPlanPrompt(plan.markdown), undefined, buildRunId);
+      } finally {
+        setPlanBuildPending(false);
+      }
+    },
+    [resolvePlanDecision, status?.runtimeKind, timeline.sessionId],
+  );
 
   const sessions = workspaces.flatMap((workspace) => workspace.sessions);
   const activeSession = sessions.find(
@@ -747,9 +847,22 @@ export function App() {
                 traceEvents={traceEvents}
                 traceRuns={timeline.runs}
                 traceActiveRunId={activeRunId}
+                plansSessionId={timeline.sessionId}
+                plansItems={timeline.items}
+                plansRuns={timeline.runs}
+                plansActiveRunId={activeRunId}
+                plansFocusRunId={plansFocusRunId}
+                plansRuntimeKind={status?.runtimeKind ?? "native"}
+                planBuildRuns={planBuildRuns}
+                onBuildPlan={(plan) => void handlePlanBuild(plan)}
+                onCancelPlan={(plan) => void resolvePlanDecision(plan, false)}
+                planBuildPending={planBuildPending}
                 streaming={Boolean(activeRunId)}
                 requestedTab={requestedWorkbenchTab}
-                onRequestedTabApplied={() => setRequestedWorkbenchTab(null)}
+                onRequestedTabApplied={() => {
+                  setRequestedWorkbenchTab(null);
+                  setPlansFocusRunId(null);
+                }}
               />
             ) : null}
           </>

@@ -1,0 +1,44 @@
+{
+  "name": "@pi-ling/coding-eval",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "coding-eval": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./dist/index.js"
+    },
+    "./manifest": {
+      "types": "./src/manifest.ts",
+      "import": "./dist/manifest.js"
+    },
+    "./ledger": {
+      "types": "./src/ledger.ts",
+      "import": "./dist/ledger.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "validate": "node dist/cli.js validate",
+    "run-suite": "node dist/cli.js run-suite",
+    "compare": "node dist/cli.js compare",
+    "summary": "node dist/cli.js summary"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "0.85.0",
+    "@pi-ling/coding-agent": "workspace:*",
+    "@pi-ling/dsh-runtime": "workspace:*",
+    "@pi-ling/runtime-contracts": "workspace:*",
+    "minimatch": "10.2.4"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "typescript": "7.0.2",
+    "vitest": "4.1.9"
+  }
+}

@@ -14,7 +14,8 @@ import { FilesPanel } from "../files/FilesPanel";
 import { bindFilesTabActivator, useFilesStore } from "../files/store";
 import { TerminalEmptyState } from "../terminal/TerminalEmptyState";
 
-import type { TimelineRun } from "../../timeline/reducer";
+import type { TimelineItem, TimelineRun } from "../../timeline/reducer";
+import type { SessionPlan } from "../plans/types";
 
 const TerminalPanel = lazy(() =>
   import("../terminal/TerminalView").then((module) => ({
@@ -25,6 +26,18 @@ const TerminalPanel = lazy(() =>
 const TracePanel = lazy(() =>
   import("../trace/TraceView").then((module) => ({
     default: module.TracePanel,
+  })),
+);
+
+const PlansPanel = lazy(() =>
+  import("../plans/PlansView").then((module) => ({
+    default: module.PlansPanel,
+  })),
+);
+
+const EvalPanel = lazy(() =>
+  import("../eval/EvalPanel").then((module) => ({
+    default: module.EvalPanel,
   })),
 );
 
@@ -108,6 +121,11 @@ const workbenchTabs = [
     description: "Terminal sessions will open in this pane.",
   },
   {
+    id: "plans",
+    label: "Plans",
+    description: "Agent plans will appear here.",
+  },
+  {
     id: "trace",
     label: "Trace",
     description: "Run events and model calls will appear here.",
@@ -115,7 +133,7 @@ const workbenchTabs = [
   {
     id: "eval",
     label: "Eval",
-    description: "Run evaluation will be added in a later phase.",
+    description: "Regression eval catalog and ledger summary.",
   },
 ] as const;
 
@@ -143,6 +161,16 @@ export function WorkbenchPanel(props: {
   traceEvents?: TimelineEnvelope[];
   traceRuns?: Record<string, TimelineRun>;
   traceActiveRunId?: string | null;
+  plansSessionId?: string | null;
+  plansItems?: TimelineItem[];
+  plansRuns?: Record<string, TimelineRun>;
+  plansActiveRunId?: string | null;
+  plansFocusRunId?: string | null;
+  plansRuntimeKind?: RuntimeKind;
+  planBuildRuns?: ReadonlyMap<string, string>;
+  onBuildPlan?: (plan: SessionPlan) => void;
+  onCancelPlan?: (plan: SessionPlan) => void;
+  planBuildPending?: boolean;
   streaming?: boolean;
   initialTab?: WorkbenchTab;
   requestedTab?: WorkbenchTab | null;
@@ -157,6 +185,12 @@ export function WorkbenchPanel(props: {
   const [traceMounted, setTraceMounted] = useState(
     () => activeTab === "trace",
   );
+  const [plansMounted, setPlansMounted] = useState(
+    () => activeTab === "plans",
+  );
+  const [evalMounted, setEvalMounted] = useState(
+    () => activeTab === "eval",
+  );
   const active = workbenchTabs.find((tab) => tab.id === activeTab)!;
 
   useEffect(() => {
@@ -165,6 +199,14 @@ export function WorkbenchPanel(props: {
 
   useEffect(() => {
     if (activeTab === "trace") setTraceMounted(true);
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab === "plans") setPlansMounted(true);
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab === "eval") setEvalMounted(true);
   }, [activeTab]);
 
   useEffect(() => {
@@ -199,7 +241,9 @@ export function WorkbenchPanel(props: {
     activeTab !== "files" &&
     activeTab !== "changes" &&
     activeTab !== "terminal" &&
-    activeTab !== "trace";
+    activeTab !== "plans" &&
+    activeTab !== "trace" &&
+    activeTab !== "eval";
 
   return (
     <aside className="workbench-panel" aria-label="Workbench">
@@ -266,6 +310,24 @@ export function WorkbenchPanel(props: {
             />
           </Suspense>
         ) : null}
+        {plansMounted ? (
+          <Suspense fallback={null}>
+            <PlansPanel
+              key={props.plansSessionId ?? "no-session"}
+              sessionId={props.plansSessionId ?? null}
+              items={props.plansItems ?? []}
+              runs={props.plansRuns ?? {}}
+              activeRunId={props.plansActiveRunId ?? null}
+              focusRunId={props.plansFocusRunId ?? null}
+              active={activeTab === "plans"}
+              runtimeKind={props.plansRuntimeKind ?? "native"}
+              buildRunByPlanRunId={props.planBuildRuns}
+              onBuild={props.onBuildPlan}
+              onCancelPlan={props.onCancelPlan}
+              buildPending={props.planBuildPending}
+            />
+          </Suspense>
+        ) : null}
         {traceMounted ? (
           <Suspense fallback={null}>
             <TracePanel
@@ -276,6 +338,11 @@ export function WorkbenchPanel(props: {
               activeRunId={props.traceActiveRunId ?? null}
               active={activeTab === "trace"}
             />
+          </Suspense>
+        ) : null}
+        {evalMounted ? (
+          <Suspense fallback={null}>
+            <EvalPanel />
           </Suspense>
         ) : null}
       </div>

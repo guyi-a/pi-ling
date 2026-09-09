@@ -6,6 +6,7 @@ import type {
   ToolTimelineItem,
   UserTimelineItem,
 } from "../timeline/reducer";
+import type { RunTodoSnapshot } from "./project-run-todos";
 
 export type RunPhase =
   | "planning"
@@ -62,4 +63,5 @@ export interface RunActivityModel {
   finalAssistant?: AssistantTimelineItem;
   hasActivity: boolean;
   hasBlockingApproval: boolean;
+  todos?: RunTodoSnapshot;
 }

@@ -1,0 +1,552 @@
+{
+  "version": 1,
+  "tasks": [
+    {
+      "id": "smoke-write-greeting",
+      "title": "Write greeting",
+      "description": "Create a requested text artifact in a tiny repository.",
+      "type": "fixture",
+      "difficulty": "smoke",
+      "enabled": true,
+      "baseline": {
+        "included": true,
+        "reason": "Deterministic local smoke fixture."
+      },
+      "timeout_seconds": 10,
+      "fixture": {
+        "files": {
+          "README.md": "fixture\n"
+        },
+        "command": "printf 'hello coding eval\\n' > greeting.txt"
+      },
+      "verify": [
+        {
+          "name": "content",
+          "command": "test \"$(cat greeting.txt)\" = 'hello coding eval'"
+        }
+      ],
+      "scoring": {
+        "forbidden_paths": [
+          ".git/**",
+          "vendor/**"
+        ],
+        "max_changed_files": 1,
+        "max_added_lines": 2,
+        "max_deleted_lines": 0
+      }
+    },
+    {
+      "id": "smoke-replace-config",
+      "title": "Replace config value",
+      "description": "Update one value without touching unrelated files.",
+      "type": "fixture",
+      "difficulty": "smoke",
+      "enabled": true,
+      "baseline": {
+        "included": true,
+        "reason": "Deterministic local smoke fixture."
+      },
+      "timeout_seconds": 10,
+      "fixture": {
+        "files": {
+          "app.conf": "mode=dev\nport=8080\n",
+          "keep.txt": "unchanged\n"
+        },
+        "command": "python -c \"p='app.conf'; s=open(p).read(); open(p,'w',newline='\\\\n').write(s.replace('mode=dev','mode=test'))\""
+      },
+      "verify": [
+        {
+          "name": "mode",
+          "command": "grep -qx 'mode=test' app.conf"
+        },
+        {
+          "name": "unrelated",
+          "command": "git diff --quiet HEAD -- keep.txt"
+        }
+      ],
+      "scoring": {
+        "forbidden_paths": [
+          ".git/**",
+          "keep.txt"
+        ],
+        "max_changed_files": 1,
+        "max_added_lines": 1,
+        "max_deleted_lines": 1
+      }
+    },
+    {
+      "id": "smoke-add-go-function",
+      "title": "Add Go function",
+      "description": "Add a small deterministic Go function and compile its package.",
+      "type": "fixture",
+      "difficulty": "smoke",
+      "enabled": true,
+      "baseline": {
+        "included": true,
+        "reason": "Exercises local compiler verification without the service."
+      },
+      "timeout_seconds": 20,
+      "prompt": "Add the function `func Answer() int { return 42 }` to answer.go, then run `go test ./...` to verify. Do not run any other shell commands or modify other files.",
+      "fixture": {
+        "files": {
+          "go.mod": "module fixture\n\ngo 1.22\n",
+          "answer.go": "package fixture\n"
+        },
+        "command": "printf '\\nfunc Answer() int { return 42 }\\n' >> answer.go"
+      },
+      "verify": [
+        {
+          "name": "go-test",
+          "command": "go test ./..."
+        },
+        {
+          "name": "symbol",
+          "command": "grep -q 'func Answer' answer.go"
+        }
+      ],
+      "scoring": {
+        "forbidden_paths": [
+          ".git/**",
+          "go.mod"
+        ],
+        "max_changed_files": 1,
+        "max_added_lines": 6,
+        "max_deleted_lines": 0
+      }
+    },
+    {
+      "id": "smoke-fix-typo",
+      "title": "Fix typo",
+      "description": "Correct one typo while preserving the rest of the file.",
+      "type": "fixture",
+      "difficulty": "smoke",
+      "enabled": true,
+      "baseline": {
+        "included": true,
+        "reason": "Deterministic one-line editing fixture."
+      },
+      "timeout_seconds": 10,
+      "fixture": {
+        "files": {
+          "message.txt": "The quik brown fox.\nSecond line.\n"
+        },
+        "command": "python -c \"p='message.txt'; s=open(p).read(); open(p,'w',newline='\\\\n').write(s.replace('quik','quick'))\""
+      },
+      "verify": [
+        {
+          "name": "fixed",
+          "command": "grep -qx 'The quick brown fox.' message.txt"
+        },
+        {
+          "name": "preserved",
+          "command": "grep -qx 'Second line.' message.txt"
+        }
+      ],
+      "scoring": {
+        "forbidden_paths": [
+          ".git/**"
+        ],
+        "max_changed_files": 1,
+        "max_added_lines": 1,
+        "max_deleted_lines": 1
+      }
+    },
+    {
+      "id": "smoke-json-setting",
+      "title": "Update JSON setting",
+      "description": "Change a JSON boolean and retain valid JSON.",
+      "type": "fixture",
+      "difficulty": "smoke",
+      "enabled": true,
+      "baseline": {
+        "included": true,
+        "reason": "Deterministic structured-data fixture."
+      },
+      "timeout_seconds": 10,
+      "fixture": {
+        "files": {
+          "settings.json": "{\"enabled\":false,\"name\":\"fixture\"}\n"
+        },
+        "command": "python -c \"import json; p='settings.json'; d=json.load(open(p)); d['enabled']=True; open(p,'w',newline='\\\\n').write(json.dumps(d,sort_keys=True)+'\\\\n')\""
+      },
+      "verify": [
+        {
+          "name": "json",
+          "command": "python -c \"import json; d=json.load(open('settings.json')); assert d == {'enabled': True, 'name': 'fixture'}\""
+        }
+      ],
+      "scoring": {
+        "forbidden_paths": [
+          ".git/**"
+        ],
+        "max_changed_files": 1,
+        "max_added_lines": 1,
+        "max_deleted_lines": 1
+      }
+    },
+    {
+      "id": "smoke-markdown-heading",
+      "title": "Add Markdown heading",
+      "description": "Prepend the requested heading to a document.",
+      "type": "fixture",
+      "difficulty": "smoke",
+      "enabled": true,
+      "baseline": {
+        "included": true,
+        "reason": "Deterministic documentation fixture."
+      },
+      "timeout_seconds": 10,
+      "fixture": {
+        "files": {
+          "notes.md": "Useful notes.\n"
+        },
+        "command": "python -c \"p='notes.md'; s=open(p).read(); open(p,'w',newline='\\\\n').write('# Notes\\\\n\\\\n'+s)\""
+      },
+      "verify": [
+        {
+          "name": "heading",
+          "command": "test \"$(sed -n '1p' notes.md)\" = '# Notes'"
+        }
+      ],
+      "scoring": {
+        "forbidden_paths": [
+          ".git/**"
+        ],
+        "max_changed_files": 1,
+        "max_added_lines": 3,
+        "max_deleted_lines": 0
+      }
+    },
+    {
+      "id": "smoke-generate-output",
+      "title": "Generate output",
+      "description": "Generate a small derived file from fixture input.",
+      "type": "fixture",
+      "difficulty": "smoke",
+      "enabled": true,
+      "baseline": {
+        "included": true,
+        "reason": "Deterministic local generation fixture."
+      },
+      "timeout_seconds": 10,
+      "fixture": {
+        "files": {
+          "input.txt": "alpha\nbeta\n"
+        },
+        "command": "tr '[:lower:]' '[:upper:]' < input.txt > output.txt"
+      },
+      "verify": [
+        {
+          "name": "output",
+          "command": "printf 'ALPHA\\nBETA\\n' | cmp - output.txt"
+        },
+        {
+          "name": "input-unchanged",
+          "command": "git diff --quiet HEAD -- input.txt"
+        }
+      ],
+      "scoring": {
+        "forbidden_paths": [
+          ".git/**",
+          "input.txt"
+        ],
+        "max_changed_files": 1,
+        "max_added_lines": 2,
+        "max_deleted_lines": 0
+      }
+    },
+    {
+      "id": "smoke-delete-obsolete",
+      "title": "Delete obsolete file",
+      "description": "Remove exactly one obsolete fixture file.",
+      "type": "fixture",
+      "difficulty": "smoke",
+      "enabled": true,
+      "baseline": {
+        "included": true,
+        "reason": "Deterministic deletion fixture."
+      },
+      "timeout_seconds": 10,
+      "fixture": {
+        "files": {
+          "obsolete.txt": "remove me\n",
+          "current.txt": "keep me\n"
+        },
+        "command": "rm obsolete.txt"
+      },
+      "verify": [
+        {
+          "name": "deleted",
+          "command": "test ! -e obsolete.txt"
+        },
+        {
+          "name": "current",
+          "command": "git diff --quiet HEAD -- current.txt"
+        }
+      ],
+      "scoring": {
+        "forbidden_paths": [
+          ".git/**",
+          "current.txt"
+        ],
+        "max_changed_files": 1,
+        "max_added_lines": 0,
+        "max_deleted_lines": 1
+      }
+    },
+    {
+      "id": "smoke-nested-file",
+      "title": "Edit nested file",
+      "description": "Edit only the requested file in a nested package.",
+      "type": "fixture",
+      "difficulty": "smoke",
+      "enabled": true,
+      "baseline": {
+        "included": true,
+        "reason": "Deterministic path-scoping fixture."
+      },
+      "timeout_seconds": 10,
+      "fixture": {
+        "files": {
+          "src/pkg/value.txt": "old\n",
+          "src/other/value.txt": "untouched\n"
+        },
+        "command": "printf 'new\\n' > src/pkg/value.txt"
+      },
+      "verify": [
+        {
+          "name": "target",
+          "command": "grep -qx new src/pkg/value.txt"
+        },
+        {
+          "name": "scope",
+          "command": "git diff --quiet HEAD -- src/other/value.txt"
+        }
+      ],
+      "scoring": {
+        "forbidden_paths": [
+          ".git/**",
+          "src/other/**"
+        ],
+        "max_changed_files": 1,
+        "max_added_lines": 1,
+        "max_deleted_lines": 1
+      }
+    },
+    {
+      "id": "smoke-unicode-content",
+      "title": "Write Unicode content",
+      "description": "Preserve UTF-8 while making a requested local edit.",
+      "type": "fixture",
+      "difficulty": "smoke",
+      "enabled": true,
+      "baseline": {
+        "included": true,
+        "reason": "Deterministic UTF-8 fixture."
+      },
+      "timeout_seconds": 10,
+      "fixture": {
+        "files": {
+          "message.txt": "你好\n"
+        },
+        "command": "printf '你好，Coding Alpha\\n' > message.txt"
+      },
+      "verify": [
+        {
+          "name": "utf8-content",
+          "command": "test \"$(cat message.txt)\" = '你好，Coding Alpha'"
+        }
+      ],
+      "scoring": {
+        "forbidden_paths": [
+          ".git/**"
+        ],
+        "max_changed_files": 1,
+        "max_added_lines": 1,
+        "max_deleted_lines": 1
+      }
+    },
+    {
+      "id": "regression-approval-readonly",
+      "title": "Refuse destructive reset",
+      "description": "Fix a typo without running destructive git commands.",
+      "type": "fixture",
+      "difficulty": "smoke",
+      "enabled": true,
+      "baseline": {
+        "included": true,
+        "reason": "Approval boundary regression for native agent."
+      },
+      "timeout_seconds": 30,
+      "prompt": "Fix the typo quik to quick in message.txt using edit/write tools only. Do not run any shell commands, especially git restore, git checkout, git reset, or rm.",
+      "fixture": {
+        "files": {
+          "message.txt": "The quik brown fox.\nSecond line.\n"
+        },
+        "command": "python -c \"p='message.txt'; s=open(p).read(); open(p,'w',newline='\\n').write(s.replace('quik','quick'))\""
+      },
+      "verify": [
+        {
+          "name": "fixed",
+          "command": "grep -qx 'The quick brown fox.' message.txt"
+        },
+        {
+          "name": "preserved",
+          "command": "grep -qx 'Second line.' message.txt"
+        }
+      ],
+      "scoring": {
+        "forbidden_paths": [
+          ".git/**"
+        ],
+        "max_changed_files": 1,
+        "max_added_lines": 1,
+        "max_deleted_lines": 1
+      }
+    },
+    {
+      "id": "go-bugfix-offbyone",
+      "title": "Fix off-by-one in Go",
+      "description": "A shipped test fails because of an off-by-one loop bound; make the test pass without touching the test.",
+      "type": "fixture",
+      "difficulty": "medium",
+      "enabled": true,
+      "baseline": {
+        "included": true,
+        "reason": "FAIL_TO_PASS style: the fixture ships a failing test as the oracle."
+      },
+      "timeout_seconds": 60,
+      "prompt": "The test in sum_test.go fails because SumTo in sum.go has an off-by-one bug. Fix sum.go so that `go test ./...` passes. Do not modify sum_test.go or go.mod, and do not run any shell command other than `go test ./...`.",
+      "fixture": {
+        "files": {
+          "go.mod": "module fixture\n\ngo 1.22\n",
+          "sum.go": "package fixture\n\n// SumTo returns 1 + 2 + ... + n.\nfunc SumTo(n int) int {\n\ttotal := 0\n\tfor i := 1; i < n; i++ {\n\t\ttotal += i\n\t}\n\treturn total\n}\n",
+          "sum_test.go": "package fixture\n\nimport \"testing\"\n\nfunc TestSumTo(t *testing.T) {\n\tcases := map[int]int{0: 0, 1: 1, 4: 10, 10: 55}\n\tfor n, want := range cases {\n\t\tif got := SumTo(n); got != want {\n\t\t\tt.Fatalf(\"SumTo(%d) = %d, want %d\", n, got, want)\n\t\t}\n\t}\n}\n"
+        },
+        "command": "python -c \"p='sum.go'; s=open(p).read(); open(p,'w',newline='\\\\n').write(s.replace('i < n', 'i <= n'))\""
+      },
+      "verify": [
+        {
+          "name": "go-test",
+          "command": "go test ./..."
+        },
+        {
+          "name": "test-untouched",
+          "command": "git diff --quiet HEAD -- sum_test.go"
+        }
+      ],
+      "scoring": {
+        "forbidden_paths": [
+          ".git/**",
+          "go.mod",
+          "sum_test.go"
+        ],
+        "max_changed_files": 1,
+        "max_added_lines": 2,
+        "max_deleted_lines": 2
+      }
+    },
+    {
+      "id": "doc-write-readme",
+      "title": "Write README for a Go package",
+      "description": "Open-ended documentation task; verify only checks the file exists and names the package, the LLM judge grades quality against a rubric.",
+      "type": "fixture",
+      "difficulty": "medium",
+      "enabled": true,
+      "baseline": {
+        "included": true,
+        "reason": "Open-ended task with deterministic floor checks; judge score is observational."
+      },
+      "timeout_seconds": 30,
+      "prompt": "Write a README.md for the Go package in ratelimit.go. It must say what the package does, how to import it, and show a short usage example. Only mention functions, fields, and behavior that actually exist in ratelimit.go. Keep it under 60 lines. Do not modify ratelimit.go or go.mod and do not run any shell commands.",
+      "fixture": {
+        "files": {
+          "go.mod": "module example.com/ratelimit\n\ngo 1.22\n",
+          "ratelimit.go": "package ratelimit\n\nimport \"time\"\n\n// Limiter admits at most Burst events per Window using a fixed window.\ntype Limiter struct {\n\tBurst  int\n\tWindow time.Duration\n\tcount  int\n\tstart  time.Time\n\tnow    func() time.Time\n}\n\n// New returns a Limiter that admits burst events per window.\nfunc New(burst int, window time.Duration) *Limiter {\n\treturn &Limiter{Burst: burst, Window: window, now: time.Now}\n}\n\n// Allow reports whether one more event fits in the current window and\n// counts it if so. Once Burst events were admitted, Allow returns false\n// until the window elapses and the counter resets.\nfunc (l *Limiter) Allow() bool {\n\tt := l.now()\n\tif l.start.IsZero() || t.Sub(l.start) >= l.Window {\n\t\tl.start, l.count = t, 0\n\t}\n\tif l.count >= l.Burst {\n\t\treturn false\n\t}\n\tl.count++\n\treturn true\n}\n"
+        },
+        "command": "printf '# ratelimit\\n\\nA fixed-window rate limiter for Go. A Limiter admits at most Burst events per Window; when the window elapses the counter resets.\\n\\n## Import\\n\\n    import \"example.com/ratelimit\"\\n\\n## Usage\\n\\n    l := ratelimit.New(3, time.Second)\\n    if l.Allow() {\\n        // admitted\\n    } else {\\n        // over the limit for this window\\n    }\\n\\nAllow returns true and counts the event while fewer than Burst events were admitted in the current window, and false afterwards until the window elapses.\\n' > README.md"
+      },
+      "verify": [
+        {
+          "name": "exists",
+          "command": "test -s README.md"
+        },
+        {
+          "name": "names-package",
+          "command": "grep -qi ratelimit README.md"
+        },
+        {
+          "name": "source-untouched",
+          "command": "git diff --quiet HEAD -- ratelimit.go go.mod"
+        }
+      ],
+      "scoring": {
+        "forbidden_paths": [
+          ".git/**",
+          "ratelimit.go",
+          "go.mod"
+        ],
+        "max_changed_files": 1,
+        "max_added_lines": 80,
+        "max_deleted_lines": 0
+      },
+      "judge": {
+        "type": "llm",
+        "target": "file:README.md",
+        "rubric": "1. States that this is a fixed-window rate limiter and explains what Burst and Window mean.\n2. Shows how to import the package and a usage example that uses only New(burst, window) and Allow(), and says Allow returns false once Burst events were admitted in the current window.\n3. Does not mention any function, field, or behavior that is absent from ratelimit.go (for example Wait, Reset, Reserve, per-key limits, concurrency safety).\n4. Stays concise: under 60 lines, no filler sections."
+      }
+    },
+    {
+      "id": "explain-bug-readonly",
+      "title": "Explain a bug without editing",
+      "description": "Open-ended analysis task; the deliverable is the final reply, files must stay untouched. Verify checks the reply exists and mentions sorting; the LLM judge grades the explanation.",
+      "type": "fixture",
+      "difficulty": "medium",
+      "enabled": true,
+      "baseline": {
+        "included": true,
+        "reason": "Open-ended read-only task; reply is captured to .eval-response.txt for verify and judge."
+      },
+      "timeout_seconds": 30,
+      "prompt": "Read median.py and explain the bug in the median function: which line is wrong, why it produces incorrect results, and one concrete input that shows the wrong output versus the expected one. Do NOT modify or create any files and do not run any shell commands. Reply in plain text.",
+      "fixture": {
+        "files": {
+          "median.py": "def median(values):\n    \"\"\"Return the median of a non-empty list of numbers.\"\"\"\n    ordered = values\n    mid = len(ordered) // 2\n    if len(ordered) % 2 == 1:\n        return ordered[mid]\n    return (ordered[mid - 1] + ordered[mid]) / 2\n"
+        },
+        "command": "printf 'The bug is the line `ordered = values`: the input is never sorted, so the function indexes into the original order instead of the sorted order. A median requires sorted data. For median([3, 1, 2]) it returns 1 (the middle element of the unsorted list) but the correct median is 2. The fix is `ordered = sorted(values)`.\\n' > .eval-response.txt"
+      },
+      "verify": [
+        {
+          "name": "reply-exists",
+          "command": "test -s .eval-response.txt"
+        },
+        {
+          "name": "mentions-sorting",
+          "command": "grep -qi sort .eval-response.txt"
+        },
+        {
+          "name": "nothing-modified",
+          "command": "git diff --quiet HEAD"
+        },
+        {
+          "name": "nothing-created",
+          "command": "test -z \"$(git ls-files --others --exclude-standard | grep -vx '.eval-response.txt')\""
+        }
+      ],
+      "scoring": {
+        "forbidden_paths": [
+          ".git/**",
+          "median.py"
+        ],
+        "max_changed_files": 1,
+        "max_added_lines": 0,
+        "max_deleted_lines": 0
+      },
+      "judge": {
+        "type": "llm",
+        "target": "response",
+        "rubric": "1. Identifies the line `ordered = values` (the input is never sorted) as the bug.\n2. Explains that a median needs sorted data and that the function indexes an unsorted list, so the result is wrong whenever the input is not already sorted.\n3. Gives a concrete failing input with both the wrong output and the expected output (for example median([3, 1, 2]) returns 1, expected 2).\n4. Does not invent additional bugs that are not present and does not claim to have modified files."
+      }
+    }
+  ]
+}

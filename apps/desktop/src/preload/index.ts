@@ -6,6 +6,13 @@ import type {
   ChangesSource,
   CreateSessionRequest,
   DesktopApi,
+  EvalCompareRequest,
+  EvalPanelSnapshot,
+  EvalRunSuiteRequest,
+  EvalRunTaskRequest,
+  EvalSuiteProgressEvent,
+  EvalTaskOverrideRequest,
+  EvalWorkbenchState,
   RuntimeKind,
   StreamFrameEnvelope,
   TerminalExitEvent,
@@ -50,6 +57,19 @@ const TERMINAL_OUTPUT_CHANNEL = "terminal:output";
 const TERMINAL_EXIT_CHANNEL = "terminal:exit";
 const ATTACHMENT_SAVE_IMAGE_CHANNEL = "attachment:save-image";
 const ATTACHMENT_PICK_IMAGES_CHANNEL = "attachment:pick-images";
+const EVAL_SNAPSHOT_CHANNEL = "eval:snapshot";
+const EVAL_GET_STATE_CHANNEL = "eval:get-state";
+const EVAL_RUN_SUITE_CHANNEL = "eval:run-suite";
+const EVAL_RUN_TASK_CHANNEL = "eval:run-task";
+const EVAL_CANCEL_CHANNEL = "eval:cancel";
+const EVAL_COMPARE_CHANNEL = "eval:compare";
+const EVAL_TASK_DETAIL_CHANNEL = "eval:get-task-detail";
+const EVAL_SAVE_OVERRIDE_CHANNEL = "eval:save-task-override";
+const EVAL_CLEAR_OVERRIDE_CHANNEL = "eval:clear-task-override";
+const EVAL_OPEN_CATALOG_CHANNEL = "eval:open-catalog";
+const EVAL_VALIDATE_CATALOG_CHANNEL = "eval:validate-catalog";
+const EVAL_PROGRESS_CHANNEL = "eval:progress";
+const EVAL_RUN_RESULTS_CHANNEL = "eval:get-run-results";
 
 function toUint8Array(data: unknown): Uint8Array {
   if (data instanceof Uint8Array) return data;
@@ -161,6 +181,38 @@ const desktopApi: DesktopApi = {
     ) => listener(value);
     ipcRenderer.on(TIMELINE_FRAME_CHANNEL, handler);
     return () => ipcRenderer.removeListener(TIMELINE_FRAME_CHANNEL, handler);
+  },
+  getEvalSnapshot: (): Promise<EvalPanelSnapshot> =>
+    ipcRenderer.invoke(EVAL_SNAPSHOT_CHANNEL),
+  getEvalState: (): Promise<EvalWorkbenchState> =>
+    ipcRenderer.invoke(EVAL_GET_STATE_CHANNEL),
+  runEvalSuite: (request: EvalRunSuiteRequest) =>
+    ipcRenderer.invoke(EVAL_RUN_SUITE_CHANNEL, request),
+  runEvalTask: (request: EvalRunTaskRequest) =>
+    ipcRenderer.invoke(EVAL_RUN_TASK_CHANNEL, request),
+  cancelEvalRun: (): Promise<boolean> =>
+    ipcRenderer.invoke(EVAL_CANCEL_CHANNEL),
+  compareEvalRuns: (request: EvalCompareRequest) =>
+    ipcRenderer.invoke(EVAL_COMPARE_CHANNEL, request),
+  getEvalTaskDetail: (taskId: string) =>
+    ipcRenderer.invoke(EVAL_TASK_DETAIL_CHANNEL, taskId),
+  saveEvalTaskOverride: (request: EvalTaskOverrideRequest) =>
+    ipcRenderer.invoke(EVAL_SAVE_OVERRIDE_CHANNEL, request),
+  clearEvalTaskOverride: (taskId: string) =>
+    ipcRenderer.invoke(EVAL_CLEAR_OVERRIDE_CHANNEL, taskId),
+  openEvalCatalog: (): Promise<boolean> =>
+    ipcRenderer.invoke(EVAL_OPEN_CATALOG_CHANNEL),
+  validateEvalCatalog: () =>
+    ipcRenderer.invoke(EVAL_VALIDATE_CATALOG_CHANNEL),
+  getEvalRunResults: (experiment: string, variant: string) =>
+    ipcRenderer.invoke(EVAL_RUN_RESULTS_CHANNEL, experiment, variant),
+  onEvalProgress: (listener: (event: EvalSuiteProgressEvent) => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      value: EvalSuiteProgressEvent,
+    ) => listener(value);
+    ipcRenderer.on(EVAL_PROGRESS_CHANNEL, handler);
+    return () => ipcRenderer.removeListener(EVAL_PROGRESS_CHANNEL, handler);
   },
 };
 

@@ -1,5 +1,6 @@
 import type { TimelineItem, TimelineRun, ToolTimelineItem } from "../timeline/reducer";
 import { editToolCallIds } from "./run-changes";
+import { isExitPlanModeTool } from "../features/plans/project-session-plans";
 import {
   classifyTool,
   toolAction,
@@ -10,6 +11,7 @@ import type {
   RunActivityModel,
   RunPhase,
 } from "./types";
+import { projectRunTodos } from "./project-run-todos";
 
 function exploreTarget(tool: ToolTimelineItem): string | undefined {
   const target = toolTarget(tool).trim();
@@ -172,7 +174,10 @@ export function projectRunActivities(input: {
     const terminal = terminalPhase(lifecycle);
     if (terminal && viewMode === "settled") {
       phase = terminal;
-    } else if (pendingApproval) {
+    } else if (
+      pendingApproval &&
+      !isExitPlanModeTool(pendingApproval.approval.tool)
+    ) {
       phase = "awaiting_approval";
       const effect = pendingApproval.approval.effect;
       currentAction = {
@@ -231,6 +236,7 @@ export function projectRunActivities(input: {
       .map((assistant) => assistant.thinking.trim())
       .filter(Boolean)
       .join("\n\n");
+    const todos = projectRunTodos(items, runId) ?? undefined;
     const hasActivity =
       lifecycle === "running" ||
       allTools.length > 0 ||
@@ -238,13 +244,20 @@ export function projectRunActivities(input: {
       changes.length > 0 ||
       Boolean(thinking) ||
       assistants.some((assistant) => assistant.stopReason === "toolUse");
+    const todoAction =
+      lifecycle === "running" && todos?.inProgress
+        ? {
+            verb: "Working on",
+            target: todos.inProgress.content,
+          }
+        : undefined;
     return {
       runId,
       ...(user?.kind === "user" ? { user } : {}),
       lifecycle,
       viewMode,
       phase,
-      ...(currentAction ? { currentAction } : {}),
+      ...(todoAction ?? (currentAction ? { currentAction } : {})),
       counters,
       summary: summary(counters),
       tools,
@@ -257,6 +270,7 @@ export function projectRunActivities(input: {
       ...(finalAssistant ? { finalAssistant } : {}),
       hasActivity,
       hasBlockingApproval: counters.pendingApprovalCount > 0,
+      ...(todos ? { todos } : {}),
     };
   });
 }

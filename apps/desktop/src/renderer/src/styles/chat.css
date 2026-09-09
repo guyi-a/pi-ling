@@ -3,6 +3,7 @@
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scroll-padding-bottom: max(28px, var(--message-scroll-cushion));
 }
 
 .message-list::before {
@@ -25,12 +26,77 @@
   width: min(var(--content-width), calc(100% - 48px));
   min-height: 100%;
   margin: 0 auto;
-  padding: 14px 0 22px;
+  /* Cursor-style: extra scroll room so the last turn can sit mid-pane, not flush to composer */
+  padding: 14px 0 max(28px, var(--message-scroll-cushion));
+}
+
+.message-list.has-composer-overlay .message-list-inner {
+  padding-bottom: max(28px, calc(var(--message-scroll-cushion) + 11rem));
 }
 
 .message {
   margin: 0 0 22px;
   color: var(--text-soft);
+}
+
+.turn-block {
+  margin: 0 0 28px;
+}
+
+.turn-block-body {
+  display: grid;
+  gap: 0;
+}
+
+.user-turn-prompt {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-2) 94%, var(--editor-bg));
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+  backdrop-filter: blur(8px);
+}
+
+.user-turn-prompt-text {
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.user-turn-prompt.is-collapsible:not(.is-expanded) .user-turn-prompt-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+.user-turn-prompt.is-expanded .user-turn-prompt-text {
+  max-height: min(40vh, 320px);
+  overflow-y: auto;
+}
+
+.user-turn-prompt-toggle {
+  margin-top: 8px;
+  padding: 0;
+  color: var(--muted);
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.user-turn-prompt-toggle:hover {
+  color: var(--text-soft);
+}
+
+.user-turn-prompt .user-attachment-chips {
+  margin-bottom: 8px;
 }
 
 .message.user {
@@ -637,7 +703,7 @@
 }
 
 .turn-changes-card {
-  margin: -6px 0 22px;
+  margin: 8px 0 22px;
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);

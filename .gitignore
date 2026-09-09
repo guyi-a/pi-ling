@@ -4,6 +4,7 @@ dist/
 release/
 .vite/
 .artifacts/
+.coding-eval/
 *.log
 .env
 .env.*

@@ -11,10 +11,35 @@
 
 .tool-todo-list {
   margin: 0;
-  padding-left: 18px;
+  padding: 0;
+  list-style: none;
   color: var(--text-soft);
   font-size: 13px;
   line-height: 1.5;
+  display: grid;
+  gap: 4px;
+}
+
+.tool-todo-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.tool-todo-item-in_progress {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.tool-todo-item-completed,
+.tool-todo-item-cancelled {
+  color: var(--muted-2);
+}
+
+.tool-todo-glyph {
+  width: 12px;
+  flex: 0 0 auto;
+  text-align: center;
 }
 
 .tool-plan-body,
@@ -24,7 +49,49 @@
   gap: 6px;
 }
 
-.tool-plan-preview,
+.tool-plan-preview {
+  margin: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.tool-plan-preview .markdown {
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: normal;
+}
+
+.tool-plan-preview .markdown h1,
+.tool-plan-preview .markdown h2,
+.tool-plan-preview .markdown h3 {
+  margin: 0.75em 0 0.35em;
+  color: var(--text);
+  font-size: 1em;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.tool-plan-preview .markdown h1:first-child,
+.tool-plan-preview .markdown h2:first-child,
+.tool-plan-preview .markdown h3:first-child {
+  margin-top: 0;
+}
+
+.tool-plan-preview .markdown p,
+.tool-plan-preview .markdown ul,
+.tool-plan-preview .markdown ol,
+.tool-plan-preview .markdown blockquote {
+  margin: 0.45em 0;
+}
+
+.tool-plan-preview .markdown li {
+  margin: 0.15em 0;
+}
+
 .tool-web-search-output,
 .tool-subagent-output {
   margin: 0;

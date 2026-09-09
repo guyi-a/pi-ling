@@ -61,6 +61,68 @@
   white-space: nowrap;
 }
 
+.run-activity-todos-summary {
+  width: fit-content;
+  max-width: 100%;
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 5px 3px 1px;
+  color: var(--muted);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+}
+
+.run-activity-todos-summary:hover {
+  color: var(--text-soft);
+  background: var(--surface-hover);
+}
+
+.run-activity-todos-summary-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-activity-todos-list {
+  margin: 0 0 6px 32px;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+
+.run-activity-todo {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.run-activity-todo-in_progress {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.run-activity-todo-completed,
+.run-activity-todo-cancelled {
+  color: var(--muted-2);
+}
+
+.run-activity-todo-glyph {
+  width: 12px;
+  flex: 0 0 auto;
+  text-align: center;
+}
+
 .run-activity-diff {
   display: flex;
   gap: 5px;
