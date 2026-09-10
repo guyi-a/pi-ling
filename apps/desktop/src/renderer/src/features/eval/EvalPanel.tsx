@@ -1,13 +1,18 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { EvalCatalogTab } from "./EvalCatalogTab";
 import { EvalCompareTab } from "./EvalCompareTab";
 import { EvalResultsTab } from "./EvalResultsTab";
-import { EvalToolbar } from "./EvalToolbar";
+import { EVAL_TAB_LABELS, formatStatsText } from "./eval-copy";
+import { EvalRunControls } from "./EvalRunControls";
+import type { EvalTab } from "./useEvalWorkbench";
 import { useEvalWorkbench } from "./useEvalWorkbench";
 
-export function EvalPanel() {
+const EVAL_TABS: EvalTab[] = ["catalog", "results", "compare"];
+
+export function EvalPanel(props: { active: boolean }) {
   const workbench = useEvalWorkbench();
+  const [footerExpanded, setFooterExpanded] = useState(false);
 
   useEffect(() => {
     if (
@@ -25,51 +30,72 @@ export function EvalPanel() {
     workbench.loadCompare,
   ]);
 
+  const panelClassName = `eval-panel ${props.active ? "is-active" : "is-hidden"}`;
+
   if (workbench.error && !workbench.state) {
     return (
-      <div className="workbench-empty">
-        <strong>Eval</strong>
-        <p>{workbench.error}</p>
+      <div className={panelClassName} aria-hidden={!props.active}>
+        <div className="workbench-empty">
+          <span className="empty-pane-mark">E</span>
+          <strong>评测</strong>
+          <p>{workbench.error}</p>
+        </div>
       </div>
     );
   }
 
   if (!workbench.state) {
     return (
-      <div className="workbench-empty">
-        <strong>Eval</strong>
-        <p>Loading eval workbench…</p>
+      <div className={panelClassName} aria-hidden={!props.active}>
+        <div className="workbench-empty">
+          <span className="empty-pane-mark">E</span>
+          <strong>评测</strong>
+          <p>加载评测工作台…</p>
+        </div>
       </div>
     );
   }
 
-  const statsText = `${workbench.state.stats.total} tasks · ${workbench.state.stats.baseline} baseline · ${workbench.state.stats.judged} judged`;
+  const statsText = formatStatsText(workbench.state.stats);
 
   return (
-    <div className="eval-panel">
-      <EvalToolbar
-        running={workbench.running}
-        progressText={workbench.progressText}
-        onRun={(request) => void workbench.runSuite(request)}
-        onCancel={() => void workbench.cancelRun()}
-        onRefresh={() => void workbench.refresh()}
-      />
+    <div className={panelClassName} aria-hidden={!props.active}>
+      <header className="eval-header">
+        {workbench.running ? (
+          <span
+            className="eval-status-dot is-running"
+            aria-hidden="true"
+            title="评测运行中"
+          />
+        ) : null}
+        <nav className="eval-tabs" role="tablist" aria-label="评测视图">
+          {EVAL_TABS.map((item) => (
+            <button
+              key={item}
+              type="button"
+              role="tab"
+              aria-selected={workbench.tab === item}
+              className={`eval-tab ${workbench.tab === item ? "is-active" : ""}`}
+              onClick={() => workbench.setTab(item)}
+            >
+              {EVAL_TAB_LABELS[item]}
+            </button>
+          ))}
+        </nav>
+        <EvalRunControls
+          running={workbench.running}
+          onRun={(request) => void workbench.runSuite(request)}
+          onCancel={() => void workbench.cancelRun()}
+          onRefresh={() => void workbench.refresh()}
+        />
+      </header>
+      {workbench.progressText ? (
+        <div className="eval-progress-bar">{workbench.progressText}</div>
+      ) : null}
       {workbench.error ? (
         <div className="eval-error-banner">{workbench.error}</div>
       ) : null}
-      <nav className="eval-tabs" aria-label="Eval views">
-        {(["catalog", "results", "compare"] as const).map((item) => (
-          <button
-            key={item}
-            type="button"
-            className={`eval-tab ${workbench.tab === item ? "is-active" : ""}`}
-            onClick={() => workbench.setTab(item)}
-          >
-            {item.charAt(0).toUpperCase() + item.slice(1)}
-          </button>
-        ))}
-      </nav>
-      <div className="eval-tab-body">
+      <div className="eval-tab-body" role="tabpanel">
         {workbench.tab === "catalog" ? (
           <EvalCatalogTab
             tasks={workbench.state.tasks}
@@ -123,8 +149,24 @@ export function EvalPanel() {
         ) : null}
       </div>
       <footer className="eval-footer">
-        <span className="eval-footer-path">{workbench.state.ledgerPath}</span>
+        <button
+          type="button"
+          className={`eval-footer-path ${footerExpanded ? "is-expanded" : ""}`}
+          title={workbench.state.ledgerPath}
+          onClick={() => setFooterExpanded((current) => !current)}
+        >
+          {workbench.state.ledgerPath}
+        </button>
       </footer>
+    </div>
+  );
+}
+
+export function EvalPanelSkeleton() {
+  return (
+    <div className="eval-panel-skeleton" aria-hidden="true">
+      <div className="eval-panel-skeleton-bar" />
+      <div className="eval-panel-skeleton-body" />
     </div>
   );
 }

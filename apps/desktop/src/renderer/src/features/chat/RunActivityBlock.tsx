@@ -8,7 +8,6 @@ import {
 import { useEffect, useState } from "react";
 
 import type { AssistantTimelineItem } from "../../timeline/reducer";
-import { isPlanToolName } from "../plans/project-session-plans";
 import type { RunActivityModel } from "../../run-activity/types";
 import { activityPhaseLabel } from "../../run-activity/project-run-activity";
 import {
@@ -29,16 +28,19 @@ export function RunActivityBlock(props: {
   const active = activity.viewMode === "active";
   const failed =
     activity.lifecycle === "error" || activity.lifecycle === "crashed";
-  const readOnlyToolRun =
-    activity.tools.length > 0 &&
-    activity.counters.editedFiles.length === 0 &&
-    activity.changes.length === 0;
-  const [open, setOpen] = useState(Boolean(props.forceOpen || failed));
+  const hasFailedTool = activity.tools.some(
+    (tool) => tool.status === "failed" || tool.status === "denied",
+  );
+  const [open, setOpen] = useState(
+    Boolean(props.forceOpen || failed || hasFailedTool),
+  );
   const [todosOpen, setTodosOpen] = useState(false);
 
   useEffect(() => {
-    if (!active && !failed && !props.forceOpen) setOpen(false);
-  }, [active, failed, props.forceOpen]);
+    if (!active && !failed && !hasFailedTool && !props.forceOpen) {
+      setOpen(false);
+    }
+  }, [active, failed, hasFailedTool, props.forceOpen]);
 
   if (!activity.hasActivity) return null;
 
@@ -65,12 +67,6 @@ export function RunActivityBlock(props: {
   const orphanTools = activity.tools.filter(
     (tool) => !associatedToolIds.has(tool.id),
   );
-  const showInlineTools =
-    !open &&
-    !active &&
-    readOnlyToolRun &&
-    activity.tools.length > 0 &&
-    !activity.tools.some((tool) => isPlanToolName(tool.tool));
 
   return (
     <section
@@ -143,6 +139,12 @@ export function RunActivityBlock(props: {
           aria-live="polite"
           aria-atomic="true"
         >
+          <span className="run-activity-leading-spacer" aria-hidden="true" />
+          {activity.summary ? (
+            <span className="run-activity-status-spacer" aria-hidden="true" />
+          ) : (
+            <LoaderCircle className="run-activity-status" />
+          )}
           {activity.currentAction ? (
             <span
               className="run-activity-atomic"
@@ -159,14 +161,6 @@ export function RunActivityBlock(props: {
         </div>
       ) : failed ? (
         <div className="run-activity-failure">Execution failed</div>
-      ) : null}
-
-      {showInlineTools ? (
-        <div className="run-activity-tools-inline">
-          {activity.tools.map((tool) => (
-            <ToolCard item={tool} key={tool.id} />
-          ))}
-        </div>
       ) : null}
 
       {open && (activity.summary || activity.tools.length > 0) ? (

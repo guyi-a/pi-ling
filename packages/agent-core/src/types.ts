@@ -117,4 +117,12 @@ export interface AgentOptions {
   streamFn: StreamFunction;
   beforeToolCall?: BeforeToolCall;
   maxTurns?: number;
+  prepareContext?: (context: Context) => Context | Promise<Context>;
+  recoverContextOverflow?: (
+    context: Context,
+  ) => Context | undefined | Promise<Context | undefined>;
+  wrapToolResult?: (
+    toolCallId: string,
+    result: ToolResultMessage,
+  ) => ToolResultMessage | Promise<ToolResultMessage>;
 }

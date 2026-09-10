@@ -6,6 +6,7 @@ import {
   toolAction,
   toolLabel,
   toolNameLabel,
+  subagentToolPresentation,
   toolTarget,
 } from "./tool-taxonomy";
 
@@ -78,10 +79,39 @@ describe("tool-taxonomy", () => {
     ).toBe("explore auth module");
   });
 
+  it("formats subagent outer copy for foreground and background", () => {
+    const foreground = subagentToolPresentation(
+      tool("spawn_subagent", {
+        description: "Summarize README",
+        run_in_background: false,
+      }),
+    );
+    expect(foreground).toMatchObject({
+      label: "Subagent",
+      target: "Summarize README",
+      statusText: "Done",
+      verb: "Delegated to subagent",
+    });
+
+    const backgroundQueued = subagentToolPresentation(
+      tool("spawn_subagent", {
+        description: "Scan agent-core",
+        run_in_background: true,
+      }),
+      "pending",
+    );
+    expect(backgroundQueued).toMatchObject({
+      label: "Subagent",
+      target: "Background · Scan agent-core",
+      statusText: "Queued",
+      verb: "Queued background subagent",
+    });
+  });
+
   it("classifies meta, network, and agent tools", () => {
     expect(classifyTool(tool("todo_write", {}))).toBe("meta");
     expect(classifyTool(tool("web_search", {}))).toBe("network");
-    expect(classifyTool(tool("subagent", {}))).toBe("agent");
+    expect(classifyTool(tool("subagent", {}))).toBe("subagent");
     expect(classifyTool(tool("grep", {}))).toBe("explore");
   });
 
@@ -90,7 +120,7 @@ describe("tool-taxonomy", () => {
       "Updating todos",
     );
     expect(toolAction(tool("subagent", { task: "scan repo" })).verb).toBe(
-      "Delegating",
+      "Delegated to subagent",
     );
   });
 

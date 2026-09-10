@@ -1,5 +1,6 @@
 import type { TimelineEnvelope } from "@pi-ling/contracts";
 
+import { formatMessageUsage } from "../chat/format-message-usage";
 import type { TimelineRun } from "../../timeline/reducer";
 
 export type TraceEventTone =
@@ -22,27 +23,6 @@ function truncate(text: string, max = 48): string {
   const trimmed = text.trim();
   if (trimmed.length <= max) return trimmed;
   return `${trimmed.slice(0, max - 1)}…`;
-}
-
-function formatTokenCount(total: number): string {
-  if (total >= 1000) {
-    return `${(total / 1000).toFixed(1).replace(/\.0$/, "")}k tokens`;
-  }
-  return `${total} tokens`;
-}
-
-function formatContextUsage(contextUsage: { used: number; size: number }): string {
-  const used =
-    contextUsage.used >= 1000
-      ? `${(contextUsage.used / 1000).toFixed(1).replace(/\.0$/, "")}k`
-      : `${contextUsage.used}`;
-  const size =
-    contextUsage.size >= 1_000_000
-      ? `${(contextUsage.size / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`
-      : contextUsage.size >= 1000
-        ? `${(contextUsage.size / 1000).toFixed(1).replace(/\.0$/, "")}k`
-        : `${contextUsage.size}`;
-  return `${used}/${size} context`;
 }
 
 export function summarizeTimelineEvent(
@@ -91,10 +71,12 @@ export function summarizeTimelineEvent(
       };
     case "assistant_end": {
       const parts = [`assistant_end · ${event.stopReason}`];
-      if (event.usage && event.usage.totalTokens > 0) {
-        parts.push(formatTokenCount(event.usage.totalTokens));
-      } else if (event.contextUsage) {
-        parts.push(formatContextUsage(event.contextUsage));
+      const usageLabel = formatMessageUsage({
+        ...(event.usage ? { usage: event.usage } : {}),
+        ...(event.contextUsage ? { contextUsage: event.contextUsage } : {}),
+      });
+      if (usageLabel) {
+        parts.push(usageLabel);
       }
       if (event.error) {
         parts.push(truncate(event.error, 32));

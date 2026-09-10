@@ -13,6 +13,7 @@ import { ChangesView } from "../details/ChangesView";
 import { FilesPanel } from "../files/FilesPanel";
 import { bindFilesTabActivator, useFilesStore } from "../files/store";
 import { TerminalEmptyState } from "../terminal/TerminalEmptyState";
+import { EvalPanelSkeleton } from "../eval/EvalPanel";
 
 import type { TimelineItem, TimelineRun } from "../../timeline/reducer";
 import type { SessionPlan } from "../plans/types";
@@ -44,12 +45,6 @@ const EvalPanel = lazy(() =>
 export function AppTitleBar() {
   return (
     <header className="app-titlebar">
-      <nav className="application-menu" aria-label="Application menu">
-        <span>File</span>
-        <span>Edit</span>
-        <span>View</span>
-        <span>Help</span>
-      </nav>
       <div className="window-title">
         <span className="window-mark">π</span>
         <span>pi-ling</span>
@@ -341,8 +336,8 @@ export function WorkbenchPanel(props: {
           </Suspense>
         ) : null}
         {evalMounted ? (
-          <Suspense fallback={null}>
-            <EvalPanel />
+          <Suspense fallback={<EvalPanelSkeleton />}>
+            <EvalPanel active={activeTab === "eval"} />
           </Suspense>
         ) : null}
       </div>

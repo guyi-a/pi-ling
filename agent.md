@@ -291,4 +291,4 @@ Renderer 输入 Prompt
 - 修改公共协议时同步检查 Main、Preload、Renderer 和 Runtime Worker。
 - 提交前运行项目已有的格式化、类型检查和测试命令。
 - DSH 依赖必须固定版本并通过 ACP/Bridge 契约测试；Claude Agent SDK
-  必须固定版本并保留 KLink/官方 Anthropic 配置边界。
+  必须固定版本，模型路由仅支持 DeepSeek Anthropic 兼容 API 或官方 Anthropic。

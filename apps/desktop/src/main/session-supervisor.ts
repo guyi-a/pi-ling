@@ -4,6 +4,9 @@ import type { RuntimeAdapter } from "@pi-ling/runtime-contracts";
 import type {
   AgentStatus,
   ApprovalMode,
+  AskUserAnswer,
+  BackgroundTask,
+  ComposerMode,
   ChangedFile,
   ChangesSource,
   CreateSessionRequest,
@@ -14,6 +17,7 @@ import type {
   SessionArchiveResult,
   SessionSummary,
   StreamFrameEnvelope,
+  TaskUpdatedEvent,
   TimelineEnvelope,
   TimelineSnapshot,
   WorkspaceListEntry,
@@ -25,6 +29,7 @@ import { gitDiff, gitScopedFiles } from "./git-diff.js";
 import { PiAgentSession } from "./pi-agent-session.js";
 import { RunMessageBuffer } from "./run-message-buffer.js";
 import { SessionStore } from "./session-store/session-store.js";
+import { TaskRunner } from "./tasks/task-runner.js";
 import { projectTimelineSnapshot } from "@pi-ling/session-events";
 
 type ApprovalDecision = {
@@ -47,34 +52,56 @@ interface ActiveSession {
     callId: string,
     decision: ApprovalDecision,
   ): Promise<boolean>;
+  resolveQuestion(
+    callId: string,
+    answers: AskUserAnswer[],
+  ): Promise<boolean>;
   changedFiles(): Promise<ChangedFile[]>;
   diff(path: string): Promise<FileDiff | undefined>;
   setApprovalMode(mode: ApprovalMode): SessionSummary;
+  setComposerMode(mode: ComposerMode): SessionSummary;
   dispose(): Promise<void>;
 }
 
 export class SessionSupervisor {
   readonly #store: SessionStore;
   readonly #emit: (envelope: TimelineEnvelope) => void;
+  readonly #emitTaskUpdated: (event: TaskUpdatedEvent) => void;
   readonly #dshRuntime: RuntimeAdapter | undefined;
   readonly #emptySessionId = randomUUID();
   readonly #sessions = new Map<string, ActiveSession>();
   readonly #runOwners = new Map<string, string>();
   readonly #workspaceRuns = new Map<string, string>();
   readonly #buffer: RunMessageBuffer;
+  readonly #taskRunner: TaskRunner;
   #selectedSessionId: string | undefined;
   #activationRevision = 0;
+  #shuttingDown = false;
 
   constructor(
     store: SessionStore,
     emit: (envelope: TimelineEnvelope) => void,
     emitFrame: (frame: StreamFrameEnvelope) => void = () => {},
     dshRuntime?: RuntimeAdapter,
+    emitTaskUpdated: (event: TaskUpdatedEvent) => void = () => {},
   ) {
     this.#store = store;
     this.#emit = emit;
+    this.#emitTaskUpdated = emitTaskUpdated;
     this.#dshRuntime = dshRuntime;
     this.#buffer = new RunMessageBuffer(emitFrame);
+    this.#taskRunner = new TaskRunner({
+      store,
+      onUpdated: (task) => {
+        this.#emitTaskUpdated({
+          sessionId: task.parentSessionId,
+          task,
+        });
+      },
+      onTerminal: async (task) => {
+        await this.#handleBackgroundTaskTerminal(task);
+      },
+    });
   }
 
   get availableRuntimes(): RuntimeKind[] {
@@ -82,6 +109,7 @@ export class SessionSupervisor {
   }
 
   async initialize(): Promise<void> {
+    await this.#taskRunner.start();
     for (const session of this.#store.listSessions()) {
       if (session.runtimeKind === "dsh" && !this.#dshRuntime) continue;
       try {
@@ -158,6 +186,7 @@ export class SessionSupervisor {
         this.#buffer.snapshot(sessionId),
       ),
       bufferFrames: this.#buffer.snapshot(sessionId),
+      backgroundTasks: this.#taskRunner.list(sessionId),
       activationRevision,
     };
   }
@@ -209,6 +238,7 @@ export class SessionSupervisor {
         model: "deepseek-v4-pro",
         configured: Boolean(process.env["DEEPSEEK_API_KEY"]?.trim()),
         approvalMode: "manual",
+        composerMode: "agent",
       }
     );
   }
@@ -274,6 +304,16 @@ export class SessionSupervisor {
     return active?.resolveApproval(callId, decision) ?? Promise.resolve(false);
   }
 
+  resolveQuestion(
+    callId: string,
+    answers: AskUserAnswer[],
+  ): Promise<boolean> {
+    const active = this.#selectedSessionId
+      ? this.#sessions.get(this.#selectedSessionId)
+      : undefined;
+    return active?.resolveQuestion(callId, answers) ?? Promise.resolve(false);
+  }
+
   changedFiles(source: ChangesSource = "agent"): Promise<ChangedFile[]> {
     if (source !== "agent" && source !== "last-agent-turn") {
       const session = this.#selectedSessionId
@@ -315,6 +355,14 @@ export class SessionSupervisor {
     return active.setApprovalMode(mode);
   }
 
+  setComposerMode(mode: ComposerMode): SessionSummary {
+    const active = this.#selectedSessionId
+      ? this.#sessions.get(this.#selectedSessionId)
+      : undefined;
+    if (!active) throw new Error("No active session");
+    return active.setComposerMode(mode);
+  }
+
   async switchRuntime(runtimeKind: RuntimeKind): Promise<SessionActivation> {
     if (!this.#selectedSessionId) throw new Error("No active session");
     if (runtimeKind === "dsh" && !this.#dshRuntime) {
@@ -325,7 +373,11 @@ export class SessionSupervisor {
     }
     const sessionId = this.#selectedSessionId;
     const session = this.#store.getSession(sessionId)!;
-    if (session.lifecycle === "running" || session.lifecycle === "awaiting_approval") {
+    if (
+      session.lifecycle === "running" ||
+      session.lifecycle === "awaiting_approval" ||
+      session.lifecycle === "awaiting_question"
+    ) {
       throw new Error("Runtime can only switch while the session is idle");
     }
     if (session.runtimeKind === runtimeKind) return this.activate(sessionId);
@@ -350,9 +402,11 @@ export class SessionSupervisor {
   }
 
   async dispose(): Promise<void> {
+    this.#shuttingDown = true;
     for (const sessionId of [...this.#sessions.keys()]) {
       await this.#shutdownSession(sessionId);
     }
+    await this.#taskRunner.shutdown();
     this.#buffer.dispose();
     this.#selectedSessionId = undefined;
   }
@@ -379,7 +433,43 @@ export class SessionSupervisor {
           emit,
           buffer: this.#buffer,
           availableRuntimes: this.availableRuntimes,
+          taskRunner: this.#taskRunner,
+          onAutoContinue: () => this.#autoContinueBackgroundTasks(session.id),
         });
+  }
+
+  async #handleBackgroundTaskTerminal(task: BackgroundTask): Promise<void> {
+    const active = this.#sessions.get(task.parentSessionId);
+    if (active instanceof PiAgentSession) {
+      await active.notifyBackgroundTask(task);
+    }
+    if (this.#shuttingDown || task.status === "cancelled") {
+      return;
+    }
+    await this.#autoContinueBackgroundTasks(task.parentSessionId);
+  }
+
+  async #autoContinueBackgroundTasks(sessionId: string): Promise<void> {
+    if (this.#shuttingDown) return;
+    const session = this.#store.getSession(sessionId);
+    if (!session) return;
+    if (this.#workspaceRuns.get(session.workspaceId)) return;
+
+    const active = this.#sessions.get(sessionId);
+    if (!(active instanceof PiAgentSession)) return;
+
+    const runId = randomUUID();
+    this.#workspaceRuns.set(session.workspaceId, runId);
+    this.#runOwners.set(runId, sessionId);
+    try {
+      const result = await active.continueBackgroundTasks(runId);
+      if (!result.started) {
+        this.#releaseRun(runId, session.workspaceId);
+      }
+    } catch (error) {
+      this.#releaseRun(runId, session.workspaceId);
+      console.error("Background task continuation failed", error);
+    }
   }
 
   async #shutdownSession(sessionId: string): Promise<void> {

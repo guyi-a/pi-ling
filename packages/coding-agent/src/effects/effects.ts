@@ -23,7 +23,8 @@ export type Effect =
       cwd: string;
       classification: "harmless" | "normal" | "destructive";
     }
-  | { kind: "meta"; operation: "plan" | "todo" }
+  | { kind: "meta"; operation: "plan" | "todo" | "question" }
+  | { kind: "subagent-spawn"; readonly: true }
   | { kind: "unknown"; note: string };
 
 export type ApprovalMode = "manual" | "accept-write" | "auto";
@@ -131,6 +132,9 @@ export async function deriveEffect(
       classification: classifyCommand(command),
     };
   }
+  if (call.name === "ask_user") {
+    return { kind: "meta", operation: "question" };
+  }
   if (
     call.name === "create_plan" ||
     call.name === "update_plan" ||
@@ -140,6 +144,9 @@ export async function deriveEffect(
       kind: "meta",
       operation: call.name === "todo_write" ? "todo" : "plan",
     };
+  }
+  if (call.name === "spawn_subagent") {
+    return { kind: "subagent-spawn", readonly: true };
   }
   return {
     kind: "unknown",
@@ -173,7 +180,7 @@ export function approvalReason(
   mode: ApprovalMode = "manual",
   call?: ToolCall,
 ): string | undefined {
-  if (effect.kind === "meta") {
+  if (effect.kind === "meta" || effect.kind === "subagent-spawn") {
     return undefined;
   }
   if (effect.kind === "unknown") {

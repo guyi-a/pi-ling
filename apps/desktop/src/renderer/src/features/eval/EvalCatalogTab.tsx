@@ -6,6 +6,16 @@ import { useMemo, useState } from "react";
 
 import { EvalTaskDetail } from "./EvalTaskDetail";
 
+function TaskBadge(props: { label: string; tone?: "accent" | "muted" }) {
+  return (
+    <span
+      className={`eval-pill ${props.tone === "muted" ? "eval-pill-muted" : "eval-pill-accent"}`}
+    >
+      {props.label}
+    </span>
+  );
+}
+
 export function EvalCatalogTab(props: {
   tasks: EvalTaskView[];
   statsText: string;
@@ -14,7 +24,11 @@ export function EvalCatalogTab(props: {
   running: boolean;
   onSelectTask: (taskId: string) => void;
   onRunTask: (taskId: string) => void;
-  onSaveOverride: (input: { taskId: string; enabled: boolean; prompt: string }) => void;
+  onSaveOverride: (input: {
+    taskId: string;
+    enabled: boolean;
+    prompt: string;
+  }) => void;
   onClearOverride: (taskId: string) => void;
   onOpenCatalog: () => void;
 }) {
@@ -33,55 +47,64 @@ export function EvalCatalogTab(props: {
   return (
     <div className="eval-catalog-tab">
       <div className="eval-catalog-toolbar">
-        <span>{props.statsText}</span>
+        <span className="eval-catalog-stats">{props.statsText}</span>
         <input
           type="search"
           className="eval-search"
-          placeholder="Search tasks…"
+          placeholder="搜索任务 ID 或标题…"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
         />
       </div>
       <div className="eval-catalog-layout">
-        <table className="eval-table">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Title</th>
-              <th>Baseline</th>
-              <th>Judge</th>
-              <th>On</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((task) => (
-              <tr
-                key={task.id}
-                className={
-                  props.selectedTaskId === task.id ? "is-selected" : undefined
-                }
-                onClick={() => props.onSelectTask(task.id)}
-              >
-                <td>{task.id}</td>
-                <td>{task.title}</td>
-                <td>{task.baselineIncluded ? "yes" : "no"}</td>
-                <td>{task.hasJudge ? "yes" : "—"}</td>
-                <td>{task.enabled ? "yes" : "no"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="eval-task-list" role="list">
+          {filtered.map((task) => (
+            <button
+              key={task.id}
+              type="button"
+              role="listitem"
+              className={`eval-task-row ${
+                props.selectedTaskId === task.id ? "is-selected" : ""
+              }`}
+              onClick={() => props.onSelectTask(task.id)}
+            >
+              <div className="eval-task-row-main">
+                <span className="eval-task-row-id">{task.id}</span>
+                <span className="eval-task-row-title">{task.title}</span>
+              </div>
+              <div className="eval-task-row-badges">
+                {task.baselineIncluded ? (
+                  <TaskBadge label="基线" />
+                ) : null}
+                {task.hasJudge ? <TaskBadge label="已评判" /> : null}
+                <TaskBadge
+                  label={task.enabled ? "已启用" : "已禁用"}
+                  tone={task.enabled ? "accent" : "muted"}
+                />
+              </div>
+            </button>
+          ))}
+        </div>
         <EvalTaskDetail
           detail={props.taskDetail}
           running={props.running}
           onRunTask={props.onRunTask}
-          onSave={({ enabled, prompt }) =>
+          onEnabledChange={(enabled) => {
+            if (!props.taskDetail) return;
             props.onSaveOverride({
-              taskId: props.taskDetail!.id,
+              taskId: props.taskDetail.id,
               enabled,
+              prompt: props.taskDetail.prompt,
+            });
+          }}
+          onSavePrompt={(prompt) => {
+            if (!props.taskDetail) return;
+            props.onSaveOverride({
+              taskId: props.taskDetail.id,
+              enabled: props.taskDetail.enabled,
               prompt,
-            })
-          }
+            });
+          }}
           onClearOverride={props.onClearOverride}
           onOpenCatalog={props.onOpenCatalog}
         />

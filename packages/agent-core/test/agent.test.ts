@@ -405,6 +405,65 @@ describe("Agent", () => {
     });
   });
 
+  it("returns a cancellation tool result when the run signal is aborted", async () => {
+    const parameters = Type.Object({});
+    const controller = new AbortController();
+    const agent = new Agent({
+      initialState: {
+        model,
+        tools: [
+          {
+            name: "slow",
+            label: "Slow",
+            description: "Slow tool",
+            parameters,
+            execute: async (_callId, _arguments_, signal) => {
+              await new Promise<void>((resolve, reject) => {
+                const timer = setTimeout(resolve, 500);
+                signal.addEventListener(
+                  "abort",
+                  () => {
+                    clearTimeout(timer);
+                    const error = new Error("Aborted");
+                    error.name = "AbortError";
+                    reject(error);
+                  },
+                  { once: true },
+                );
+              });
+              return { content: [{ type: "text", text: "done" }] };
+            },
+          },
+        ],
+      },
+      streamFn: () =>
+        toolResponse({
+          type: "toolCall",
+          id: "slow-call",
+          name: "slow",
+          arguments: {},
+        }),
+    });
+
+    const running = agent.prompt("slow");
+    agent.abort(new Error("Run cancelled by user"));
+    await running;
+
+    expect(
+      agent.state.messages.some(
+        (message) =>
+          message.role === "toolResult" &&
+          message.toolCallId === "slow-call" &&
+          message.isError &&
+          message.content.some(
+            (block) =>
+              block.type === "text" &&
+              block.text === "Run cancelled by user",
+          ),
+      ),
+    ).toBe(true);
+  });
+
   it("does not convert AbortError into a tool result", async () => {
     const parameters = Type.Object({});
     const agent = new Agent({

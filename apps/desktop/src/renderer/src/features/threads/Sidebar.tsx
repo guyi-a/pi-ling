@@ -7,10 +7,7 @@ import {
   ListFilter,
   MessageSquarePlus,
   PanelLeftClose,
-  Search,
   Settings,
-  SlidersHorizontal,
-  Workflow,
 } from "lucide-react";
 import { memo, useEffect, useMemo, useState } from "react";
 
@@ -123,33 +120,6 @@ export const Sidebar = memo(function Sidebar(props: {
         >
           <MessageSquarePlus />
           <span>New chat</span>
-        </button>
-        <button
-          className="sidebar-command"
-          type="button"
-          disabled
-          title="Search is coming soon"
-        >
-          <Search />
-          <span>Search</span>
-        </button>
-        <button
-          className="sidebar-command"
-          type="button"
-          disabled
-          title="Automations are coming soon"
-        >
-          <Workflow />
-          <span>Automations</span>
-        </button>
-        <button
-          className="sidebar-command"
-          type="button"
-          disabled
-          title="Customize is coming soon"
-        >
-          <SlidersHorizontal />
-          <span>Customize</span>
         </button>
       </nav>
       <div className="sidebar-section-header">

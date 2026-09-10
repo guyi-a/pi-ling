@@ -55,16 +55,19 @@ describe("ChatView", () => {
         runs={{ "run-1": { id: "run-1", status: "running" } }}
         liveMessageIds={new Set()}
         onMessagePresented={() => {}}
-        modelLabel="model"
         workspaceReady
+        configured
         activeRunId={null}
         approvalMode="manual"
+        composerMode="agent"
         runtimeKind="native"
         availableRuntimes={["native", "dsh"]}
         onSend={async () => {}}
         onCancel={() => {}}
         onApproval={async () => {}}
+        onQuestion={async () => {}}
         onApprovalModeChange={async () => {}}
+        onComposerModeChange={async () => {}}
         onRuntimeChange={() => {}}
       />,
     );
@@ -117,20 +120,73 @@ describe("ChatView", () => {
         runs={{ run: { id: "run", status: "completed" } }}
         liveMessageIds={new Set()}
         onMessagePresented={() => {}}
-        modelLabel="model"
         workspaceReady
+        configured
         activeRunId={null}
         approvalMode="manual"
+        composerMode="agent"
         runtimeKind="native"
         availableRuntimes={["native"]}
         onSend={async () => {}}
         onCancel={() => {}}
         onApproval={async () => {}}
+        onQuestion={async () => {}}
         onApprovalModeChange={async () => {}}
+        onComposerModeChange={async () => {}}
         onRuntimeChange={() => {}}
       />,
     );
     expect(html).not.toContain("I will inspect the project.");
     expect(html).toContain("This is the final answer.");
+  });
+
+  it("renders pending question dock in the composer", () => {
+    const items: TimelineItem[] = [
+      {
+        kind: "question",
+        id: "call-1:question",
+        runId: "run-1",
+        turnId: "turn-1",
+        createdSeq: 1,
+        toolItemId: "call-1",
+        status: "pending",
+        question: {
+          callId: "call-1",
+          questions: [
+            {
+              id: "mode",
+              question: "Which mode?",
+              options: [{ label: "Agent" }, { label: "Plan" }],
+            },
+          ],
+        },
+      },
+    ];
+    const html = renderToStaticMarkup(
+      <ChatView
+        sessionId="session"
+        items={items}
+        runs={{ "run-1": { id: "run-1", status: "running" } }}
+        liveMessageIds={new Set()}
+        onMessagePresented={() => {}}
+        workspaceReady
+        configured
+        activeRunId="run-1"
+        approvalMode="manual"
+        composerMode="agent"
+        runtimeKind="native"
+        availableRuntimes={["native"]}
+        onSend={async () => {}}
+        onCancel={() => {}}
+        onApproval={async () => {}}
+        onQuestion={async () => {}}
+        onApprovalModeChange={async () => {}}
+        onComposerModeChange={async () => {}}
+        onRuntimeChange={() => {}}
+      />,
+    );
+    expect(html).toContain("Questions");
+    expect(html).toContain("Which mode?");
+    expect(html).toContain("Other...");
   });
 });

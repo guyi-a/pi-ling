@@ -65,6 +65,9 @@ function mergeTask(base: TaskSpec, patch: TaskOverridePatch): TaskSpec {
   if (merged.enabled) {
     delete merged.disabled_reason;
   }
+  if (!merged.enabled && merged.baseline.included) {
+    merged.baseline = { ...merged.baseline, included: false };
+  }
   validateTask(merged);
   return merged;
 }

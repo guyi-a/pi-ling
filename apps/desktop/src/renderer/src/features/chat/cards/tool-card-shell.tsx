@@ -30,6 +30,9 @@ export function ToolCardShell(props: {
   keepCollapsed?: boolean;
   disableExpand?: boolean;
   hideRawDetails?: boolean;
+  label?: string;
+  target?: string;
+  statusText?: string;
 }) {
   const { item, children, defaultOpen = false, keepCollapsed = false } = props;
   const [open, setOpen] = useState(
@@ -47,7 +50,9 @@ export function ToolCardShell(props: {
           : item.status === "cancelled"
             ? CircleSlash
             : null;
-  const target = resolveToolTarget(item);
+  const label = props.label ?? resolveToolLabel(item);
+  const target = props.target ?? resolveToolTarget(item);
+  const statusText = props.statusText ?? statusLabel[item.status];
   const expandable =
     !props.disableExpand &&
     (Boolean(children) ||
@@ -73,11 +78,11 @@ export function ToolCardShell(props: {
         ) : (
           <span className="tool-entry-dot" />
         )}
-        <span className="tool-entry-label">{resolveToolLabel(item)}</span>
+        <span className="tool-entry-label">{label}</span>
         <span className="tool-entry-target" title={target}>
           {target}
         </span>
-        <span className="tool-entry-state">{statusLabel[item.status]}</span>
+        <span className="tool-entry-state">{statusText}</span>
       </button>
       {open ? (
         <>

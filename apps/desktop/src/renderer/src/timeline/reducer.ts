@@ -1,12 +1,16 @@
 import type {
   AgentUsage,
   ApprovalRequest,
+  AskUserAnswer,
   ChangedFile,
+  QuestionRequest,
   StreamFrameEnvelope,
   TimelineEnvelope,
   TimelineSnapshot,
   TimelineUserAttachment,
 } from "@pi-ling/contracts";
+
+const RUN_CANCELLED_BY_USER = "Run cancelled by user";
 
 interface ItemBase {
   id: string;
@@ -57,6 +61,15 @@ export interface ApprovalTimelineItem extends ItemBase {
   status: "pending" | "approved" | "denied";
 }
 
+export interface QuestionTimelineItem extends ItemBase {
+  kind: "question";
+  turnId: string;
+  toolItemId: string;
+  question: QuestionRequest;
+  status: "pending" | "answered" | "cancelled";
+  answers?: AskUserAnswer[];
+}
+
 export interface ChangesTimelineItem extends ItemBase {
   kind: "changes";
   turnId: string;
@@ -64,12 +77,21 @@ export interface ChangesTimelineItem extends ItemBase {
   files: ChangedFile[];
 }
 
+export interface CompactionTimelineItem extends ItemBase {
+  kind: "compaction";
+  compactionId: string;
+  replacedCount: number;
+  throughMessageId: string;
+}
+
 export type TimelineItem =
   | UserTimelineItem
   | AssistantTimelineItem
   | ToolTimelineItem
   | ApprovalTimelineItem
-  | ChangesTimelineItem;
+  | QuestionTimelineItem
+  | ChangesTimelineItem
+  | CompactionTimelineItem;
 
 export interface TimelineRun {
   id: string;
@@ -148,19 +170,21 @@ function applyEvent(
 
   switch (event.type) {
     case "run_start":
-      items = [
-        ...items,
-        {
-          kind: "user",
-          id: event.userItemId,
-          runId,
-          createdSeq: seq,
-          text: event.prompt,
-          ...(event.attachments && event.attachments.length > 0
-            ? { attachments: event.attachments }
-            : {}),
-        },
-      ];
+      if (!event.continuation) {
+        items = [
+          ...items,
+          {
+            kind: "user",
+            id: event.userItemId,
+            runId,
+            createdSeq: seq,
+            text: event.prompt,
+            ...(event.attachments && event.attachments.length > 0
+              ? { attachments: event.attachments }
+              : {}),
+          },
+        ];
+      }
       runs = { ...runs, [runId]: { id: runId, status: "running" } };
       break;
     case "run_end":
@@ -168,6 +192,11 @@ function applyEvent(
       if (event.status !== "completed") {
         let failedAssigned = false;
         items = items.map((item) => {
+          if (item.kind === "question" && item.runId === runId) {
+            return item.status === "pending"
+              ? { ...item, status: "cancelled" as const }
+              : item;
+          }
           if (
             item.kind !== "tool" ||
             item.runId !== runId ||
@@ -176,6 +205,16 @@ function applyEvent(
             )
           ) {
             return item;
+          }
+          if (
+            item.status === "running" &&
+            event.status === "cancelled"
+          ) {
+            return {
+              ...item,
+              status: "failed",
+              output: item.output ?? RUN_CANCELLED_BY_USER,
+            };
           }
           if (
             (event.status === "error" || event.status === "crashed") &&
@@ -303,6 +342,34 @@ function applyEvent(
         }),
       );
       break;
+    case "question_requested":
+      if (!items.some((item) => item.id === event.itemId)) {
+        items = [
+          ...items,
+          {
+            kind: "question",
+            id: event.itemId,
+            runId,
+            turnId: event.turnId,
+            createdSeq: seq,
+            toolItemId: event.toolItemId,
+            question: event.question,
+            status: "pending",
+          },
+        ];
+      }
+      break;
+    case "question_answered":
+      items = updateItem<QuestionTimelineItem>(
+        items,
+        event.itemId,
+        (item) => ({
+          ...item,
+          status: "answered",
+          answers: event.answers,
+        }),
+      );
+      break;
     case "tool_start":
       items = updateItem<ToolTimelineItem>(
         items,
@@ -341,6 +408,22 @@ function applyEvent(
           event.itemId,
           (item) => ({ ...item, files: event.files }),
         );
+      }
+      break;
+    case "compaction_marker":
+      if (!items.some((item) => item.id === event.itemId)) {
+        items = [
+          ...items,
+          {
+            kind: "compaction",
+            id: event.itemId,
+            runId,
+            createdSeq: seq,
+            compactionId: event.compactionId,
+            replacedCount: event.replacedCount,
+            throughMessageId: event.throughMessageId,
+          },
+        ];
       }
       break;
     case "turn_start":

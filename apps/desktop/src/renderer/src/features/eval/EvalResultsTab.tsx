@@ -1,7 +1,11 @@
 import type { EvalRunResultView, EvalSuiteRunSummary } from "@pi-ling/contracts";
-import { Fragment, useState } from "react";
+import { useState } from "react";
 
-import { formatDuration, runLabel, statusClass, statusLabel } from "./eval-format";
+import { EvalEmptyState } from "./EvalEmptyState";
+import { EvalField } from "./EvalField";
+import { EvalSectionHeader } from "./EvalSectionHeader";
+import { EvalStatusBadge } from "./EvalStatusBadge";
+import { formatDuration, runLabel } from "./eval-format";
 
 export function EvalResultsTab(props: {
   runs: EvalSuiteRunSummary[];
@@ -16,25 +20,28 @@ export function EvalResultsTab(props: {
 
   if (props.runs.length === 0 && !props.running) {
     return (
-      <div className="eval-empty">
-        <p>No eval runs yet.</p>
-        <button
-          type="button"
-          className="eval-button eval-button-primary"
-          onClick={() => props.onRunReference()}
-        >
-          Run Reference Suite
-        </button>
-      </div>
+      <EvalEmptyState
+        title="结果"
+        description="还没有评测运行记录。"
+        action={
+          <button
+            type="button"
+            className="eval-button eval-button-primary"
+            onClick={() => props.onRunReference()}
+          >
+            运行 Reference 套件
+          </button>
+        }
+      />
     );
   }
 
   return (
     <div className="eval-results-tab">
       <div className="eval-results-toolbar">
-        <label>
-          <span>Run</span>
+        <EvalField label="运行">
           <select
+            className="eval-control"
             value={props.selectedRunKey ?? ""}
             onChange={(event) => props.onSelectRun(event.target.value)}
           >
@@ -47,79 +54,82 @@ export function EvalResultsTab(props: {
               </option>
             ))}
           </select>
-        </label>
+        </EvalField>
         {props.selectedRun ? (
-          <span className="eval-results-summary">
-            {props.selectedRun.passed}/{props.selectedRun.total} passed ·{" "}
-            {props.selectedRun.driver}
-            {props.selectedRun.runtime ? ` · ${props.selectedRun.runtime}` : ""}
-          </span>
+          <div className="eval-stat-chips">
+            <span className="eval-stat-chip">
+              {props.selectedRun.passed}/{props.selectedRun.total} 通过
+            </span>
+            <span className="eval-stat-chip">{props.selectedRun.driver}</span>
+            {props.selectedRun.runtime ? (
+              <span className="eval-stat-chip">{props.selectedRun.runtime}</span>
+            ) : null}
+          </div>
         ) : null}
       </div>
-      <table className="eval-table eval-results-table">
-        <thead>
-          <tr>
-            <th>Task</th>
-            <th>Status</th>
-            <th>Duration</th>
-            <th>Verify</th>
-            <th>Violations</th>
-            <th>Tools</th>
-            <th>Judge</th>
-          </tr>
-        </thead>
-        <tbody>
-          {props.results.map((result) => (
-            <Fragment key={result.taskId}>
-              <tr
-                className="eval-results-row"
+      <div className="eval-result-list">
+        {props.results.map((result) => {
+          const expanded = expandedTaskId === result.taskId;
+          return (
+            <div
+              key={result.taskId}
+              className={`eval-result-item ${expanded ? "is-expanded" : ""}`}
+            >
+              <button
+                type="button"
+                className="eval-result-row"
+                aria-expanded={expanded}
                 onClick={() =>
                   setExpandedTaskId((current) =>
                     current === result.taskId ? null : result.taskId,
                   )
                 }
               >
-                <td>{result.taskId}</td>
-                <td>
-                  <span className={`eval-status ${statusClass(result.status)}`}>
-                    {statusLabel(result.status)}
-                  </span>
-                </td>
-                <td>{formatDuration(result.durationMs)}</td>
-                <td>
-                  {result.verifyPassed}/{result.verifyTotal}
-                </td>
-                <td>{result.violations.length || "—"}</td>
-                <td>{result.toolCalls ?? "—"}</td>
-                <td>
-                  {result.judgeScore !== undefined
-                    ? result.judgeScore.toFixed(2)
-                    : "—"}
-                </td>
-              </tr>
-              {expandedTaskId === result.taskId ? (
-                <tr className="eval-results-detail-row">
-                  <td colSpan={7}>
-                    {result.error ? <p>{result.error}</p> : null}
-                    {result.judgeRationale ? (
-                      <pre>{result.judgeRationale}</pre>
-                    ) : null}
-                    {result.verifyDetails.map((verify) => (
-                      <div key={verify.name} className="eval-verify-block">
-                        <strong>
-                          {verify.name} (exit {verify.exitCode})
-                        </strong>
-                        {verify.stdout ? <pre>{verify.stdout}</pre> : null}
-                        {verify.stderr ? <pre>{verify.stderr}</pre> : null}
-                      </div>
-                    ))}
-                  </td>
-                </tr>
+                <span className="eval-result-chevron">{expanded ? "▼" : "▶"}</span>
+                <span className="eval-result-id">{result.taskId}</span>
+                <EvalStatusBadge status={result.status} />
+                <span className="eval-result-meta">
+                  {formatDuration(result.durationMs)}
+                </span>
+                <span className="eval-result-meta">
+                  {result.verifyPassed}/{result.verifyTotal} verify
+                </span>
+              </button>
+              {expanded ? (
+                <div className="eval-result-detail">
+                  {result.error ? (
+                    <div className="eval-result-section">
+                      <EvalSectionHeader>错误</EvalSectionHeader>
+                      <p className="eval-result-text">{result.error}</p>
+                    </div>
+                  ) : null}
+                  {result.judgeRationale ? (
+                    <div className="eval-result-section">
+                      <EvalSectionHeader>评判说明</EvalSectionHeader>
+                      <pre className="eval-code-block">{result.judgeRationale}</pre>
+                    </div>
+                  ) : null}
+                  {result.verifyDetails.map((verify) => (
+                    <div key={verify.name} className="eval-result-section">
+                      <EvalSectionHeader>
+                        {verify.name} (exit {verify.exitCode})
+                      </EvalSectionHeader>
+                      {verify.stdout ? (
+                        <pre className="eval-code-block">{verify.stdout}</pre>
+                      ) : null}
+                      {verify.stderr ? (
+                        <pre className="eval-code-block eval-code-block-error">
+                          {verify.stderr}
+                        </pre>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
               ) : null}
-            </Fragment>
-          ))}
-        </tbody>
-      </table>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

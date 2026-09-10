@@ -12,6 +12,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { Value } from "typebox/value";
 
+import { pruneContextToolResults } from "./intra-pruner.js";
 import type {
   AgentEvent,
   AgentTool,
@@ -29,6 +30,14 @@ export interface RunAgentLoopOptions {
   signal: AbortSignal;
   streamFn: StreamFunction;
   beforeToolCall?: BeforeToolCall;
+  prepareContext?: (context: Context) => Context | Promise<Context>;
+  recoverContextOverflow?: (
+    context: Context,
+  ) => Context | undefined | Promise<Context | undefined>;
+  wrapToolResult?: (
+    toolCallId: string,
+    result: ToolResultMessage,
+  ) => ToolResultMessage | Promise<ToolResultMessage>;
   emit(event: AgentEvent): void | Promise<void>;
   maxTurns: number;
   startTurn?: number;
@@ -86,6 +95,8 @@ function validationError(tool: AgentTool, arguments_: unknown): string {
     .join("; ");
 }
 
+export const RUN_CANCELLED_BY_USER = "Run cancelled by user";
+
 function failedToolResult(
   call: ToolCall,
   error: unknown,
@@ -105,16 +116,21 @@ function failedToolResult(
   };
 }
 
-function rethrowCancellation(
-  error: unknown,
+function cancellationToolResult(
+  call: ToolCall,
   signal: AbortSignal,
-): void {
-  if (signal.aborted) {
-    throw signal.reason instanceof Error ? signal.reason : error;
-  }
-  if (error instanceof Error && error.name === "AbortError") {
-    throw error;
-  }
+  error?: unknown,
+): ToolResultMessage {
+  const reason =
+    error instanceof Error &&
+    error.message.trim() &&
+    error.name !== "AbortError" &&
+    error.message !== "Aborted"
+      ? error.message
+      : signal.reason instanceof Error && signal.reason.message.trim()
+        ? signal.reason.message
+        : RUN_CANCELLED_BY_USER;
+  return failedToolResult(call, reason);
 }
 
 async function executeTool(
@@ -125,9 +141,14 @@ async function executeTool(
   turnId: string,
   signal: AbortSignal,
   beforeToolCall: BeforeToolCall | undefined,
+  wrapToolResult:
+    | ((toolCallId: string, result: ToolResultMessage) => ToolResultMessage | Promise<ToolResultMessage>)
+    | undefined,
   onStart: () => void | Promise<void>,
 ): Promise<ToolResultMessage> {
-  signal.throwIfAborted();
+  if (signal.aborted) {
+    return cancellationToolResult(call, signal);
+  }
   const tool = tools.find((candidate) => candidate.name === call.name);
   if (!tool) {
     return failedToolResult(call, `Unknown tool: ${call.name}`);
@@ -155,18 +176,23 @@ async function executeTool(
         },
         signal,
       );
-      signal.throwIfAborted();
       if (!decision.allow) {
         return failedToolResult(
           call,
           decision.reason ?? "Tool call denied by user",
         );
       }
+      if (signal.aborted) {
+        return cancellationToolResult(call, signal);
+      }
     }
 
     await onStart();
+    if (signal.aborted) {
+      return cancellationToolResult(call, signal);
+    }
     const result = await tool.execute(call.id, arguments_ as never, signal);
-    return {
+    const toolResult: ToolResultMessage = {
       role: "toolResult",
       toolCallId: call.id,
       toolName: call.name,
@@ -174,10 +200,54 @@ async function executeTool(
       isError: false,
       timestamp: Date.now(),
     };
+    return wrapToolResult
+      ? await wrapToolResult(call.id, toolResult)
+      : toolResult;
   } catch (error) {
-    rethrowCancellation(error, signal);
-    return failedToolResult(call, error);
+    if (signal.aborted) {
+      return cancellationToolResult(call, signal, error);
+    }
+    if (error instanceof Error && error.name === "AbortError") {
+      throw error;
+    }
+    const failed = failedToolResult(call, error);
+    return wrapToolResult
+      ? await wrapToolResult(call.id, failed)
+      : failed;
   }
+}
+
+function isContextOverflowError(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "";
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("context") &&
+    (normalized.includes("overflow") ||
+      normalized.includes("too long") ||
+      normalized.includes("maximum") ||
+      normalized.includes("exceed"))
+  );
+}
+
+async function prepareModelContext(
+  options: Pick<
+    RunAgentLoopOptions,
+    "context" | "prepareContext"
+  >,
+): Promise<Context> {
+  let next: Context = {
+    ...options.context,
+    messages: pruneContextToolResults(options.context.messages),
+  };
+  if (options.prepareContext) {
+    next = await options.prepareContext(next);
+  }
+  return next;
 }
 
 export async function runAgentLoop(
@@ -221,40 +291,71 @@ export async function runAgentLoop(
       turnId,
       turn,
     });
-    const stream = options.streamFn(options.model, context, {
-      signal: options.signal,
-      ...(options.reasoning !== "off"
-        ? { reasoning: options.reasoning }
+
+    let modelContext = await prepareModelContext({
+      context,
+      ...(options.prepareContext
+        ? { prepareContext: options.prepareContext }
         : {}),
     });
-
+    let overflowRetried = false;
+    let assistant!: AssistantMessage;
     let started = false;
-    for await (const event of stream) {
-      const message =
-        event.type === "done"
-          ? event.message
-          : event.type === "error"
-            ? event.error
-            : event.partial;
-      if (!started) {
-        started = true;
-        await options.emit({
-          type: "message_start",
-          runId: options.runId,
-          turnId,
-          message,
-        });
-      }
-      await options.emit({
-        type: "message_update",
-        runId: options.runId,
-        turnId,
-        message,
-        assistantMessageEvent: event,
+
+    while (true) {
+      const stream = options.streamFn(options.model, modelContext, {
+        signal: options.signal,
+        ...(options.reasoning !== "off"
+          ? { reasoning: options.reasoning }
+          : {}),
       });
+      try {
+        started = false;
+        for await (const event of stream) {
+          const message =
+            event.type === "done"
+              ? event.message
+              : event.type === "error"
+                ? event.error
+                : event.partial;
+          if (!started) {
+            started = true;
+            await options.emit({
+              type: "message_start",
+              runId: options.runId,
+              turnId,
+              message,
+            });
+          }
+          await options.emit({
+            type: "message_update",
+            runId: options.runId,
+            turnId,
+            message,
+            assistantMessageEvent: event,
+          });
+        }
+        assistant = await stream.result();
+        context.messages = modelContext.messages;
+        break;
+      } catch (error) {
+        if (
+          !overflowRetried &&
+          options.recoverContextOverflow &&
+          isContextOverflowError(error)
+        ) {
+          const recovered = await options.recoverContextOverflow(modelContext);
+          if (recovered) {
+            modelContext = recovered;
+            context.messages = recovered.messages;
+            overflowRetried = true;
+            continue;
+          }
+        }
+        throw error;
+      }
     }
 
-    const assistant = await stream.result();
     if (!started) {
       await options.emit({
         type: "message_start",
@@ -304,6 +405,7 @@ export async function runAgentLoop(
         turnId,
         options.signal,
         options.beforeToolCall,
+        options.wrapToolResult,
         () =>
           options.emit({
             type: "tool_execution_start",
@@ -343,6 +445,14 @@ export async function runAgentLoop(
       message: assistant,
       toolResults: results,
     });
+    if (options.signal.aborted) {
+      await options.emit({
+        type: "agent_end",
+        runId: options.runId,
+        messages: produced,
+      });
+      return produced;
+    }
   }
 
   const failure = failureMessage(
@@ -410,6 +520,7 @@ export async function resumeAgentLoop(
       options.turnId,
       options.signal,
       options.beforeToolCall,
+      options.wrapToolResult,
       () =>
         options.emit({
           type: "tool_execution_start",
@@ -449,6 +560,14 @@ export async function resumeAgentLoop(
     message: options.assistant,
     toolResults: results,
   });
+  if (options.signal.aborted) {
+    await options.emit({
+      type: "agent_end",
+      runId: options.runId,
+      messages: produced,
+    });
+    return produced;
+  }
 
   const continuation = await runAgentLoop({
     runId: options.runId,
@@ -460,6 +579,15 @@ export async function resumeAgentLoop(
     streamFn: options.streamFn,
     ...(options.beforeToolCall
       ? { beforeToolCall: options.beforeToolCall }
+      : {}),
+    ...(options.prepareContext
+      ? { prepareContext: options.prepareContext }
+      : {}),
+    ...(options.recoverContextOverflow
+      ? { recoverContextOverflow: options.recoverContextOverflow }
+      : {}),
+    ...(options.wrapToolResult
+      ? { wrapToolResult: options.wrapToolResult }
       : {}),
     emit: options.emit,
     maxTurns: options.maxTurns,

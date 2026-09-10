@@ -1,5 +1,16 @@
-import { ArrowUp, Bot, ImagePlus, Square } from "lucide-react";
-import type { ApprovalMode, PromptAttachment, RuntimeKind } from "@pi-ling/contracts";
+import {
+  ArrowDown,
+  ArrowUp,
+  ChevronsDown,
+  ImagePlus,
+  Square,
+} from "lucide-react";
+import type {
+  ApprovalMode,
+  ComposerMode,
+  PromptAttachment,
+  RuntimeKind,
+} from "@pi-ling/contracts";
 import {
   useCallback,
   useEffect,
@@ -17,6 +28,7 @@ import type {
 
 import type {
   ApprovalTimelineItem,
+  QuestionTimelineItem,
   TimelineItem,
   TimelineRun,
 } from "../../timeline/reducer";
@@ -24,16 +36,19 @@ import { projectRunActivities } from "../../run-activity/project-run-activity";
 import { changesFilesByRunId } from "../../run-activity/run-changes";
 import { ApprovalModePicker } from "./ApprovalModePicker";
 import { ApprovalDock } from "./ApprovalDock";
+import { QuestionDock } from "./QuestionDock";
 import { AttachmentChips } from "./AttachmentChips";
 import {
   saveImageFiles,
   toPromptAttachments,
   useAttachmentsStore,
 } from "./attachments-store";
+import { CompactionMarker } from "./CompactionMarker";
 import { MessageItem } from "./MessageItem";
 import { RunActivityBlock } from "./RunActivityBlock";
 import { TurnBlock } from "./TurnBlock";
 import { TurnChangesCard } from "./TurnChangesCard";
+import { ComposerModePicker } from "./ComposerModePicker";
 import { RuntimePicker } from "./RuntimePicker";
 import {
   immediatePresentationRunIds,
@@ -56,11 +71,12 @@ export function ChatView(props: {
   runs: Record<string, TimelineRun>;
   liveMessageIds: ReadonlySet<string>;
   onMessagePresented: (messageId: string) => void;
-  modelLabel: string;
   workspaceReady: boolean;
+  configured: boolean;
   workspaceRoot?: string;
   activeRunId: string | null;
   approvalMode: ApprovalMode;
+  composerMode: ComposerMode;
   runtimeKind: RuntimeKind;
   availableRuntimes: RuntimeKind[];
   onSend: (prompt: string, attachments?: PromptAttachment[]) => Promise<void>;
@@ -69,7 +85,12 @@ export function ChatView(props: {
     item: ApprovalTimelineItem,
     approved: boolean,
   ) => Promise<void>;
+  onQuestion: (
+    item: QuestionTimelineItem,
+    answers: import("@pi-ling/contracts").AskUserAnswer[],
+  ) => Promise<void>;
   onApprovalModeChange: (mode: ApprovalMode) => Promise<void>;
+  onComposerModeChange: (mode: ComposerMode) => Promise<void>;
   onRuntimeChange: (runtime: RuntimeKind) => void;
   runtimeError?: string | null;
   onDismissRuntimeError?: () => void;
@@ -83,17 +104,20 @@ export function ChatView(props: {
     runs,
     liveMessageIds,
     onMessagePresented,
-    modelLabel,
     workspaceReady,
+    configured,
     workspaceRoot,
     activeRunId,
     approvalMode,
+    composerMode,
     runtimeKind,
     availableRuntimes,
     onSend,
     onCancel,
     onApproval,
+    onQuestion,
     onApprovalModeChange,
+    onComposerModeChange,
     onRuntimeChange,
     runtimeError,
     onDismissRuntimeError,
@@ -113,11 +137,19 @@ export function ChatView(props: {
   const canAttachImages = attachmentsEnabled && Boolean(workspaceRoot);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const shouldFollowRef = useRef(true);
-  const fastForwardRunIds = useMemo(
-    () => immediatePresentationRunIds(items, runs),
-    [items, runs],
-  );
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [skippedPresentationRunIds, setSkippedPresentationRunIds] =
+    useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    setSkippedPresentationRunIds(new Set());
+  }, [sessionId]);
+  const fastForwardRunIds = useMemo(() => {
+    const runIds = immediatePresentationRunIds(items, runs);
+    for (const runId of skippedPresentationRunIds) {
+      runIds.add(runId);
+    }
+    return runIds;
+  }, [items, runs, skippedPresentationRunIds]);
   const presentation = useMessagePresentation({
     sessionId,
     items,
@@ -133,15 +165,38 @@ export function ChatView(props: {
         item.approval.tool.trim().toLowerCase() !== "exit_plan_mode",
     )
     .sort((left, right) => left.createdSeq - right.createdSeq);
+  const pendingQuestions = items
+    .filter(
+      (item): item is QuestionTimelineItem =>
+        item.kind === "question" && item.status === "pending",
+    )
+    .sort((left, right) => left.createdSeq - right.createdSeq);
+  const composerOverlay =
+    pendingQuestions.length > 0 || pendingApprovals.length > 0;
+  const presentationBusy =
+    presentation.presentingMessageIds.size > 0 ||
+    Boolean(presentation.currentToolId);
+  const composerBusy = Boolean(activeRunId) || presentationBusy;
 
-  useEffect(() => {
-    if (!shouldFollowRef.current) return;
-    const frame = requestAnimationFrame(() => {
-      const node = scrollRef.current;
-      if (node) node.scrollTop = node.scrollHeight;
-    });
+  const updateScrollAffordance = useCallback(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    const distance =
+      node.scrollHeight - node.scrollTop - node.clientHeight;
+    setShowScrollToBottom(distance > 80);
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    node.scrollTop = node.scrollHeight;
+    setShowScrollToBottom(false);
+  }, []);
+
+  useLayoutEffect(() => {
+    const frame = requestAnimationFrame(updateScrollAffordance);
     return () => cancelAnimationFrame(frame);
-  }, [items, presentation.revision]);
+  }, [items, presentation.revision, updateScrollAffordance]);
 
   useLayoutEffect(() => {
     const textarea = textareaRef.current;
@@ -153,11 +208,11 @@ export function ChatView(props: {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const value = prompt.trim();
-    if ((!value && !hasAttachments) || activeRunId || !workspaceReady) return;
+    if ((!value && !hasAttachments) || composerBusy || !workspaceReady) return;
     const outgoingAttachments = toPromptAttachments(attachmentSessionId);
     setPrompt("");
     setSendError(null);
-    shouldFollowRef.current = true;
+    requestAnimationFrame(scrollToBottom);
     if (outgoingAttachments.length > 0) {
       clearAttachments(attachmentSessionId);
     }
@@ -221,7 +276,7 @@ export function ChatView(props: {
     }
   }
 
-  const rendered: ReactNode[] = [];
+  const renderedUnits: Array<{ seq: number; node: ReactNode }> = [];
   for (const activity of projectRunActivities({
     items,
     runs,
@@ -284,43 +339,70 @@ export function ChatView(props: {
 
     if (turnParts.length === 0 && !activity.user) continue;
 
-    rendered.push(
-      <TurnBlock
-        key={`${activity.runId}:turn`}
-        {...(activity.user ? { user: activity.user } : {})}
-        workspaceRoot={workspaceRoot}
-      >
-        {turnParts}
-      </TurnBlock>,
-    );
+    const runSeq = items
+      .filter((item) => item.runId === activity.runId)
+      .reduce(
+        (min, item) => Math.min(min, item.createdSeq),
+        Number.POSITIVE_INFINITY,
+      );
+    renderedUnits.push({
+      seq: runSeq,
+      node: (
+        <TurnBlock
+          key={`${activity.runId}:turn`}
+          {...(activity.user ? { user: activity.user } : {})}
+          workspaceRoot={workspaceRoot}
+        >
+          {turnParts}
+        </TurnBlock>
+      ),
+    });
   }
+
+  for (const marker of items) {
+    if (marker.kind !== "compaction") continue;
+    renderedUnits.push({
+      seq: marker.createdSeq,
+      node: <CompactionMarker item={marker} key={marker.id} />,
+    });
+  }
+
+  renderedUnits.sort((left, right) => left.seq - right.seq);
+  const rendered = renderedUnits.map((unit) => unit.node);
 
   return (
     <section className="content" aria-label="会话">
-      <div
-        className={`message-list${
-          pendingApprovals.length > 0 ? " has-composer-overlay" : ""
-        }`}
-        ref={scrollRef}
-        onScroll={(event) => {
-          const node = event.currentTarget;
-          shouldFollowRef.current =
-            node.scrollHeight - node.scrollTop - node.clientHeight < 80;
-        }}
-      >
-        <div className="message-list-inner">
-          {rendered.length > 0 ? (
-            rendered
-          ) : (
-            <div className="empty-conversation" aria-label="空会话" />
-          )}
+      <div className="chat-column">
+      <div className="message-list-area">
+        <div
+          className={`message-list${composerOverlay ? " has-composer-overlay" : ""}`}
+          ref={scrollRef}
+          onScroll={updateScrollAffordance}
+        >
+          <div className="message-list-inner">
+            {rendered.length > 0 ? (
+              rendered
+            ) : (
+              <div className="empty-conversation" aria-label="空会话" />
+            )}
+          </div>
         </div>
+        {showScrollToBottom ? (
+          <button
+            type="button"
+            className="scroll-to-bottom"
+            aria-label="回到底部"
+            onClick={scrollToBottom}
+          >
+            <ArrowDown size={16} />
+          </button>
+        ) : null}
       </div>
 
       <div className="composer-wrap">
         <div
           className={`composer-stack${
-            pendingApprovals.length > 0 ? " has-approval-overlay" : ""
+            composerOverlay ? " has-approval-overlay has-question-overlay" : ""
           }`}
         >
           <form
@@ -351,12 +433,14 @@ export function ChatView(props: {
               }
             }}
             placeholder={
-              workspaceReady
-                ? "描述你想完成的任务"
-                : "请先选择一个工作区"
+              !workspaceReady
+                ? "请先选择一个工作区"
+                : !configured
+                  ? "缺少 DEEPSEEK_API_KEY"
+                  : "描述你想完成的任务"
             }
             rows={1}
-            disabled={!workspaceReady}
+            disabled={!workspaceReady || composerBusy}
           />
           {sendError ? <div className="message-error">{sendError}</div> : null}
           {runtimeError ? (
@@ -381,7 +465,7 @@ export function ChatView(props: {
                   type="button"
                   className="composer-attach-button"
                   aria-label="上传图片"
-                  disabled={Boolean(activeRunId)}
+                  disabled={composerBusy}
                   onClick={() => {
                     void pickImages();
                   }}
@@ -392,20 +476,22 @@ export function ChatView(props: {
               <RuntimePicker
                 value={runtimeKind}
                 available={availableRuntimes}
-                disabled={Boolean(activeRunId)}
+                disabled={composerBusy}
                 switching={Boolean(runtimeSwitching)}
                 switchingTo={runtimeSwitchTarget ?? null}
                 onChange={onRuntimeChange}
               />
               <ApprovalModePicker
                 value={approvalMode}
-                disabled={!workspaceReady}
+                disabled={!workspaceReady || composerBusy}
                 onChange={onApprovalModeChange}
               />
-              <div className="model-status" title={modelLabel}>
-                <Bot />
-                {modelLabel}
-              </div>
+              <ComposerModePicker
+                value={composerMode}
+                runtimeKind={runtimeKind}
+                disabled={!workspaceReady || composerBusy}
+                onChange={onComposerModeChange}
+              />
             </div>
             {activeRunId ? (
               <button
@@ -416,25 +502,54 @@ export function ChatView(props: {
               >
                 <Square />
               </button>
+            ) : presentationBusy ? (
+              <button
+                className="send-button skip"
+                type="button"
+                aria-label="跳过动画"
+                onClick={() => {
+                  setSkippedPresentationRunIds((current) => {
+                    const next = new Set(current);
+                    for (const runId of presentation.presentingRunIds) {
+                      next.add(runId);
+                    }
+                    return next;
+                  });
+                }}
+              >
+                <ChevronsDown />
+              </button>
             ) : (
               <button
                 className="send-button"
                 type="submit"
                 aria-label="发送"
-                disabled={(!prompt.trim() && !hasAttachments) || !workspaceReady}
+                disabled={
+                  (!prompt.trim() && !hasAttachments) || !workspaceReady
+                }
               >
                 <ArrowUp />
               </button>
             )}
           </div>
         </form>
-          <ApprovalDock
-            approvals={pendingApprovals}
-            onDecision={(approval, approved) => {
-              void onApproval(approval, approved);
-            }}
-          />
+          {pendingQuestions[0] ? (
+            <QuestionDock
+              question={pendingQuestions[0]}
+              onSubmit={(answers) => {
+                void onQuestion(pendingQuestions[0], answers);
+              }}
+            />
+          ) : (
+            <ApprovalDock
+              approvals={pendingApprovals}
+              onDecision={(approval, approved) => {
+                void onApproval(approval, approved);
+              }}
+            />
+          )}
         </div>
+      </div>
       </div>
     </section>
   );

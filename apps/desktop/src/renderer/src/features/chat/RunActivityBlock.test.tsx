@@ -16,6 +16,7 @@ function activity(
     counters: {
       editedFiles: ["a.ts"],
       exploredFiles: ["a.ts", "b.ts"],
+      subagents: [],
       commandCount: 1,
       toolCount: 1,
       failedToolCount: 0,
@@ -138,7 +139,7 @@ describe("RunActivityBlock", () => {
     expect(html).not.toContain("run-activity-summary");
   });
 
-  it("shows read-only tools inline while keeping details collapsed", () => {
+  it("keeps settled tool runs collapsed until expanded", () => {
     const assistant = {
       kind: "assistant" as const,
       id: "assistant",
@@ -169,6 +170,7 @@ describe("RunActivityBlock", () => {
       counters: {
         editedFiles: [],
         exploredFiles: ["*.md"],
+        subagents: [],
         commandCount: 0,
         toolCount: 1,
         failedToolCount: 0,
@@ -191,12 +193,114 @@ describe("RunActivityBlock", () => {
       <RunActivityBlock activity={model} />,
     );
     expect(html).toContain("Explored 1 file");
-    expect(html).toContain("Glob");
-    expect(html).toContain("*.md");
     expect(html).toContain('aria-expanded="false"');
-    expect(html).toContain("run-activity-tools-inline");
+    expect(html).not.toContain("run-activity-tools-inline");
     expect(html).not.toContain("run-activity-details");
+    expect(html).not.toContain("Glob");
     expect(html).not.toContain("I will list markdown files.");
+  });
+
+  it("keeps multi-tool summaries collapsed", () => {
+    const tools = [1, 2, 3].map((index) => ({
+      kind: "tool" as const,
+      id: `tool-${index}`,
+      runId: "run",
+      turnId: "turn",
+      createdSeq: index,
+      callId: `tool-${index}`,
+      tool: "ask_user",
+      arguments: { questions: [{ id: "q", question: "Which?" }] },
+      status: "completed" as const,
+    }));
+    const model = activity({
+      lifecycle: "completed",
+      viewMode: "settled",
+      phase: "completed",
+      summary: "Used 3 tools",
+      counters: {
+        editedFiles: [],
+        exploredFiles: [],
+        subagents: [],
+        commandCount: 0,
+        toolCount: 3,
+        failedToolCount: 0,
+        approvalCount: 0,
+        pendingApprovalCount: 0,
+      },
+      tools,
+      segments: [],
+      workSegments: [],
+    });
+    delete model.currentAction;
+    const html = renderToStaticMarkup(
+      <RunActivityBlock activity={model} />,
+    );
+    expect(html).toContain("Used 3 tools");
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).not.toContain("run-activity-tools-inline");
+    expect(html).not.toContain("run-activity-details");
+    expect(html).not.toContain("ask_user");
+  });
+
+  it("expands failed read-only tool runs into nested tool details", () => {
+    const assistant = {
+      id: "assistant",
+      kind: "assistant" as const,
+      runId: "run",
+      turnId: "turn",
+      createdSeq: 1,
+      text: "The tool failed.",
+      status: "completed" as const,
+    };
+    const tool = {
+      id: "tool",
+      runId: "run",
+      turnId: "turn",
+      createdSeq: 2,
+      callId: "tool",
+      tool: "ask_user",
+      arguments: {
+        questions: [{ id: "mode", question: "Which mode?" }],
+      },
+      status: "failed" as const,
+      output: "CHECK constraint failed: lifecycle",
+    };
+    const model = activity({
+      lifecycle: "completed",
+      viewMode: "settled",
+      phase: "completed",
+      summary: "Used 1 tool",
+      counters: {
+        editedFiles: [],
+        exploredFiles: [],
+        subagents: [],
+        commandCount: 0,
+        toolCount: 1,
+        failedToolCount: 1,
+        approvalCount: 0,
+        pendingApprovalCount: 0,
+      },
+      tools: [tool],
+      segments: [
+        {
+          turnId: "turn",
+          content: assistant.text,
+          assistant,
+          tools: [tool],
+        },
+      ],
+      workSegments: [],
+      finalAssistant: assistant,
+    });
+    delete model.currentAction;
+    const html = renderToStaticMarkup(
+      <RunActivityBlock activity={model} />,
+    );
+    expect(html).toContain('aria-expanded="true"');
+    expect(html).toContain("run-activity-details");
+    expect(html).not.toContain("run-activity-tools-inline");
+    expect(html).toContain("CHECK constraint failed: lifecycle");
+    expect(html).toContain("Error");
   });
 
   it("falls back to the phase label when planning with no active tool", () => {

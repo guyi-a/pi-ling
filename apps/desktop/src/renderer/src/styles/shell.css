@@ -15,20 +15,6 @@
   -webkit-app-region: drag;
 }
 
-.application-menu {
-  display: flex;
-  align-items: center;
-  gap: 1px;
-  color: var(--text-soft);
-  font-size: 13px;
-  -webkit-app-region: no-drag;
-}
-
-.application-menu span {
-  padding: 4px 7px;
-  border-radius: var(--radius-sm);
-}
-
 .window-title {
   position: absolute;
   left: 50%;
@@ -52,32 +38,59 @@
   min-width: 0;
   min-height: 0;
   display: grid;
+  grid-template-areas: "sidebar chat";
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
 }
 
 .workspace.right-panel-open {
+  grid-template-areas: "sidebar chat workbench";
   grid-template-columns:
     var(--sidebar-width)
-    minmax(390px, 1fr)
-    var(--workbench-width);
+    minmax(0, 1fr)
+    minmax(0, var(--workbench-width));
+}
+
+.workspace > .sidebar {
+  grid-area: sidebar;
+}
+
+.workspace > .agent-pane {
+  grid-area: chat;
+}
+
+.workspace > .workbench-shell {
+  grid-area: workbench;
 }
 
 .workspace.sidebar-collapsed {
+  grid-template-areas: "chat";
   grid-template-columns: minmax(0, 1fr);
 }
 
 .workspace.sidebar-collapsed.right-panel-open {
-  grid-template-columns: minmax(390px, 1fr) var(--workbench-width);
+  grid-template-areas: "chat workbench";
+  grid-template-columns: minmax(0, 1fr) minmax(0, var(--workbench-width));
+}
+
+.workbench-shell {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+
+.workbench-shell .workbench-panel {
+  height: 100%;
 }
 
 .workbench-resize-handle {
   position: absolute;
   z-index: 10;
-  top: var(--titlebar-height);
-  right: var(--workbench-width);
+  top: 0;
   bottom: 0;
+  left: 0;
   width: 4px;
   cursor: col-resize;
+  transform: translateX(-50%);
 }
 
 .workbench-resize-handle::after {
@@ -96,11 +109,21 @@
 }
 
 .agent-pane {
+  position: relative;
+  z-index: 0;
   min-width: 0;
   min-height: 0;
   display: grid;
   grid-template-rows: var(--pane-toolbar-height) minmax(0, 1fr);
+  overflow: hidden;
+  overflow-x: clip;
+  isolation: isolate;
   background: var(--editor-bg);
+}
+
+.agent-pane > .content {
+  width: 100%;
+  min-width: 0;
 }
 
 .agent-pane > .pane-toolbar {
@@ -108,11 +131,23 @@
 }
 
 .content {
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
+  background: var(--editor-bg);
+}
+
+.chat-column {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
-  background: var(--editor-bg);
+  overflow: hidden;
 }
 
 .pane-toolbar,
@@ -185,10 +220,14 @@
 }
 
 .workbench-panel {
+  position: relative;
+  z-index: 1;
   min-width: 0;
   min-height: 0;
   display: grid;
   grid-template-rows: var(--pane-toolbar-height) minmax(0, 1fr);
+  overflow: hidden;
+  isolation: isolate;
   border-left: 1px solid var(--border);
   background: var(--workbench-bg);
 }
@@ -343,14 +382,16 @@
 
 @media (max-width: 1050px) {
   .workspace.right-panel-open {
+    grid-template-areas: "sidebar chat";
     grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   }
 
-  .workspace.right-panel-open .workbench-panel {
+  .workspace.right-panel-open .workbench-shell {
     display: none;
   }
 
   .workspace.sidebar-collapsed.right-panel-open {
+    grid-template-areas: "chat";
     grid-template-columns: minmax(0, 1fr);
   }
 }

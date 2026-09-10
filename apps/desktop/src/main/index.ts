@@ -9,8 +9,11 @@ import type {
   AppInfo,
   AppTheme,
   ApprovalMode,
+  ComposerMode,
   ApprovalDecisionRequest,
+  AskUserAnswer,
   ChangedFile,
+  QuestionAnswerRequest,
   CreateSessionRequest,
   FileDiff,
   PromptAttachment,
@@ -75,10 +78,12 @@ const AGENT_STATUS_CHANNEL = "agent:get-status";
 const AGENT_SEND_CHANNEL = "agent:send";
 const AGENT_CANCEL_CHANNEL = "agent:cancel";
 const TIMELINE_EVENT_CHANNEL = "timeline:event";
+const TASK_UPDATED_CHANNEL = "task:updated";
 const TIMELINE_FRAME_CHANNEL = "timeline:frame";
 const TIMELINE_SNAPSHOT_CHANNEL = "timeline:snapshot";
 const WORKSPACE_SELECT_CHANNEL = "workspace:select";
 const APPROVAL_RESOLVE_CHANNEL = "approval:resolve";
+const QUESTION_RESOLVE_CHANNEL = "question:resolve";
 const CHANGES_GET_CHANNEL = "changes:get";
 const DIFF_GET_CHANNEL = "diff:get";
 const WORKSPACE_TREE_CHANNEL = "workspace:tree";
@@ -93,6 +98,7 @@ const SESSIONS_RESTORE_CHANNEL = "sessions:restore";
 const WORKSPACES_LIST_CHANNEL = "workspaces:list";
 const WORKSPACES_ADD_CHANNEL = "workspaces:add";
 const SESSION_APPROVAL_MODE_CHANNEL = "session:approval-mode";
+const SESSION_COMPOSER_MODE_CHANNEL = "session:composer-mode";
 const SESSION_RUNTIME_CHANNEL = "session:runtime";
 const THEME_SET_CHANNEL = "theme:set";
 const TERMINAL_START_CHANNEL = "terminal:start";
@@ -223,6 +229,40 @@ function parseApprovalDecision(value: unknown): ApprovalDecisionRequest {
   };
 }
 
+function parseQuestionAnswer(value: unknown): QuestionAnswerRequest {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("callId" in value) ||
+    typeof value.callId !== "string" ||
+    !("answers" in value) ||
+    !Array.isArray(value.answers)
+  ) {
+    throw new Error("Invalid question answer");
+  }
+  const answers = value.answers.map((entry): AskUserAnswer => {
+    if (
+      typeof entry !== "object" ||
+      entry === null ||
+      !("id" in entry) ||
+      typeof entry.id !== "string" ||
+      !("selected" in entry) ||
+      !Array.isArray(entry.selected) ||
+      !entry.selected.every((item) => typeof item === "string")
+    ) {
+      throw new Error("Invalid question answer entry");
+    }
+    return {
+      id: entry.id,
+      selected: [...entry.selected],
+      ...("custom" in entry && typeof entry.custom === "string"
+        ? { custom: entry.custom }
+        : {}),
+    };
+  });
+  return { callId: value.callId, answers };
+}
+
 function parseCreateSession(value: unknown): CreateSessionRequest {
   if (
     typeof value !== "object" ||
@@ -313,6 +353,11 @@ async function getSupervisor(
       }
     },
     dshRuntime,
+    (event) => {
+      if (!webContents.isDestroyed()) {
+        webContents.send(TASK_UPDATED_CHANNEL, event);
+      }
+    },
   );
   const entry = { supervisor, ready: supervisor.initialize() };
   supervisors.set(webContents.id, entry);
@@ -527,6 +572,17 @@ ipcMain.handle(
   },
 );
 
+ipcMain.handle(
+  QUESTION_RESOLVE_CHANNEL,
+  async (event, input: unknown): Promise<boolean> => {
+    const request = parseQuestionAnswer(input);
+    return (await getSupervisor(event.sender)).resolveQuestion(
+      request.callId,
+      request.answers,
+    );
+  },
+);
+
 function normalizeChangesSource(
   source: unknown,
 ): "uncommitted" | "staged" | "unstaged" | "agent" {
@@ -670,6 +726,18 @@ ipcMain.handle(
     }
     return (await getSupervisor(event.sender)).setApprovalMode(
       mode as ApprovalMode,
+    );
+  },
+);
+
+ipcMain.handle(
+  SESSION_COMPOSER_MODE_CHANNEL,
+  async (event, mode: unknown): Promise<SessionSummary> => {
+    if (mode !== "plan" && mode !== "ask" && mode !== "agent") {
+      throw new Error("Invalid composer mode");
+    }
+    return (await getSupervisor(event.sender)).setComposerMode(
+      mode as ComposerMode,
     );
   },
 );

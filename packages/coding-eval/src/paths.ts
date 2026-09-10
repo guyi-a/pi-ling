@@ -1,10 +1,14 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const packageRoot = dirname(fileURLToPath(import.meta.url));
+const moduleDir = dirname(fileURLToPath(import.meta.url));
+
+function resolveCodingEvalPackageRoot(): string {
+  return join(moduleDir, "..");
+}
 
 export function resolveRepoRoot(): string {
-  return join(packageRoot, "..", "..");
+  return join(resolveCodingEvalPackageRoot(), "..", "..");
 }
 
 export function resolveEvalDataDir(): string {

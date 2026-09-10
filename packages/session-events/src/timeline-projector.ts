@@ -147,7 +147,10 @@ export class TimelineProjector {
       push({
         type: "run_start",
         userItemId: event.userMessage.id,
-        prompt: messageText(event.userMessage.content, "text"),
+        prompt: event.continuation
+          ? ""
+          : messageText(event.userMessage.content, "text"),
+        ...(event.continuation ? { continuation: true } : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
       });
     } else if (event.kind === "run.ended") {
@@ -239,6 +242,23 @@ export class TimelineProjector {
         callId: event.callId,
         approved: event.approved,
       });
+    } else if (event.kind === "question.requested") {
+      push({
+        type: "question_requested",
+        turnId,
+        itemId: `${event.question.callId}:question`,
+        toolItemId: event.toolItemId,
+        question: event.question,
+      });
+    } else if (event.kind === "question.answered") {
+      push({
+        type: "question_answered",
+        turnId,
+        itemId: `${event.callId}:question`,
+        toolItemId: event.toolItemId,
+        callId: event.callId,
+        answers: event.answers,
+      });
     } else if (event.kind === "changes.committed") {
       push({
         type: "changes",
@@ -246,6 +266,14 @@ export class TimelineProjector {
         itemId: `${event.callId}:changes`,
         callId: event.callId,
         files: event.files,
+      });
+    } else if (event.kind === "compaction.applied") {
+      push({
+        type: "compaction_marker",
+        itemId: `compaction:${event.compactionId}`,
+        compactionId: event.compactionId,
+        replacedCount: event.replacedCount,
+        throughMessageId: event.throughMessageId,
       });
     }
 

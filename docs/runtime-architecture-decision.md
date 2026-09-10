@@ -312,7 +312,7 @@ DSH：
 Claude：
 
 - `@pi-ling/claude-transcript` SQLite SessionStore 已实现；
-- Boom KLink + `claude-haiku-4-5-20251001` 真实调用成功；
+- `claude-haiku-4-5-20251001` 真实调用成功；
 - `shouldQuery:false` Context Handoff 正确回忆 `VIOLET-73`；
 - opaque Transcript mirror 和 Resume 成功；
 - 凭据未写入项目文件。

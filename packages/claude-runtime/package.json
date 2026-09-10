@@ -1,0 +1,30 @@
+{
+  "name": "@pi-ling/claude-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "test:probe": "vitest run test/claude-probe.test.ts",
+    "test:probe:deepseek": "vitest run test/claude-probe.test.ts -t deepseek",
+    "compare:deepseek": "node scripts/deepseek-cc-compare.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.263",
+    "@pi-ling/claude-transcript": "workspace:*",
+    "@pi-ling/runtime-contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "typescript": "7.0.2",
+    "vitest": "4.1.9"
+  }
+}

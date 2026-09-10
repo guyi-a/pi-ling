@@ -31,6 +31,21 @@ describe("catalog-overrides", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
+  it("auto-removes baseline when disabling a baseline task", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "coding-eval-overrides-"));
+    const overridesPath = join(dir, "catalog.overrides.json");
+    const catalogPath = defaultCatalogPath();
+    const base = loadCatalog(catalogPath);
+    const taskId = base.tasks.find((task) => task.baseline.included)!.id;
+    const effective = saveTaskOverride(overridesPath, catalogPath, taskId, {
+      enabled: false,
+    });
+    const task = effective.catalog.tasks.find((row) => row.id === taskId);
+    expect(task?.enabled).toBe(false);
+    expect(task?.baseline.included).toBe(false);
+    await rm(dir, { recursive: true, force: true });
+  });
+
   it("rejects invalid override patches", async () => {
     const dir = await mkdtemp(join(tmpdir(), "coding-eval-overrides-"));
     const overridesPath = join(dir, "catalog.overrides.json");

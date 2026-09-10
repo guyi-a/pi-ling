@@ -14,11 +14,16 @@
   --input-bg: #202020;
   --code-bg: #171717;
   --border: #2b2b2b;
+  --border-subtle: color-mix(in srgb, var(--border) 82%, transparent);
   --border-strong: #3c3c3c;
-  --text: #cccccc;
-  --text-soft: #b8b8b8;
-  --muted: #969696;
-  --muted-2: #737373;
+  --text: #d6d6d6;
+  --text-soft: #c8c8c8;
+  --muted: #a0a0a0;
+  --muted-2: #858585;
+  --muted-3: #666666;
+  --font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    monospace;
   --accent: #9aaad1;
   --accent-soft: #303545;
   --accent-contrast: #17181c;
@@ -61,11 +66,16 @@ html[data-theme="light"] {
   --input-bg: #ffffff;
   --code-bg: #f5f5f5;
   --border: #d6d6d6;
+  --border-subtle: color-mix(in srgb, var(--border) 82%, transparent);
   --border-strong: #b9b9b9;
   --text: #1f1f1f;
   --text-soft: #3b3b3b;
   --muted: #616161;
   --muted-2: #818181;
+  --muted-3: #a8a8a8;
+  --font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    monospace;
   --accent: #526a9e;
   --accent-soft: #dfe6f5;
   --accent-contrast: #ffffff;

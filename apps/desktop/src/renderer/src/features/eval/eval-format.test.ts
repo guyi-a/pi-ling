@@ -16,9 +16,9 @@ describe("eval-format", () => {
   });
 
   it("maps status labels and classes", () => {
-    expect(statusLabel("passed")).toBe("Passed");
+    expect(statusLabel("passed")).toBe("通过");
     expect(statusClass("failed")).toBe("is-failed");
-    expect(statusLabel("missing")).toBe("Missing");
+    expect(statusLabel("missing")).toBe("缺失");
   });
 
   it("formats run labels", () => {

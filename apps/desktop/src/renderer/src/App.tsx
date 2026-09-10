@@ -1,6 +1,8 @@
 import type {
   AgentStatus,
   ApprovalMode,
+  BackgroundTask,
+  ComposerMode,
   ChangedFile,
   PromptAttachment,
   RuntimeKind,
@@ -18,6 +20,7 @@ import {
   useState,
 } from "react";
 
+import { BackgroundTasksContext } from "./features/chat/background-tasks-context";
 import { ChatView } from "./features/chat/ChatView";
 import {
   AgentPaneToolbar,
@@ -83,6 +86,8 @@ const initialSidebarCollapsed =
 const initialSidebarArchived =
   new URLSearchParams(window.location.search).get("sidebar-view") ===
   "archived";
+const initialRightPanelOpen =
+  !fixture && localStorage.getItem("pi-ling.workbench.open") === "true";
 
 function areChangedFilesEqual(
   left: readonly ChangedFile[],
@@ -115,7 +120,7 @@ export function App() {
   const [theme, setTheme] = useState(readInitialTheme);  const [activeView, setActiveView] = useState<"agent" | "settings">(
     initialView,
   );
-  const [rightPanelOpen, setRightPanelOpen] = useState(true);
+  const [rightPanelOpen, setRightPanelOpen] = useState(initialRightPanelOpen);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     initialSidebarCollapsed,
   );
@@ -134,6 +139,9 @@ export function App() {
   const [liveMessageIds, setLiveMessageIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [backgroundTasksByCallId, setBackgroundTasksByCallId] = useState<
+    Map<string, BackgroundTask>
+  >(() => new Map());
   const [showDshNotice, setShowDshNotice] = useState(false);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const [runtimeSwitching, setRuntimeSwitching] = useState(false);
@@ -177,6 +185,27 @@ export function App() {
     applyTheme(theme, !hasFixtureTheme);
     void window.piLing.setTheme(theme);
   }, [theme]);
+
+  useEffect(() => {
+    if (fixture) return;
+    localStorage.setItem(
+      "pi-ling.workbench.open",
+      rightPanelOpen ? "true" : "false",
+    );
+  }, [rightPanelOpen]);
+
+  useEffect(() => {
+    if (fixture) return;
+    const unsubscribe = window.piLing.onTaskUpdated(({ sessionId, task }) => {
+      if (sessionId !== selectedSessionRef.current) return;
+      setBackgroundTasksByCallId((current) => {
+        const next = new Map(current);
+        next.set(task.parentToolCallId, task);
+        return next;
+      });
+    });
+    return unsubscribe;
+  }, [fixture]);
 
   useEffect(() => {
     if (fixture) return;
@@ -490,6 +519,12 @@ export function App() {
     window.addEventListener("pointerup", onUp);
   }
 
+  function hydrateBackgroundTasks(
+    tasks: readonly BackgroundTask[],
+  ): Map<string, BackgroundTask> {
+    return new Map(tasks.map((task) => [task.parentToolCallId, task]));
+  }
+
   function applyActivation(activation: SessionActivation): boolean {
     if (activation.activationRevision < activationRevisionRef.current) {
       return false;
@@ -499,6 +534,9 @@ export function App() {
     }
     activationRevisionRef.current = activation.activationRevision;
     selectedSessionRef.current = activation.session.id;
+    setBackgroundTasksByCallId(
+      hydrateBackgroundTasks(activation.backgroundTasks),
+    );
     setActiveView("agent");
     setStatus(activation.status);
     setPendingRunId(null);
@@ -552,6 +590,16 @@ export function App() {
       approved,
       effectDigest: item.approval.effectDigest,
       ...(!approved ? { reason: "Denied by user" } : {}),
+    });
+  }
+
+  async function answerQuestion(
+    item: import("./timeline/reducer").QuestionTimelineItem,
+    answers: import("@pi-ling/contracts").AskUserAnswer[],
+  ) {
+    await window.piLing.resolveQuestion({
+      callId: item.question.callId,
+      answers,
     });
   }
 
@@ -654,6 +702,21 @@ export function App() {
     );
   }
 
+  async function changeComposerMode(mode: ComposerMode) {
+    const updated = await window.piLing.setComposerMode(mode);
+    setStatus((current) =>
+      current ? { ...current, composerMode: mode } : current,
+    );
+    setWorkspaces((current) =>
+      current.map((workspace) => ({
+        ...workspace,
+        sessions: workspace.sessions.map((session) =>
+          session.id === updated.id ? updated : session,
+        ),
+      })),
+    );
+  }
+
   async function pinSession(sessionId: string, pinned: boolean) {
     await window.piLing.setSessionPinned(sessionId, pinned);
     setWorkspaces(await window.piLing.listWorkspaces(true));
@@ -711,11 +774,6 @@ export function App() {
     }
   }
 
-  const modelLabel = !status?.configured
-    ? "缺少 DEEPSEEK_API_KEY"
-    : status.workspace
-      ? `${status.provider}/${status.model}`
-      : "请选择工作区";
   const activeSessionTitle = activeSession?.title;
 
   return (
@@ -782,88 +840,95 @@ export function App() {
                   setRightPanelOpen((current) => !current)
                 }
               />
-              <ChatView
-                key={timeline.sessionId ?? "no-session"}
-                sessionId={timeline.sessionId}
-                items={timeline.items}
-                runs={timeline.runs}
-                liveMessageIds={liveMessageIds}
-                onMessagePresented={finishMessagePresentation}
-                modelLabel={modelLabel}
-                workspaceReady={Boolean(status?.workspace)}
-                workspaceRoot={workspaceRoot}
-                activeRunId={activeRunId}
-                approvalMode={status?.approvalMode ?? "manual"}
-                runtimeKind={status?.runtimeKind ?? "native"}
-                availableRuntimes={status?.availableRuntimes ?? ["native"]}
-                onSend={sendPrompt}
-                onCancel={(runId) => {
-                  void window.piLing.cancelPrompt(runId);
-                }}
-                onApproval={decide}
-                onApprovalModeChange={changeApprovalMode}
-                onRuntimeChange={(runtime) => {
-                  void activateRuntime(runtime);
-                }}
-                runtimeError={runtimeError}
-                onDismissRuntimeError={() => setRuntimeError(null)}
-                onReviewTurnChanges={openAgentTurnReview}
-                runtimeSwitching={runtimeSwitching}
-                runtimeSwitchTarget={runtimeSwitchTarget}
-              />
+              <BackgroundTasksContext.Provider value={backgroundTasksByCallId}>
+                <ChatView
+                  key={timeline.sessionId ?? "no-session"}
+                  sessionId={timeline.sessionId}
+                  items={timeline.items}
+                  runs={timeline.runs}
+                  liveMessageIds={liveMessageIds}
+                  onMessagePresented={finishMessagePresentation}
+                  workspaceReady={Boolean(status?.workspace)}
+                  configured={status?.configured ?? false}
+                  workspaceRoot={workspaceRoot}
+                  activeRunId={activeRunId}
+                  approvalMode={status?.approvalMode ?? "manual"}
+                  composerMode={status?.composerMode ?? "agent"}
+                  runtimeKind={status?.runtimeKind ?? "native"}
+                  availableRuntimes={status?.availableRuntimes ?? ["native"]}
+                  onSend={sendPrompt}
+                  onCancel={(runId) => {
+                    void window.piLing.cancelPrompt(runId);
+                  }}
+                  onApproval={decide}
+                  onQuestion={answerQuestion}
+                  onApprovalModeChange={changeApprovalMode}
+                  onComposerModeChange={changeComposerMode}
+                  onRuntimeChange={(runtime) => {
+                    void activateRuntime(runtime);
+                  }}
+                  runtimeError={runtimeError}
+                  onDismissRuntimeError={() => setRuntimeError(null)}
+                  onReviewTurnChanges={openAgentTurnReview}
+                  runtimeSwitching={runtimeSwitching}
+                  runtimeSwitchTarget={runtimeSwitchTarget}
+                />
+              </BackgroundTasksContext.Provider>
             </section>
             {rightPanelOpen ? (
-              <div
-                className="workbench-resize-handle"
-                role="separator"
-                aria-orientation="vertical"
-                aria-label="Resize workbench"
-                onPointerDown={startResize}
-              />
-            ) : null}
-            {rightPanelOpen ? (
-              <WorkbenchPanel
-                onClose={() => {
-                  setRightPanelOpen(false);
-                  if (rightPanelWidth) {
-                    localStorage.setItem(
-                      "pi-ling.workbench.width",
-                      String(rightPanelWidth),
-                    );
+              <div className="workbench-shell">
+                <div
+                  className="workbench-resize-handle"
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label="Resize workbench"
+                  onPointerDown={startResize}
+                />
+                <WorkbenchPanel
+                  onClose={() => {
+                    setRightPanelOpen(false);
+                    if (rightPanelWidth) {
+                      localStorage.setItem(
+                        "pi-ling.workbench.width",
+                        String(rightPanelWidth),
+                      );
+                    }
+                  }}
+                  changesSource={changesSource}
+                  changesFiles={displayedChangesFiles}
+                  changesLoading={changesLoading}
+                  onChangeSource={(source) => {
+                    setReviewRunId(null);
+                    setChangesSource(source);
+                    refreshChanges(source);
+                  }}
+                  onLoadDiff={loadDiff}
+                  filesRoot={workspaceRoot}
+                  terminalRoot={workspaceRoot}
+                  traceSessionId={timeline.sessionId}
+                  traceEvents={traceEvents}
+                  traceRuns={timeline.runs}
+                  traceActiveRunId={activeRunId}
+                  plansSessionId={timeline.sessionId}
+                  plansItems={timeline.items}
+                  plansRuns={timeline.runs}
+                  plansActiveRunId={activeRunId}
+                  plansFocusRunId={plansFocusRunId}
+                  plansRuntimeKind={status?.runtimeKind ?? "native"}
+                  planBuildRuns={planBuildRuns}
+                  onBuildPlan={(plan) => void handlePlanBuild(plan)}
+                  onCancelPlan={(plan) =>
+                    void resolvePlanDecision(plan, false)
                   }
-                }}
-                changesSource={changesSource}
-                changesFiles={displayedChangesFiles}
-                changesLoading={changesLoading}
-                onChangeSource={(source) => {
-                  setReviewRunId(null);
-                  setChangesSource(source);
-                  refreshChanges(source);
-                }}
-                onLoadDiff={loadDiff}
-                filesRoot={workspaceRoot}
-                terminalRoot={workspaceRoot}
-                traceSessionId={timeline.sessionId}
-                traceEvents={traceEvents}
-                traceRuns={timeline.runs}
-                traceActiveRunId={activeRunId}
-                plansSessionId={timeline.sessionId}
-                plansItems={timeline.items}
-                plansRuns={timeline.runs}
-                plansActiveRunId={activeRunId}
-                plansFocusRunId={plansFocusRunId}
-                plansRuntimeKind={status?.runtimeKind ?? "native"}
-                planBuildRuns={planBuildRuns}
-                onBuildPlan={(plan) => void handlePlanBuild(plan)}
-                onCancelPlan={(plan) => void resolvePlanDecision(plan, false)}
-                planBuildPending={planBuildPending}
-                streaming={Boolean(activeRunId)}
-                requestedTab={requestedWorkbenchTab}
-                onRequestedTabApplied={() => {
-                  setRequestedWorkbenchTab(null);
-                  setPlansFocusRunId(null);
-                }}
-              />
+                  planBuildPending={planBuildPending}
+                  streaming={Boolean(activeRunId)}
+                  requestedTab={requestedWorkbenchTab}
+                  onRequestedTabApplied={() => {
+                    setRequestedWorkbenchTab(null);
+                    setPlansFocusRunId(null);
+                  }}
+                />
+              </div>
             ) : null}
           </>
         )}

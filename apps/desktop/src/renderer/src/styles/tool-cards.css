@@ -97,6 +97,7 @@
   margin: 0;
   padding: 8px 10px;
   overflow: auto;
+  max-height: 220px;
   color: var(--text-soft);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);

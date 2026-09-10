@@ -104,10 +104,6 @@ export async function compareLedger(
     diagnostics: [],
   };
 
-  if (options.baseline === options.candidate) {
-    throw new Error("baseline and candidate must differ");
-  }
-
   const results = await readLedger(options.ledgerPath);
   const baselineRuns = new Map<string, RunResult>();
   const candidateRuns = new Map<string, RunResult>();
@@ -117,9 +113,9 @@ export async function compareLedger(
     if (result.experiment_run.experiment !== options.experiment) continue;
     const variant = result.experiment_run.variant;
     const runtime = result.runtime;
+    const key = comparisonKey(result);
     if (variant === options.baseline) {
       if (options.baselineRuntime && runtime !== options.baselineRuntime) continue;
-      const key = comparisonKey(result);
       if (baselineRuns.has(key)) {
         summary.diagnostics.push(
           `duplicate observation: ${variant}/${key}`,
@@ -127,9 +123,9 @@ export async function compareLedger(
         continue;
       }
       baselineRuns.set(key, result);
-    } else if (variant === options.candidate) {
+    }
+    if (variant === options.candidate) {
       if (options.candidateRuntime && runtime !== options.candidateRuntime) continue;
-      const key = comparisonKey(result);
       if (candidateRuns.has(key)) {
         summary.diagnostics.push(
           `duplicate observation: ${variant}/${key}`,

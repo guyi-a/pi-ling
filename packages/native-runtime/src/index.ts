@@ -30,7 +30,7 @@ export class NativeRuntimeAdapter implements RuntimeAdapter {
     mcp: false,
     hooks: false,
     sandbox: false,
-    subagents: false,
+    subagents: true,
     resume: true,
     fork: false,
     fileCheckpoint: true,

@@ -4,15 +4,35 @@ import type { AgentTool } from "@pi-ling/agent-core";
 import type { Workspace } from "../workspace/workspace.js";
 import { CommandRunner } from "./command-runner.js";
 import { createPlanTools } from "./meta-tools.js";
+import { maybeSpillToolOutput } from "./spill-output.js";
 
 export interface ChangeCapture {
   capture(path: string): Promise<void>;
+}
+
+async function spillText(
+  options: {
+    sessionId?: string;
+    workspaceRoot: string;
+  },
+  callId: string,
+  text: string,
+): Promise<string> {
+  if (!options.sessionId) return text;
+  const spilled = await maybeSpillToolOutput({
+    sessionId: options.sessionId,
+    callId,
+    workspaceRoot: options.workspaceRoot,
+    text,
+  });
+  return spilled.text;
 }
 
 export function createBuiltinTools(options: {
   workspace: Workspace;
   changes: ChangeCapture;
   commands?: CommandRunner;
+  sessionId?: string;
 }): AgentTool[] {
   const commands = options.commands ?? new CommandRunner(options.workspace.root);
 
@@ -66,8 +86,16 @@ export function createBuiltinTools(options: {
         path?: string;
       };
       const matches = await options.workspace.grep(pattern, path);
+      const text = await spillText(
+        {
+          workspaceRoot: options.workspace.root,
+          ...(options.sessionId ? { sessionId: options.sessionId } : {}),
+        },
+        _callId,
+        JSON.stringify(matches, null, 2),
+      );
       return {
-        content: [{ type: "text", text: JSON.stringify(matches, null, 2) }],
+        content: [{ type: "text", text }],
       };
     },
   };
@@ -132,11 +160,19 @@ export function createBuiltinTools(options: {
     execute: async (_callId, arguments_, signal) => {
       const { command } = arguments_ as { command: string };
       const result = await commands.run(command, signal);
+      const text = await spillText(
+        {
+          workspaceRoot: options.workspace.root,
+          ...(options.sessionId ? { sessionId: options.sessionId } : {}),
+        },
+        _callId,
+        JSON.stringify(result, null, 2),
+      );
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(result, null, 2),
+            text,
           },
         ],
       };
@@ -161,8 +197,16 @@ export function createBuiltinTools(options: {
         glob_pattern,
         target_directory,
       );
+      const text = await spillText(
+        {
+          workspaceRoot: options.workspace.root,
+          ...(options.sessionId ? { sessionId: options.sessionId } : {}),
+        },
+        _callId,
+        JSON.stringify(matches, null, 2),
+      );
       return {
-        content: [{ type: "text", text: JSON.stringify(matches, null, 2) }],
+        content: [{ type: "text", text }],
       };
     },
   };

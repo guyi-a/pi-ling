@@ -1,4 +1,4 @@
-export type RuntimeKind = "native" | "dsh";
+export type RuntimeKind = "native" | "dsh" | "claude";
 
 export interface RuntimeCapabilities {
   modelSwitching: boolean;

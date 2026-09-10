@@ -6,10 +6,16 @@ import type {
   Message,
   ToolCall,
 } from "@earendil-works/pi-ai";
-import type { ApprovalRequest as RuntimeApprovalRequest } from "@pi-ling/coding-agent";
+import type {
+  ApprovalRequest as RuntimeApprovalRequest,
+  QuestionRequest as RuntimeQuestionRequest,
+} from "@pi-ling/coding-agent";
 import { SESSION_EVENT_SCHEMA_VERSION } from "@pi-ling/contracts";
 import type {
   ApprovalMode,
+  BackgroundTask,
+  BackgroundTaskStatus,
+  ComposerMode,
   CanonicalContentBlock,
   CanonicalMessage,
   SessionEvent,
@@ -30,6 +36,7 @@ export type CheckpointPhase =
   | "started"
   | "streaming"
   | "awaiting_approval"
+  | "awaiting_question"
   | "approved_pending_exec"
   | "executing_tool"
   | "between_turns"
@@ -44,6 +51,7 @@ export interface RunCheckpoint {
   pendingCallId?: string;
   pendingTool?: ToolCall;
   pendingApproval?: RuntimeApprovalRequest;
+  pendingQuestion?: RuntimeQuestionRequest;
   runtimeKind?: RuntimeKind;
   lastDurableSeq?: number;
   projectionVersion?: number;
@@ -81,6 +89,7 @@ interface SessionRow {
   title: string;
   lifecycle: SessionLifecycle;
   approval_mode: ApprovalMode;
+  composer_mode: ComposerMode;
   runtime_kind: RuntimeKind;
   runtime_version: string | null;
   runtime_session_id: string | null;
@@ -89,8 +98,41 @@ interface SessionRow {
   active_run_id: string | null;
   last_seq: number;
   last_event_seq: number;
+  parent_session_id: string | null;
   created_at: number;
   updated_at: number;
+}
+
+interface BackgroundTaskRow {
+  task_id: string;
+  parent_session_id: string;
+  parent_run_id: string;
+  parent_tool_call_id: string;
+  child_session_id: string | null;
+  status: BackgroundTaskStatus;
+  description: string;
+  summary: string | null;
+  error: string | null;
+  created_at: number;
+  updated_at: number;
+  continued_at: number | null;
+}
+
+function backgroundTaskFromRow(row: BackgroundTaskRow): BackgroundTask {
+  return {
+    id: row.task_id,
+    parentSessionId: row.parent_session_id,
+    parentRunId: row.parent_run_id,
+    parentToolCallId: row.parent_tool_call_id,
+    ...(row.child_session_id ? { childSessionId: row.child_session_id } : {}),
+    status: row.status,
+    description: row.description,
+    ...(row.summary ? { summary: row.summary } : {}),
+    ...(row.error ? { error: row.error } : {}),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    ...(row.continued_at ? { continuedAt: row.continued_at } : {}),
+  };
 }
 
 interface WorkspaceRow {
@@ -138,6 +180,7 @@ function sessionFromRow(row: SessionRow): SessionSummary {
     },
     lifecycle: row.lifecycle,
     approvalMode: row.approval_mode,
+    composerMode: row.composer_mode ?? "agent",
     runtimeKind: row.runtime_kind,
     ...(row.runtime_version ? { runtimeVersion: row.runtime_version } : {}),
     ...(row.pinned_at ? { pinnedAt: row.pinned_at } : {}),
@@ -243,6 +286,11 @@ export class SessionStore {
         "ALTER TABLE sessions ADD COLUMN approval_mode TEXT NOT NULL DEFAULT 'manual'",
       );
     }
+    if (!columns.some((column) => column.name === "composer_mode")) {
+      this.#db.exec(
+        "ALTER TABLE sessions ADD COLUMN composer_mode TEXT NOT NULL DEFAULT 'agent'",
+      );
+    }
     if (!columns.some((column) => column.name === "runtime_kind")) {
       this.#db.exec(
         "ALTER TABLE sessions ADD COLUMN runtime_kind TEXT NOT NULL DEFAULT 'native'",
@@ -294,11 +342,20 @@ export class SessionStore {
         "ALTER TABLE run_checkpoints ADD COLUMN projection_version INTEGER NOT NULL DEFAULT 1",
       );
     }
+    if (
+      !checkpointColumns.some((column) => column.name === "pending_question_json")
+    ) {
+      this.#db.exec(
+        "ALTER TABLE run_checkpoints ADD COLUMN pending_question_json TEXT",
+      );
+    }
+    this.#migrateSessionLifecycleCheck();
     this.#migrateWorkspaces();
     this.#db.exec(`
       CREATE INDEX IF NOT EXISTS idx_sessions_sidebar
       ON sessions(workspace_id, archived_at, pinned_at DESC, updated_at DESC)
     `);
+    this.#migrateSubagents();
     this.#migrateRuntimeSessions();
     this.#migrateSessionEvents();
   }
@@ -314,6 +371,7 @@ export class SessionStore {
     title?: string;
     runtimeKind?: RuntimeKind;
     runtimeVersion?: string;
+    parentSessionId?: string;
   }): SessionSummary {
     const id = input.id ?? randomUUID();
     const now = Date.now();
@@ -325,13 +383,15 @@ export class SessionStore {
     if (!workspace) {
       throw new Error("A valid workspace is required");
     }
-    const title = input.title?.trim() || workspace.name;
+    const title =
+      input.title?.trim() ||
+      (input.parentSessionId ? `Subagent ${id.slice(0, 8)}` : workspace.name);
     this.#db
       .prepare(
         `INSERT INTO sessions
           (session_id, workspace_id, workspace_root, title, lifecycle,
-           runtime_kind, runtime_version, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'idle', ?, ?, ?, ?)`,
+           runtime_kind, runtime_version, parent_session_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'idle', ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -340,6 +400,7 @@ export class SessionStore {
         title,
         input.runtimeKind ?? "native",
         input.runtimeVersion ?? null,
+        input.parentSessionId ?? null,
         now,
         now,
       );
@@ -365,12 +426,14 @@ export class SessionStore {
   }
 
   listSessions(includeArchived = false): SessionSummary[] {
+    const filters = ["s.parent_session_id IS NULL"];
+    if (!includeArchived) filters.push("s.archived_at IS NULL");
     const rows = this.#db
       .prepare(
         `SELECT s.*, w.name AS workspace_name, w.root AS canonical_root
          FROM sessions s
          JOIN workspaces w ON w.workspace_id = s.workspace_id
-         ${includeArchived ? "" : "WHERE s.archived_at IS NULL"}
+         WHERE ${filters.join(" AND ")}
          ORDER BY
            CASE WHEN s.pinned_at IS NULL THEN 1 ELSE 0 END,
            s.pinned_at DESC,
@@ -898,6 +961,23 @@ export class SessionStore {
     return session;
   }
 
+  setComposerMode(
+    sessionId: string,
+    mode: ComposerMode,
+  ): SessionSummary {
+    this.#db
+      .prepare(
+        `UPDATE sessions SET composer_mode = ?, updated_at = ?
+         WHERE session_id = ?`,
+      )
+      .run(mode, Date.now(), sessionId);
+    const session = this.getSession(sessionId);
+    if (!session) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+    return session;
+  }
+
   setRuntimeSessionId(sessionId: string, runtimeSessionId: string): void {
     const session = this.getSession(sessionId);
     if (!session) throw new Error(`Session not found: ${sessionId}`);
@@ -983,8 +1063,9 @@ export class SessionStore {
         `INSERT INTO run_checkpoints
           (session_id, run_id, phase, terminal_status, turn_id,
            pending_call_id, pending_tool_json, pending_approval_json,
-           runtime_kind, last_durable_seq, projection_version, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           pending_question_json, runtime_kind, last_durable_seq,
+           projection_version, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(session_id, run_id) DO UPDATE SET
            phase = excluded.phase,
            terminal_status = excluded.terminal_status,
@@ -992,6 +1073,7 @@ export class SessionStore {
            pending_call_id = excluded.pending_call_id,
            pending_tool_json = excluded.pending_tool_json,
            pending_approval_json = excluded.pending_approval_json,
+           pending_question_json = excluded.pending_question_json,
            runtime_kind = excluded.runtime_kind,
            last_durable_seq = excluded.last_durable_seq,
            projection_version = excluded.projection_version,
@@ -1009,6 +1091,9 @@ export class SessionStore {
           : null,
         checkpoint.pendingApproval
           ? JSON.stringify(checkpoint.pendingApproval)
+          : null,
+        checkpoint.pendingQuestion
+          ? JSON.stringify(checkpoint.pendingQuestion)
           : null,
         checkpoint.runtimeKind ?? previous?.runtimeKind ?? null,
         checkpoint.lastDurableSeq ?? previous?.lastDurableSeq ?? null,
@@ -1036,6 +1121,7 @@ export class SessionStore {
           pending_call_id: string | null;
           pending_tool_json: string | null;
           pending_approval_json: string | null;
+          pending_question_json: string | null;
           runtime_kind: RuntimeKind | null;
           last_durable_seq: number | null;
           projection_version: number;
@@ -1065,6 +1151,13 @@ export class SessionStore {
             pendingApproval: JSON.parse(
               row.pending_approval_json,
             ) as RuntimeApprovalRequest,
+          }
+        : {}),
+      ...(row.pending_question_json
+        ? {
+            pendingQuestion: JSON.parse(
+              row.pending_question_json,
+            ) as RuntimeQuestionRequest,
           }
         : {}),
       ...(row.runtime_kind ? { runtimeKind: row.runtime_kind } : {}),
@@ -1222,6 +1315,7 @@ export class SessionStore {
       }
       if (
         checkpoint.phase === "awaiting_approval" ||
+        checkpoint.phase === "awaiting_question" ||
         checkpoint.phase === "approved_pending_exec" ||
         checkpoint.phase === "between_turns"
       ) {
@@ -1590,6 +1684,7 @@ export class SessionStore {
          FROM sessions s
          JOIN workspaces w ON w.workspace_id = s.workspace_id
          WHERE s.workspace_id = ?
+           AND s.parent_session_id IS NULL
            ${includeArchived ? "" : "AND s.archived_at IS NULL"}
          ORDER BY
            CASE WHEN s.pinned_at IS NULL THEN 1 ELSE 0 END,
@@ -1599,6 +1694,71 @@ export class SessionStore {
       )
       .all(workspaceId) as unknown as SessionRow[];
     return rows.map(sessionFromRow);
+  }
+
+  #migrateSessionLifecycleCheck(): void {
+    const definition = this.#db
+      .prepare(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'sessions'",
+      )
+      .get() as { sql: string } | undefined;
+    if (!definition?.sql || definition.sql.includes("'awaiting_question'")) {
+      return;
+    }
+
+    const columns = (
+      this.#db.prepare("PRAGMA table_info(sessions)").all() as Array<{
+        name: string;
+      }>
+    ).map((column) => column.name);
+    const columnList = columns.join(", ");
+
+    // Must disable FK enforcement outside the transaction; inside BEGIN it has
+    // no effect and DROP TABLE sessions would CASCADE-delete session_events.
+    this.#db.exec("PRAGMA foreign_keys = OFF");
+    try {
+      this.#transaction(() => {
+        this.#db.exec(`
+        CREATE TABLE sessions__lifecycle_migration (
+          session_id TEXT PRIMARY KEY,
+          workspace_id TEXT REFERENCES workspaces(workspace_id),
+          workspace_root TEXT NOT NULL,
+          title TEXT NOT NULL,
+          lifecycle TEXT NOT NULL DEFAULT 'idle'
+            CHECK (lifecycle IN ('idle', 'running', 'awaiting_approval', 'awaiting_question', 'crashed')),
+          approval_mode TEXT NOT NULL DEFAULT 'manual'
+            CHECK (approval_mode IN ('manual', 'accept-write', 'auto')),
+          composer_mode TEXT NOT NULL DEFAULT 'agent'
+            CHECK (composer_mode IN ('plan', 'ask', 'agent')),
+          runtime_kind TEXT NOT NULL DEFAULT 'native'
+            CHECK (runtime_kind IN ('native', 'dsh')),
+          runtime_version TEXT,
+          runtime_session_id TEXT,
+          pinned_at INTEGER,
+          archived_at INTEGER,
+          active_run_id TEXT,
+          last_seq INTEGER NOT NULL DEFAULT 0,
+          last_event_seq INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        )
+      `);
+      this.#db.exec(`
+        INSERT INTO sessions__lifecycle_migration (${columnList})
+        SELECT ${columnList} FROM sessions
+      `);
+      this.#db.exec("DROP TABLE sessions");
+      this.#db.exec(
+        "ALTER TABLE sessions__lifecycle_migration RENAME TO sessions",
+      );
+      });
+    } finally {
+      this.#db.exec("PRAGMA foreign_keys = ON");
+    }
+    this.#db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_sessions_updated
+      ON sessions(updated_at DESC)
+    `);
   }
 
   #migrateWorkspaces(): void {
@@ -1672,6 +1832,209 @@ export class SessionStore {
         throw new Error(`Workspace migration left ${orphan.count} sessions`);
       }
     });
+  }
+
+  createBackgroundTask(input: {
+    id?: string;
+    parentSessionId: string;
+    parentRunId: string;
+    parentToolCallId: string;
+    description: string;
+  }): BackgroundTask {
+    const id = input.id ?? randomUUID();
+    const now = Date.now();
+    this.#db
+      .prepare(
+        `INSERT INTO background_tasks
+          (task_id, parent_session_id, parent_run_id, parent_tool_call_id,
+           status, description, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)`,
+      )
+      .run(
+        id,
+        input.parentSessionId,
+        input.parentRunId,
+        input.parentToolCallId,
+        input.description,
+        now,
+        now,
+      );
+    return this.getBackgroundTask(id)!;
+  }
+
+  getBackgroundTask(taskId: string): BackgroundTask | undefined {
+    const row = this.#db
+      .prepare("SELECT * FROM background_tasks WHERE task_id = ?")
+      .get(taskId) as BackgroundTaskRow | undefined;
+    return row ? backgroundTaskFromRow(row) : undefined;
+  }
+
+  listBackgroundTasksBySession(sessionId: string): BackgroundTask[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT * FROM background_tasks
+         WHERE parent_session_id = ?
+         ORDER BY updated_at DESC`,
+      )
+      .all(sessionId) as unknown as BackgroundTaskRow[];
+    return rows.map(backgroundTaskFromRow);
+  }
+
+  updateBackgroundTask(
+    taskId: string,
+    patch: {
+      status?: BackgroundTaskStatus;
+      childSessionId?: string;
+      summary?: string;
+      error?: string;
+    },
+  ): BackgroundTask {
+    const existing = this.getBackgroundTask(taskId);
+    if (!existing) {
+      throw new Error(`Background task not found: ${taskId}`);
+    }
+    const now = Date.now();
+    const status = patch.status ?? existing.status;
+    const childSessionId = patch.childSessionId ?? existing.childSessionId;
+    const summary = patch.summary ?? existing.summary;
+    const error = patch.error ?? existing.error;
+    this.#db
+      .prepare(
+        `UPDATE background_tasks
+         SET status = ?, child_session_id = ?, summary = ?, error = ?, updated_at = ?
+         WHERE task_id = ?`,
+      )
+      .run(
+        status,
+        childSessionId ?? null,
+        summary ?? null,
+        error ?? null,
+        now,
+        taskId,
+      );
+    return this.getBackgroundTask(taskId)!;
+  }
+
+  interruptActiveBackgroundTasks(): BackgroundTask[] {
+    const now = Date.now();
+    const rows = this.#db
+      .prepare(
+        `SELECT * FROM background_tasks
+         WHERE status IN ('pending', 'running')`,
+      )
+      .all() as unknown as BackgroundTaskRow[];
+    for (const row of rows) {
+      this.#db
+        .prepare(
+          `UPDATE background_tasks
+           SET status = 'interrupted', updated_at = ?
+           WHERE task_id = ?`,
+        )
+        .run(now, row.task_id);
+    }
+    return rows.map((row) =>
+      backgroundTaskFromRow({ ...row, status: "interrupted", updated_at: now }),
+    );
+  }
+
+  claimPendingContinuations(parentSessionId: string): BackgroundTask[] {
+    const now = Date.now();
+    return this.#transaction(() => {
+      const rows = this.#db
+        .prepare(
+          `SELECT * FROM background_tasks
+           WHERE parent_session_id = ?
+             AND status IN ('completed', 'failed')
+             AND continued_at IS NULL`,
+        )
+        .all(parentSessionId) as unknown as BackgroundTaskRow[];
+      for (const row of rows) {
+        this.#db
+          .prepare(
+            `UPDATE background_tasks SET continued_at = ?, updated_at = ?
+             WHERE task_id = ? AND continued_at IS NULL`,
+          )
+          .run(now, now, row.task_id);
+      }
+      return rows.map((row) =>
+        backgroundTaskFromRow({ ...row, continued_at: now, updated_at: now }),
+      );
+    });
+  }
+
+  releaseContinuations(taskIds: readonly string[]): void {
+    if (taskIds.length === 0) return;
+    const now = Date.now();
+    const placeholders = taskIds.map(() => "?").join(", ");
+    this.#db
+      .prepare(
+        `UPDATE background_tasks
+         SET continued_at = NULL, updated_at = ?
+         WHERE task_id IN (${placeholders})`,
+      )
+      .run(now, ...taskIds);
+  }
+
+  markContinued(taskIds: readonly string[]): void {
+    if (taskIds.length === 0) return;
+    const now = Date.now();
+    const placeholders = taskIds.map(() => "?").join(", ");
+    this.#db
+      .prepare(
+        `UPDATE background_tasks
+         SET continued_at = ?, updated_at = ?
+         WHERE task_id IN (${placeholders})`,
+      )
+      .run(now, now, ...taskIds);
+  }
+
+  hasTaskNotification(sessionId: string, taskId: string): boolean {
+    const row = this.#db
+      .prepare(
+        `SELECT 1 FROM session_events
+         WHERE session_id = ? AND event_kind = 'task.notified'
+           AND json_extract(payload_json, '$.taskId') = ?
+         LIMIT 1`,
+      )
+      .get(sessionId, taskId);
+    return Boolean(row);
+  }
+
+  #migrateSubagents(): void {
+    const sessionColumns = this.#db
+      .prepare("PRAGMA table_info(sessions)")
+      .all() as unknown as Array<{ name: string }>;
+    if (!sessionColumns.some((column) => column.name === "parent_session_id")) {
+      this.#db.exec("ALTER TABLE sessions ADD COLUMN parent_session_id TEXT");
+    }
+    this.#db.exec(`
+      CREATE TABLE IF NOT EXISTS background_tasks (
+        task_id TEXT PRIMARY KEY,
+        parent_session_id TEXT NOT NULL,
+        parent_run_id TEXT NOT NULL,
+        parent_tool_call_id TEXT NOT NULL,
+        child_session_id TEXT,
+        status TEXT NOT NULL
+          CHECK (status IN (
+            'pending', 'running', 'completed', 'failed', 'cancelled', 'interrupted'
+          )),
+        description TEXT NOT NULL,
+        summary TEXT,
+        error TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        continued_at INTEGER,
+        FOREIGN KEY (parent_session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+      )
+    `);
+    this.#db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_background_tasks_parent
+      ON background_tasks(parent_session_id, updated_at DESC)
+    `);
+    this.#db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_background_tasks_status
+      ON background_tasks(status)
+    `);
   }
 
   #transaction<T>(operation: () => T): T {

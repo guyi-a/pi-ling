@@ -1,3 +1,5 @@
+import type { BackgroundTaskStatus } from "@pi-ling/contracts";
+
 import type { ToolTimelineItem } from "../timeline/reducer";
 
 export type ToolCategory =
@@ -7,6 +9,7 @@ export type ToolCategory =
   | "verify"
   | "meta"
   | "network"
+  | "subagent"
   | "agent"
   | "other";
 
@@ -106,8 +109,15 @@ function truncate(text: string, max = 96): string {
   return `${trimmed.slice(0, max - 1)}…`;
 }
 
+const TOOL_NAME_LABELS: Record<string, string> = {
+  ask_user: "Ask user",
+};
+
 export function toolNameLabel(name: string): string {
   const normalized = normalizedName(name);
+  if (TOOL_NAME_LABELS[normalized]) {
+    return TOOL_NAME_LABELS[normalized];
+  }
 
   if (/(read_image|image_read)/.test(normalized)) return "Read image";
   if (/(^read$|read_file)/.test(normalized)) return "Read";
@@ -145,8 +155,128 @@ export function toolNameLabel(name: string): string {
   return name;
 }
 
+export function isSubagentTool(tool: Pick<ToolTimelineItem, "tool">): boolean {
+  return /(subagent_fork|^subagent$|spawn_subagent)/.test(
+    normalizedName(tool.tool),
+  );
+}
+
+export function subagentDescription(
+  arguments_: Record<string, unknown>,
+): string {
+  return (
+    stringArg(arguments_, ["description", "task", "name", "title"]) ??
+    stringArg(arguments_, ["prompt", "message"]) ??
+    "Subagent task"
+  );
+}
+
+export function isBackgroundSubagent(arguments_: Record<string, unknown>): boolean {
+  return arguments_.run_in_background === true;
+}
+
+export type SubagentPresentation = {
+  label: string;
+  target: string;
+  statusText: string;
+  verb: string;
+};
+
+const defaultToolStatusLabel: Record<ToolTimelineItem["status"], string> = {
+  requested: "Waiting",
+  "awaiting-approval": "Approval",
+  running: "Running",
+  completed: "Done",
+  failed: "Failed",
+  denied: "Denied",
+  cancelled: "Not run",
+};
+
+export function subagentToolPresentation(
+  tool: ToolTimelineItem,
+  taskStatus?: BackgroundTaskStatus,
+): SubagentPresentation {
+  const description = truncate(subagentDescription(tool.arguments));
+  const background =
+    isBackgroundSubagent(tool.arguments) || taskStatus !== undefined;
+  const target = background ? `Background · ${description}` : description;
+
+  if (!background) {
+    const running = tool.status === "running";
+    return {
+      label: "Subagent",
+      target,
+      statusText: defaultToolStatusLabel[tool.status],
+      verb: running ? "Delegating to subagent" : "Delegated to subagent",
+    };
+  }
+
+  if (tool.status === "running") {
+    return {
+      label: "Subagent",
+      target,
+      statusText: "Submitting",
+      verb: "Delegating to background subagent",
+    };
+  }
+  if (tool.status === "failed" || tool.status === "denied") {
+    return {
+      label: "Subagent",
+      target,
+      statusText: defaultToolStatusLabel[tool.status],
+      verb: "Background subagent failed",
+    };
+  }
+  if (taskStatus === "running") {
+    return {
+      label: "Subagent",
+      target,
+      statusText: "Running",
+      verb: "Background subagent running",
+    };
+  }
+  if (taskStatus === "pending") {
+    return {
+      label: "Subagent",
+      target,
+      statusText: "Queued",
+      verb: "Queued background subagent",
+    };
+  }
+  if (taskStatus === "completed") {
+    return {
+      label: "Subagent",
+      target,
+      statusText: "Done",
+      verb: "Background subagent finished",
+    };
+  }
+  if (
+    taskStatus === "failed" ||
+    taskStatus === "interrupted" ||
+    taskStatus === "cancelled"
+  ) {
+    return {
+      label: "Subagent",
+      target,
+      statusText: taskStatus === "cancelled" ? "Cancelled" : "Failed",
+      verb: "Background subagent failed",
+    };
+  }
+
+  return {
+    label: "Subagent",
+    target,
+    statusText: "Queued",
+    verb: "Queued background subagent",
+  };
+}
+
 export function toolTarget(tool: ToolTimelineItem): string {
   const args = tool.arguments;
+  if (isSubagentTool(tool)) {
+    return subagentToolPresentation(tool).target;
+  }
   const path = stringArg(args, PATH_KEYS);
   const command = stringArg(args, COMMAND_KEYS);
   const search = stringArg(args, SEARCH_KEYS);
@@ -191,7 +321,8 @@ export function classifyTool(tool: ToolTimelineItem): ToolCategory {
     return "meta";
   }
   if (/web_search|web_fetch/.test(name)) return "network";
-  if (/(subagent|workflow|list_agents|send_message|interrupt_agent)/.test(name)) {
+  if (isSubagentTool(tool)) return "subagent";
+  if (/(workflow|list_agents|send_message|interrupt_agent)/.test(name)) {
     return "agent";
   }
   if (/(^delete$|delete_file|remove|unlink|rm)/.test(name)) return "edit";
@@ -234,7 +365,12 @@ export function toolAction(tool: ToolTimelineItem): {
   if (label === "Goal") return { verb: "Updating goal", target };
   if (label === "Skill") return { verb: "Loading skill", target };
   if (label === "Job") return { verb: "Managing job", target };
-  if (label === "Subagent") return { verb: "Delegating", target };
+  if (label === "Subagent") {
+    return {
+      verb: subagentToolPresentation(tool).verb,
+      target: subagentToolPresentation(tool).target,
+    };
+  }
   if (label === "Workflow") return { verb: "Orchestrating", target };
   if (label === "Loop") return { verb: "Running loop", target };
   if (label === "Agent") return { verb: "Coordinating agents", target };

@@ -1,14 +1,18 @@
 import {
   Agent,
   type AgentEvent,
+  type AgentTool,
   type BeforeToolCallContext,
+  RUN_CANCELLED_BY_USER,
   type StreamFunction,
 } from "@pi-ling/agent-core";
 import type {
   Api,
+  Context,
   Message,
   Model,
   ToolCall,
+  ToolResultMessage,
   UserMessage,
 } from "@earendil-works/pi-ai";
 
@@ -28,7 +32,22 @@ import {
   deriveEffect,
   type ApprovalMode,
 } from "./effects/effects.js";
+import type { AskUserAnswer } from "@pi-ling/contracts";
+
+import {
+  type ComposerMode,
+  isEffectAllowedInComposerMode,
+  toolsForComposerMode,
+} from "./composer-mode.js";
+import {
+  QuestionManager,
+  type QuestionRequest,
+} from "./question/question-manager.js";
+import { createAskUserTool } from "./tools/ask-user.js";
 import { createBuiltinTools } from "./tools/builtins.js";
+import { maybeSpillToolOutput } from "./tools/spill-output.js";
+import { createSpawnSubagentTool } from "./subagents/tool.js";
+import type { SubagentRuntime } from "./subagents/runtime.js";
 import { Workspace } from "./workspace/workspace.js";
 
 export type CodingAgentEvent =
@@ -40,6 +59,14 @@ export type CodingAgentEvent =
       turnId: string;
       callId: string;
       approved: boolean;
+    }
+  | { type: "question_requested"; question: QuestionRequest }
+  | {
+      type: "question_answered";
+      runId: string;
+      turnId: string;
+      callId: string;
+      answers: AskUserAnswer[];
     }
   | {
       type: "changes";
@@ -58,7 +85,15 @@ export interface CodingAgentOptions {
   baselines?: FileBaseline[];
   pendingApprovals?: ApprovalRequest[];
   approvedApprovals?: ApprovalRequest[];
+  pendingQuestions?: QuestionRequest[];
   approvalMode?: ApprovalMode;
+  composerMode?: ComposerMode;
+  subagentRuntime?: SubagentRuntime;
+  sessionId?: string;
+  prepareContext?: (context: Context) => Context | Promise<Context>;
+  recoverContextOverflow?: (
+    context: Context,
+  ) => Context | undefined | Promise<Context | undefined>;
 }
 
 export class CodingAgent {
@@ -66,8 +101,14 @@ export class CodingAgent {
   readonly #agent: Agent;
   readonly #changes: ChangeTracker;
   readonly #approvals: ApprovalManager;
+  readonly #questions: QuestionManager;
   readonly #emit: CodingAgentOptions["emit"];
+  readonly #allTools: AgentTool[];
+  readonly #basePrompt: string;
+  readonly #sessionId: string | undefined;
   #approvalMode: ApprovalMode;
+  #composerMode: ComposerMode;
+  #toolIdentity: { runId: string; turnId: string } | null = null;
 
   private constructor(
     workspace: Workspace,
@@ -75,7 +116,9 @@ export class CodingAgent {
   ) {
     this.workspace = workspace;
     this.#emit = options.emit;
+    this.#sessionId = options.sessionId;
     this.#approvalMode = options.approvalMode ?? "manual";
+    this.#composerMode = options.composerMode ?? "agent";
     this.#changes = new ChangeTracker(workspace);
     if (options.baselines) {
       this.#changes.hydrateBaselines(options.baselines);
@@ -89,33 +132,63 @@ export class CodingAgent {
     for (const approval of options.approvedApprovals ?? []) {
       this.#approvals.restoreApproved(approval);
     }
-    const tools = createBuiltinTools({
-      workspace,
-      changes: this.#changes,
+    this.#questions = new QuestionManager((question) => {
+      return this.#emit({ type: "question_requested", question });
     });
+    for (const question of options.pendingQuestions ?? []) {
+      this.#questions.restore(question);
+    }
+    this.#allTools = [
+      ...createBuiltinTools({
+        workspace,
+        changes: this.#changes,
+        ...(options.sessionId ? { sessionId: options.sessionId } : {}),
+      }),
+      createAskUserTool(this.#questions, () => this.#toolIdentity),
+      ...(options.subagentRuntime
+        ? [createSpawnSubagentTool(options.subagentRuntime)]
+        : []),
+    ];
+    this.#basePrompt = [
+      "You are pi-ling, a coding agent.",
+      `The workspace root is ${workspace.root}.`,
+      "Use the provided tools to inspect and modify the workspace.",
+      "Never claim a file or command changed unless the tool succeeded.",
+      "When the user message already includes image content, understand it directly and do not call read_image for the same image.",
+      "When you need user confirmation, a choice, or missing information, call ask_user. If you recommend an option, put it first and append (Recommended) to that label.",
+      "For multi-step work that needs user confirmation, call create_plan with a markdown plan and update_plan to revise it. After presenting the plan, stop and do not write files or run commands until the user Builds.",
+      "During execution runs, use todo_write to track steps. Use merge=true for incremental updates by id and keep at most one todo in_progress.",
+      ...(options.subagentRuntime
+        ? [
+            "Use spawn_subagent for independent read-only research that would clutter the main conversation. The subagent prompt must be self-contained.",
+            "Use foreground mode when you need the result immediately; use run_in_background when the task can run in parallel. Background tasks notify you automatically when done—do not poll.",
+          ]
+        : []),
+    ].join("\n");
     this.#agent = new Agent({
       initialState: {
-        systemPrompt: [
-          "You are pi-ling, a coding agent.",
-          `The workspace root is ${workspace.root}.`,
-          "Use the provided tools to inspect and modify the workspace.",
-          "Never claim a file or command changed unless the tool succeeded.",
-          "When the user message already includes image content, understand it directly and do not call read_image for the same image.",
-          "For multi-step work that needs user confirmation, call create_plan with a markdown plan and update_plan to revise it. After presenting the plan, stop and do not write files or run commands until the user Builds.",
-          "During execution runs, use todo_write to track steps. Use merge=true for incremental updates by id and keep at most one todo in_progress.",
-        ].join("\n"),
+        systemPrompt: this.#basePrompt,
         model: options.model,
         thinkingLevel: "high",
-        tools,
+        tools: toolsForComposerMode(this.#allTools, this.#composerMode),
         messages: options.messages ?? [],
       },
       streamFn: options.streamFn,
       beforeToolCall: (context, signal) =>
         this.#beforeToolCall(context, signal),
+      ...(options.prepareContext
+        ? { prepareContext: options.prepareContext }
+        : {}),
+      ...(options.recoverContextOverflow
+        ? { recoverContextOverflow: options.recoverContextOverflow }
+        : {}),
+      wrapToolResult: async (toolCallId, result) =>
+        this.#wrapToolResult(toolCallId, result),
     });
     this.#agent.subscribe(async (event) => {
       await this.#emit({ type: "agent", event });
       if (event.type === "tool_execution_end") {
+        this.#toolIdentity = null;
         if (event.result.isError) return;
         let effect;
         try {
@@ -137,6 +210,31 @@ export class CodingAgent {
     });
   }
 
+  async #wrapToolResult(
+    toolCallId: string,
+    result: ToolResultMessage,
+  ): Promise<ToolResultMessage> {
+    if (!this.#sessionId || result.isError) {
+      return result;
+    }
+    const text = result.content
+      .filter((block) => block.type === "text")
+      .map((block) => block.text)
+      .join("\n");
+    if (!text) return result;
+    const spilled = await maybeSpillToolOutput({
+      sessionId: this.#sessionId,
+      callId: toolCallId,
+      workspaceRoot: this.workspace.root,
+      text,
+    });
+    if (spilled.text === text) return result;
+    return {
+      ...result,
+      content: [{ type: "text", text: spilled.text }],
+    };
+  }
+
   static async create(options: CodingAgentOptions): Promise<CodingAgent> {
     return new CodingAgent(await Workspace.open(options.workspaceRoot), options);
   }
@@ -153,8 +251,17 @@ export class CodingAgent {
     return this.#approvalMode;
   }
 
+  get composerMode(): ComposerMode {
+    return this.#composerMode;
+  }
+
   setApprovalMode(mode: ApprovalMode): void {
     this.#approvalMode = mode;
+  }
+
+  setComposerMode(mode: ComposerMode): void {
+    this.#composerMode = mode;
+    this.#agent.setTools(toolsForComposerMode(this.#allTools, mode));
   }
 
   baselines(): FileBaseline[] {
@@ -165,13 +272,24 @@ export class CodingAgent {
     return this.#agent.prompt(input, runId ? { runId } : {});
   }
 
+  continueRun(runId?: string): Promise<void> {
+    return this.#agent.continueRun(runId ? { runId } : {});
+  }
+
+  rehydrateMessages(messages: Message[]): void {
+    this.#agent.hydrate(messages);
+  }
+
   setModel(model: Parameters<Agent["setModel"]>[0]): void {
     this.#agent.setModel(model);
   }
 
   cancel(): void {
-    this.#approvals.cancelAll();
-    this.#agent.abort();
+    this.#approvals.cancelAll(RUN_CANCELLED_BY_USER);
+    this.#questions.cancelAll(
+      "User cancelled before answering the question",
+    );
+    this.#agent.abort(new Error(RUN_CANCELLED_BY_USER));
   }
 
   waitForIdle(): Promise<void> {
@@ -209,6 +327,30 @@ export class CodingAgent {
     return this.#approvals.list();
   }
 
+  async resolveQuestion(
+    callId: string,
+    answers: AskUserAnswer[],
+  ): Promise<boolean> {
+    const pending = this.#questions
+      .list()
+      .find((item) => item.callId === callId);
+    if (!pending) {
+      return false;
+    }
+    await this.#emit({
+      type: "question_answered",
+      runId: pending.runId,
+      turnId: pending.turnId,
+      callId,
+      answers,
+    });
+    return this.#questions.resolve(callId, answers);
+  }
+
+  pendingQuestions(): QuestionRequest[] {
+    return this.#questions.list();
+  }
+
   resumePendingTools(options: {
     runId: string;
     turnId: string;
@@ -229,11 +371,21 @@ export class CodingAgent {
     context: BeforeToolCallContext,
     signal: AbortSignal,
   ) {
+    this.#toolIdentity = {
+      runId: context.runId,
+      turnId: context.turnId,
+    };
     const normalizedCall: ToolCall = {
       ...context.toolCall,
       arguments: context.arguments as Record<string, unknown>,
     };
     const effect = await deriveEffect(normalizedCall, this.workspace);
+    if (!isEffectAllowedInComposerMode(this.#composerMode, effect)) {
+      return {
+        allow: false,
+        reason: `Tool ${normalizedCall.name} is not allowed in ${this.#composerMode} mode`,
+      };
+    }
     const reason = approvalReason(
       effect,
       this.#approvalMode,

@@ -17,4 +17,6 @@ export const DSH_PI_AI_PROFILE_PATCH = `
   config:
     provider: deepseek
     model: deepseek-v4-pro
+    compaction:
+      enabled: false
 `.trimStart();

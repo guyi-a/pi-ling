@@ -8,6 +8,7 @@ import type {
 } from "../../timeline/reducer";
 import { ApprovalCard } from "./ApprovalCard";
 import { ApprovalModePicker } from "./ApprovalModePicker";
+import { ComposerModePicker } from "./ComposerModePicker";
 import { shouldSubmitComposer } from "./ChatView";
 import { MessageItem } from "./MessageItem";
 import { ToolCard } from "./ToolCard";
@@ -128,5 +129,18 @@ describe("chat components", () => {
     expect(html).toContain("手动确认");
     expect(html).toContain("接受编辑");
     expect(html).toContain("自动执行");
+  });
+
+  it("renders all three composer modes", () => {
+    const html = renderToStaticMarkup(
+      <ComposerModePicker
+        value="plan"
+        runtimeKind="native"
+        onChange={async () => {}}
+      />,
+    );
+    expect(html).toContain("Plan");
+    expect(html).toContain("Ask");
+    expect(html).toContain("Agent");
   });
 });

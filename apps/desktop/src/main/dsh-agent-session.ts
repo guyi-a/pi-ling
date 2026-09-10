@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 
-import { ChangeTracker, Workspace } from "@pi-ling/coding-agent";
+import {
+  ChangeTracker,
+  wrapPromptForComposerMode,
+  Workspace,
+} from "@pi-ling/coding-agent";
 import type {
   RuntimeAdapter,
   RuntimeEvent,
@@ -9,6 +13,7 @@ import type {
 import type {
   AgentStatus,
   ApprovalMode,
+  ComposerMode,
   ApprovalRequest,
   CanonicalMessage,
   ChangedFile,
@@ -69,6 +74,7 @@ export class DshAgentSession {
     input: Record<string, unknown>;
   }> = [];
   #approvalMode: ApprovalMode;
+  #composerMode: ComposerMode;
   #contextUsage: ContextUsage | undefined;
   #runTurn = 0;
   #changes: ChangeTracker | null = null;
@@ -93,6 +99,7 @@ export class DshAgentSession {
       options.store.loadSessionEvents(options.session.id),
     );
     this.#approvalMode = options.session.approvalMode;
+    this.#composerMode = options.session.composerMode ?? "agent";
     this.#workspaceRoot = options.session.workspace.root;
     this.#unsubscribe = this.#runtime.subscribe(async (event) => {
       await this.#handleRuntimeEvent(event);
@@ -214,6 +221,7 @@ export class DshAgentSession {
       model: "deepseek-v4-pro",
       configured: Boolean(process.env["DEEPSEEK_API_KEY"]?.trim()),
       approvalMode: this.#approvalMode,
+      composerMode: this.#composerMode,
       workspace: this.#session.workspace,
     };
   }
@@ -257,8 +265,9 @@ export class DshAgentSession {
         event: { kind: "run.started", userMessage },
       }),
     );
+    const runtimePrompt = wrapPromptForComposerMode(prompt, this.#composerMode);
     void this.#runtime
-      .send(this.#session.id, runId, prompt)
+      .send(this.#session.id, runId, runtimePrompt)
       .catch(() => {})
       .finally(() => {
         if (this.#activeRunId === runId) this.#activeRunId = null;
@@ -269,6 +278,13 @@ export class DshAgentSession {
     if (this.#activeRunId !== runId) return false;
     await this.#runtime.cancel(this.#session.id);
     return true;
+  }
+
+  async resolveQuestion(
+    _callId: string,
+    _answers: import("@pi-ling/contracts").AskUserAnswer[],
+  ): Promise<boolean> {
+    return false;
   }
 
   async resolveApproval(
@@ -323,6 +339,11 @@ export class DshAgentSession {
   setApprovalMode(mode: ApprovalMode): SessionSummary {
     this.#approvalMode = mode;
     return this.#store.setApprovalMode(this.#session.id, mode);
+  }
+
+  setComposerMode(mode: ComposerMode): SessionSummary {
+    this.#composerMode = mode;
+    return this.#store.setComposerMode(this.#session.id, mode);
   }
 
   async dispose(): Promise<void> {

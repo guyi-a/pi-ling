@@ -1,15 +1,22 @@
 import {
   CodingAgent,
+  SubagentService,
+  wrapPromptForComposerMode,
   Workspace,
   type ApprovalDecision,
   type ApprovalRequest as RuntimeApprovalRequest,
   type CodingAgentEvent,
   type FileBaseline,
+  type SubagentInvocationContext,
+  type SubagentRuntime,
+  type SubagentSpawnResult,
 } from "@pi-ling/coding-agent";
 import {
   createModels,
   type AssistantMessage,
   type Message,
+  type Api,
+  type Model,
   type ToolCall,
   type ToolResultMessage,
   type Usage,
@@ -19,6 +26,8 @@ import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 import type {
   AgentStatus,
   AgentUsage,
+  AskUserAnswer,
+  BackgroundTask,
   CanonicalMessage,
   ChangedFile,
   FileDiff,
@@ -26,15 +35,24 @@ import type {
   SessionSummary,
   RuntimeKind,
   SessionEventEnvelope,
+  SubagentSpec,
   TimelineEnvelope,
   TimelineSnapshot,
 } from "@pi-ling/contracts";
+import { findLatestCompactionRecord } from "@pi-ling/compaction";
 import {
   projectCanonicalMessages,
   TimelineProjector,
 } from "@pi-ling/session-events";
 
+import {
+  maybeCompactRuntimeContextIfNeeded,
+  maybeCompactSessionBeforeRun,
+  recoverRuntimeContextOverflow,
+} from "./session-compaction.js";
+
 import { RunMessageBuffer } from "./run-message-buffer.js";
+import type { TaskRunner } from "./tasks/task-runner.js";
 import { diffLineStats } from "./diff-stats.js";
 import {
   canonicalFromMessage,
@@ -68,6 +86,19 @@ function emptyUsage(): Usage {
 function turnNumber(turnId: string): number {
   const value = Number(turnId.match(/:turn:(\d+)$/)?.[1]);
   return Number.isFinite(value) && value > 0 ? value : 1;
+}
+
+function contextUsageFromModel(
+  model: Model<Api>,
+  usage: Usage,
+): { used: number; size: number } | undefined {
+  if (model.contextWindow <= 0 || usage.totalTokens <= 0) {
+    return undefined;
+  }
+  return {
+    used: Math.max(0, usage.totalTokens - usage.output),
+    size: model.contextWindow,
+  };
 }
 
 async function nativeMessages(
@@ -232,23 +263,36 @@ export class PiAgentSession {
   readonly #availableRuntimes: RuntimeKind[];
   readonly #buffer: RunMessageBuffer;
   readonly #projector: TimelineProjector;
+  readonly #subagentService: SubagentService;
+  readonly #taskRunner: TaskRunner | undefined;
+  readonly #onAutoContinue: (() => Promise<void>) | undefined;
+  #model: Model<Api>;
   #activeRunId: string | null = null;
   #runOutcome: "completed" | "cancelled" | "error" = "completed";
+  #pausedContinuations = false;
 
   private constructor(
     store: SessionStore,
     session: SessionSummary,
     emit: (envelope: TimelineEnvelope) => void,
     agent: CodingAgent,
+    model: Model<Api>,
     availableRuntimes: RuntimeKind[],
     buffer: RunMessageBuffer,
+    subagentService: SubagentService,
+    taskRunner?: TaskRunner,
+    onAutoContinue?: () => Promise<void>,
   ) {
     this.#store = store;
     this.#session = session;
     this.#emit = emit;
     this.#agent = agent;
+    this.#model = model;
     this.#availableRuntimes = availableRuntimes;
     this.#buffer = buffer;
+    this.#subagentService = subagentService;
+    this.#taskRunner = taskRunner;
+    this.#onAutoContinue = onAutoContinue;
     this.#projector = new TimelineProjector(
       session.id,
       store.loadSessionEvents(session.id),
@@ -261,6 +305,8 @@ export class PiAgentSession {
     emit: (envelope: TimelineEnvelope) => void;
     availableRuntimes?: RuntimeKind[];
     buffer?: RunMessageBuffer;
+    taskRunner?: TaskRunner;
+    onAutoContinue?: () => Promise<void>;
   }): Promise<PiAgentSession> {
     const model = models.getModel(PROVIDER, MODEL);
     if (!model) {
@@ -274,6 +320,10 @@ export class PiAgentSession {
         ? [checkpoint.pendingApproval]
         : [];
     let instance!: PiAgentSession;
+    const subagentService = new SubagentService();
+    const subagentRuntime: SubagentRuntime = {
+      spawn: (spec, context) => instance.#spawnSubagent(spec, context),
+    };
     const canonical = projectCanonicalMessages(
       options.store.loadSessionEvents(options.session.id),
     );
@@ -282,18 +332,34 @@ export class PiAgentSession {
       canonical.length > 0
         ? await nativeMessages(canonical, workspace)
         : options.store.loadMessages(options.session.id);
+    const compactionEvents = () =>
+      options.store.loadSessionEvents(options.session.id);
+    const activeCompaction = () =>
+      findLatestCompactionRecord(compactionEvents());
     const agent = await CodingAgent.create({
       workspaceRoot: options.session.workspace.root,
       model,
       streamFn: models.streamSimple.bind(models),
       messages: restoredMessages,
+      sessionId: options.session.id,
       baselines: options.store.loadBaselines(
         options.session.id,
       ) as FileBaseline[],
       pendingApprovals:
         checkpoint?.phase === "awaiting_approval" ? pending : [],
       approvedApprovals: approved,
+      pendingQuestions:
+        checkpoint?.phase === "awaiting_question" &&
+        checkpoint.pendingQuestion
+          ? [checkpoint.pendingQuestion]
+          : [],
       approvalMode: options.session.approvalMode,
+      composerMode: options.session.composerMode ?? "agent",
+      subagentRuntime: options.taskRunner ? subagentRuntime : undefined,
+      prepareContext: async (context) =>
+        maybeCompactRuntimeContextIfNeeded(context, activeCompaction()),
+      recoverContextOverflow: async (context) =>
+        recoverRuntimeContextOverflow(context, activeCompaction()),
       emit: (event) => instance.#handleCodingEvent(event),
     });
     instance = new PiAgentSession(
@@ -301,8 +367,12 @@ export class PiAgentSession {
       options.session,
       options.emit,
       agent,
+      model,
       options.availableRuntimes ?? ["native"],
       options.buffer ?? new RunMessageBuffer(() => {}),
+      subagentService,
+      options.taskRunner,
+      options.onAutoContinue,
     );
     instance.#recover(checkpoint);
     return instance;
@@ -318,9 +388,11 @@ export class PiAgentSession {
       runtimeKind: "native",
       availableRuntimes: this.#availableRuntimes,
       provider: PROVIDER,
-      model: MODEL,
+      model: this.#model.id,
+      contextWindow: this.#model.contextWindow,
       configured: Boolean(process.env["DEEPSEEK_API_KEY"]?.trim()),
       approvalMode: this.#agent.approvalMode,
+      composerMode: this.#agent.composerMode,
       workspace: this.#session.workspace,
     };
   }
@@ -339,41 +411,55 @@ export class PiAgentSession {
     }
     this.#activeRunId = runId;
     this.#runOutcome = "completed";
-    this.#store.setLifecycle(this.#session.id, "running", runId);
     const userMessage = buildCanonicalUserMessage(runId, prompt, attachments);
-    const started = this.#store.appendSessionEvent({
-      sessionId: this.#session.id,
-      runtimeKind: "native",
-      runId,
-      messageId: userMessage.id,
-      idempotencyKey: `run:${runId}:start`,
-      event: { kind: "run.started", userMessage },
-    });
-    this.#store.setCheckpoint({
-      sessionId: this.#session.id,
-      runId,
-      phase: "started",
-      runtimeKind: "native",
-      lastDurableSeq: started.seq,
-      updatedAt: Date.now(),
-    });
-    this.#flush(started);
     void (async () => {
       try {
+        const compacted = await maybeCompactSessionBeforeRun(
+          this.#store,
+          this.#session.id,
+        );
+        if (compacted) {
+          this.#flush(compacted);
+        }
+        this.#store.setLifecycle(this.#session.id, "running", runId);
+        const started = this.#store.appendSessionEvent({
+          sessionId: this.#session.id,
+          runtimeKind: "native",
+          runId,
+          messageId: userMessage.id,
+          idempotencyKey: `run:${runId}:start`,
+          event: { kind: "run.started", userMessage },
+        });
+        this.#store.setCheckpoint({
+          sessionId: this.#session.id,
+          runId,
+          phase: "started",
+          runtimeKind: "native",
+          lastDurableSeq: started.seq,
+          updatedAt: Date.now(),
+        });
+        this.#flush(started);
+        await this.#rehydrateAgentMessages();
         const hasImages = attachments.length > 0;
         const targetModelId = hasImages ? VISION_MODEL : MODEL;
         const model = models.getModel(PROVIDER, targetModelId);
         if (!model) {
           throw new Error(`Model is unavailable: ${PROVIDER}/${targetModelId}`);
         }
+        this.#model = model;
         this.#agent.setModel(model);
+        const composerMode =
+          this.#store.getSession(this.#session.id)?.composerMode ??
+          this.#agent.composerMode;
+        this.#agent.setComposerMode(composerMode);
+        const modelPrompt = wrapPromptForComposerMode(prompt, composerMode);
         const userPrompt = hasImages
           ? await buildUserPromptMessage(
               this.#agent.workspace,
-              prompt,
+              modelPrompt,
               attachments,
             )
-          : prompt;
+          : modelPrompt;
         await this.#agent.prompt(userPrompt, runId);
       } catch (error: unknown) {
         this.#failRun(runId, error);
@@ -394,11 +480,87 @@ export class PiAgentSession {
     return true;
   }
 
+  async notifyBackgroundTask(task: BackgroundTask): Promise<void> {
+    if (this.#store.hasTaskNotification(this.#session.id, task.id)) {
+      return;
+    }
+    const durable = this.#store.appendSessionEvent({
+      sessionId: this.#session.id,
+      runtimeKind: "native",
+      runId: task.parentRunId,
+      toolCallId: task.parentToolCallId,
+      messageId: `task-notification:${task.id}`,
+      idempotencyKey: `task:${task.id}:notified`,
+      event: {
+        kind: "task.notified",
+        taskId: task.id,
+        status: task.status,
+        description: task.description,
+        ...(task.summary ? { summary: task.summary } : {}),
+        ...(task.error ? { error: task.error } : {}),
+      },
+    });
+    this.#flush(durable);
+    await this.#rehydrateAgentMessages();
+  }
+
+  async continueBackgroundTasks(
+    runId: string,
+  ): Promise<{ started: boolean; taskIds: string[] }> {
+    if (this.#activeRunId || this.#agent.isStreaming || this.#pausedContinuations) {
+      return { started: false, taskIds: [] };
+    }
+    const session = this.#store.getSession(this.#session.id);
+    if (
+      !session ||
+      session.lifecycle === "running" ||
+      session.lifecycle === "awaiting_approval" ||
+      session.lifecycle === "awaiting_question"
+    ) {
+      return { started: false, taskIds: [] };
+    }
+
+    const claimed = this.#store.claimPendingContinuations(this.#session.id);
+    const taskIds = claimed.map((task) => task.id);
+    if (taskIds.length === 0) {
+      return { started: false, taskIds: [] };
+    }
+
+    for (const taskId of taskIds) {
+      if (!this.#store.hasTaskNotification(this.#session.id, taskId)) {
+        this.#store.releaseContinuations(taskIds);
+        throw new Error("Background task notification is not ready to continue.");
+      }
+    }
+
+    let runCompleted = false;
+    try {
+      await this.#startContinuationRun(runId, taskIds);
+      runCompleted = true;
+      this.#store.markContinued(taskIds);
+      return { started: true, taskIds };
+    } catch (error) {
+      this.#pausedContinuations = true;
+      throw error;
+    } finally {
+      if (!runCompleted) {
+        this.#store.releaseContinuations(taskIds);
+      }
+    }
+  }
+
   async resolveApproval(
     callId: string,
     decision: ApprovalDecision,
   ): Promise<boolean> {
     return this.#agent.resolveApproval(callId, decision);
+  }
+
+  async resolveQuestion(
+    callId: string,
+    answers: AskUserAnswer[],
+  ): Promise<boolean> {
+    return this.#agent.resolveQuestion(callId, answers);
   }
 
   changedFiles(): Promise<ChangedFile[]> {
@@ -414,6 +576,14 @@ export class PiAgentSession {
   ): SessionSummary {
     const session = this.#store.setApprovalMode(this.#session.id, mode);
     this.#agent.setApprovalMode(mode);
+    return session;
+  }
+
+  setComposerMode(
+    mode: SessionSummary["composerMode"],
+  ): SessionSummary {
+    const session = this.#store.setComposerMode(this.#session.id, mode);
+    this.#agent.setComposerMode(mode);
     return session;
   }
 
@@ -540,6 +710,84 @@ export class PiAgentSession {
         updatedAt: Date.now(),
       });
       this.#store.deletePendingApproval(this.#session.id, event.callId);
+      this.#store.setLifecycle(this.#session.id, "running", event.runId);
+      this.#flush(durable);
+      return;
+    }
+    if (event.type === "question_requested") {
+      const question = event.question;
+      const checkpoint = this.#store.getCheckpoint(
+        this.#session.id,
+        question.runId,
+      );
+      const durable = this.#store.appendSessionEvent({
+        sessionId: this.#session.id,
+        runtimeKind: "native",
+        runId: question.runId,
+        turnId: question.turnId,
+        toolCallId: question.callId,
+        idempotencyKey: `question:${question.callId}:requested`,
+        event: {
+          kind: "question.requested",
+          toolItemId: question.callId,
+          question: {
+            callId: question.callId,
+            questions: question.questions,
+          },
+        },
+      });
+      this.#store.setCheckpoint({
+        sessionId: this.#session.id,
+        runId: question.runId,
+        phase: "awaiting_question",
+        turnId: question.turnId,
+        pendingCallId: question.callId,
+        ...(checkpoint?.pendingTool
+          ? { pendingTool: checkpoint.pendingTool }
+          : {}),
+        pendingQuestion: question,
+        runtimeKind: "native",
+        lastDurableSeq: durable.seq,
+        updatedAt: Date.now(),
+      });
+      this.#store.setLifecycle(
+        this.#session.id,
+        "awaiting_question",
+        question.runId,
+      );
+      this.#flush(durable);
+      return;
+    }
+    if (event.type === "question_answered") {
+      const checkpoint = this.#store.getCheckpoint(
+        this.#session.id,
+        event.runId,
+      );
+      const durable = this.#store.appendSessionEvent({
+        sessionId: this.#session.id,
+        runtimeKind: "native",
+        runId: event.runId,
+        turnId: event.turnId,
+        toolCallId: event.callId,
+        idempotencyKey: `question:${event.callId}:answered`,
+        event: {
+          kind: "question.answered",
+          toolItemId: event.callId,
+          callId: event.callId,
+          answers: event.answers,
+        },
+      });
+      this.#store.setCheckpoint({
+        sessionId: this.#session.id,
+        runId: event.runId,
+        phase: "executing_tool",
+        turnId: event.turnId,
+        pendingCallId: event.callId,
+        ...(checkpoint?.pendingTool ? { pendingTool: checkpoint.pendingTool } : {}),
+        runtimeKind: "native",
+        lastDurableSeq: durable.seq,
+        updatedAt: Date.now(),
+      });
       this.#store.setLifecycle(this.#session.id, "running", event.runId);
       this.#flush(durable);
       return;
@@ -678,6 +926,10 @@ export class PiAgentSession {
             "native",
             agentEvent.message.timestamp,
           );
+          const contextUsage = contextUsageFromModel(
+            this.#model,
+            agentEvent.message.usage,
+          );
           const committed = this.#store.appendSessionEvent({
             sessionId: this.#session.id,
             runtimeKind: "native",
@@ -690,6 +942,7 @@ export class PiAgentSession {
               message: canonical,
               stopReason: agentEvent.message.stopReason,
               usage,
+              ...(contextUsage ? { contextUsage } : {}),
               ...(agentEvent.message.errorMessage
                 ? { error: agentEvent.message.errorMessage }
                 : {}),
@@ -828,8 +1081,155 @@ export class PiAgentSession {
         });
         this.#store.setLifecycle(this.#session.id, "idle");
         this.#buffer.endRun(this.#session.id, runId);
+        void this.#onAutoContinue?.();
         }
         break;
+    }
+  }
+
+  async #spawnSubagent(
+    spec: SubagentSpec,
+    context: SubagentInvocationContext,
+  ): Promise<SubagentSpawnResult> {
+    const runId = this.#activeRunId;
+    if (!runId) {
+      throw new Error("Subagent invocation requires an active run");
+    }
+
+    const emitSpawned = async (child: {
+      childSessionId: string;
+      childRunId: string;
+    }) => {
+      this.#store.createSession({
+        id: child.childSessionId,
+        workspaceId: this.#session.workspaceId,
+        parentSessionId: this.#session.id,
+      });
+      const durable = this.#store.appendSessionEvent({
+        sessionId: this.#session.id,
+        runtimeKind: "native",
+        runId,
+        toolCallId: context.parentToolCallId,
+        idempotencyKey: `subagent:${child.childRunId}:spawned`,
+        event: {
+          kind: "subagent.spawned",
+          parentToolCallId: context.parentToolCallId,
+          childSessionId: child.childSessionId,
+          childRunId: child.childRunId,
+          subagentType: spec.type,
+          description: spec.description,
+        },
+      });
+      this.#flush(durable);
+    };
+
+    if (spec.mode === "background") {
+      if (!this.#taskRunner) {
+        throw new Error("Background tasks are not available in this host.");
+      }
+      const task = this.#taskRunner.submitSubagent({
+        parentSessionId: this.#session.id,
+        parentRunId: runId,
+        parentToolCallId: context.parentToolCallId,
+        description: spec.description,
+        spec,
+        execute: async ({ signal, onSpawned }) => {
+          const result = await this.#subagentService.spawnForeground({
+            spec: { ...spec, mode: "foreground" },
+            parentSessionId: this.#session.id,
+            workspaceRoot: this.#session.workspace.root,
+            model: this.#model,
+            streamFn: models.streamSimple.bind(models),
+            signal,
+            onSpawned: async (child) => {
+              await onSpawned(child);
+              await emitSpawned(child);
+            },
+          });
+          return { summary: result.summary };
+        },
+      });
+      return {
+        taskId: task.id,
+        status: task.status === "running" ? "running" : "pending",
+      };
+    }
+
+    return this.#subagentService.spawnForeground({
+      spec,
+      parentSessionId: this.#session.id,
+      workspaceRoot: this.#session.workspace.root,
+      model: this.#model,
+      streamFn: models.streamSimple.bind(models),
+      signal: context.signal,
+      onSpawned: emitSpawned,
+    });
+  }
+
+  async #rehydrateAgentMessages(): Promise<void> {
+    const canonical = projectCanonicalMessages(
+      this.#store.loadSessionEvents(this.#session.id),
+    );
+    const workspace = await Workspace.open(this.#session.workspace.root);
+    const messages =
+      canonical.length > 0
+        ? await nativeMessages(canonical, workspace)
+        : this.#store.loadMessages(this.#session.id);
+    this.#agent.rehydrateMessages(messages);
+  }
+
+  async #startContinuationRun(
+    runId: string,
+    taskIds: readonly string[],
+  ): Promise<void> {
+    if (this.#activeRunId || this.#agent.isStreaming) {
+      throw new Error("Agent is already processing a prompt");
+    }
+
+    await this.#rehydrateAgentMessages();
+    this.#activeRunId = runId;
+    this.#runOutcome = "completed";
+    this.#store.setLifecycle(this.#session.id, "running", runId);
+
+    const continuationUserId = `continuation:${runId}`;
+    const started = this.#store.appendSessionEvent({
+      sessionId: this.#session.id,
+      runtimeKind: "native",
+      runId,
+      messageId: continuationUserId,
+      idempotencyKey: `run:${runId}:start`,
+      event: {
+        kind: "run.started",
+        continuation: true,
+        userMessage: {
+          id: continuationUserId,
+          role: "user",
+          sourceRuntime: "native",
+          createdAt: Date.now(),
+          content: [{ type: "text", text: "" }],
+          rawPayload: { internal: true, continuation: true, taskIds },
+        },
+      },
+    });
+    this.#store.setCheckpoint({
+      sessionId: this.#session.id,
+      runId,
+      phase: "started",
+      runtimeKind: "native",
+      lastDurableSeq: started.seq,
+      updatedAt: Date.now(),
+    });
+    this.#flush(started);
+
+    try {
+      await this.#agent.continueRun(runId);
+    } catch (error: unknown) {
+      this.#failRun(runId, error);
+      throw error;
+    } finally {
+      if (this.#activeRunId === runId) {
+        this.#activeRunId = null;
+      }
     }
   }
 
@@ -843,6 +1243,13 @@ export class PiAgentSession {
       checkpoint.pendingApproval
     ) {
       // Projector already folded durable approval events during open().
+    }
+    if (
+      checkpoint.phase === "awaiting_question" &&
+      checkpoint.pendingQuestion
+    ) {
+      this.#activeRunId = checkpoint.runId;
+      return;
     }
     if (
       checkpoint.phase === "executing_tool" &&

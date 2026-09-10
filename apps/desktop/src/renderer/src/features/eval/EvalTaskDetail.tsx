@@ -1,14 +1,14 @@
 import type { EvalTaskDetail as EvalTaskDetailType } from "@pi-ling/contracts";
 import { useEffect, useState } from "react";
 
+import { EvalSectionHeader } from "./EvalSectionHeader";
+
 export function EvalTaskDetail(props: {
   detail: EvalTaskDetailType | null;
   running: boolean;
   onRunTask: (taskId: string) => void;
-  onSave: (input: {
-    enabled: boolean;
-    prompt: string;
-  }) => void;
+  onSavePrompt: (prompt: string) => void;
+  onEnabledChange: (enabled: boolean) => void;
   onClearOverride: (taskId: string) => void;
   onOpenCatalog: () => void;
 }) {
@@ -24,7 +24,7 @@ export function EvalTaskDetail(props: {
   if (!props.detail) {
     return (
       <div className="eval-task-detail eval-task-detail-empty">
-        Select a task to inspect prompt, fixture, and verify commands.
+        选择任务以查看 prompt、fixture 与 verify 命令。
       </div>
     );
   }
@@ -32,20 +32,27 @@ export function EvalTaskDetail(props: {
   return (
     <div className="eval-task-detail">
       <div className="eval-task-detail-header">
-        <strong>{props.detail.title}</strong>
-        <span className="eval-task-detail-id">{props.detail.id}</span>
-        {props.detail.hasLocalOverride ? (
-          <span className="eval-override-badge">Override</span>
-        ) : null}
+        <div className="eval-task-detail-heading">
+          <strong>{props.detail.title}</strong>
+          <span className="eval-task-detail-id">{props.detail.id}</span>
+          {props.detail.hasLocalOverride ? (
+            <span className="eval-override-badge">已覆盖</span>
+          ) : null}
+        </div>
+        <label className="eval-enable-toggle">
+          <span className="eval-enable-toggle-label">启用</span>
+          <input
+            type="checkbox"
+            className="eval-enable-toggle-input"
+            checked={enabled}
+            onChange={(event) => {
+              const next = event.target.checked;
+              setEnabled(next);
+              props.onEnabledChange(next);
+            }}
+          />
+        </label>
       </div>
-      <label className="eval-task-detail-field">
-        <span>Enabled</span>
-        <input
-          type="checkbox"
-          checked={enabled}
-          onChange={(event) => setEnabled(event.target.checked)}
-        />
-      </label>
       <label className="eval-task-detail-field eval-task-detail-prompt">
         <span>Prompt</span>
         <textarea
@@ -55,26 +62,26 @@ export function EvalTaskDetail(props: {
         />
       </label>
       <div className="eval-task-detail-section">
-        <h4>Fixture files</h4>
+        <EvalSectionHeader>Fixture 文件</EvalSectionHeader>
         <ul>
           {props.detail.fixtureFiles.map((file) => (
             <li key={file}>{file}</li>
           ))}
         </ul>
-        <pre>{props.detail.fixtureCommand}</pre>
+        <pre className="eval-code-block">{props.detail.fixtureCommand}</pre>
       </div>
       <div className="eval-task-detail-section">
-        <h4>Verify</h4>
+        <EvalSectionHeader>Verify</EvalSectionHeader>
         {props.detail.verify.map((row) => (
-          <pre key={row.name}>
+          <pre key={row.name} className="eval-code-block">
             {row.name}: {row.command}
           </pre>
         ))}
       </div>
       {props.detail.judge ? (
         <div className="eval-task-detail-section">
-          <h4>Judge</h4>
-          <pre>{props.detail.judge.rubric}</pre>
+          <EvalSectionHeader>Judge</EvalSectionHeader>
+          <pre className="eval-code-block">{props.detail.judge.rubric}</pre>
         </div>
       ) : null}
       <div className="eval-task-detail-actions">
@@ -84,16 +91,14 @@ export function EvalTaskDetail(props: {
           disabled={props.running}
           onClick={() => props.onRunTask(props.detail!.id)}
         >
-          Run Task
+          运行此任务
         </button>
         <button
           type="button"
           className="eval-button"
-          onClick={() =>
-            props.onSave({ enabled, prompt: prompt.trim() })
-          }
+          onClick={() => props.onSavePrompt(prompt.trim())}
         >
-          Save Override
+          保存 Prompt
         </button>
         {props.detail.hasLocalOverride ? (
           <button
@@ -101,7 +106,7 @@ export function EvalTaskDetail(props: {
             className="eval-button"
             onClick={() => props.onClearOverride(props.detail!.id)}
           >
-            Reset Override
+            清除覆盖
           </button>
         ) : null}
         <button
@@ -109,7 +114,7 @@ export function EvalTaskDetail(props: {
           className="eval-button"
           onClick={() => props.onOpenCatalog()}
         >
-          Open Catalog
+          打开目录
         </button>
       </div>
     </div>

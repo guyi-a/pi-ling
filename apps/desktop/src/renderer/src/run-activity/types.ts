@@ -19,9 +19,15 @@ export type RunPhase =
   | "failed"
   | "cancelled";
 
+export interface SubagentSummary {
+  description: string;
+  background: boolean;
+}
+
 export interface RunActivityCounters {
   editedFiles: string[];
   exploredFiles: string[];
+  subagents: SubagentSummary[];
   commandCount: number;
   toolCount: number;
   failedToolCount: number;

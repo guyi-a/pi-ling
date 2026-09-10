@@ -46,6 +46,17 @@ export class DshAgentDriver implements AgentDriver {
 
     runtime.subscribe(async (event: RuntimeEvent) => {
       if (event.type === "permission") {
+        const allowOption = event.options.find(
+          (option) =>
+            option.kind === "allow_once" || option.kind === "allow_always",
+        );
+        if (allowOption) {
+          await runtime.resolvePermission({
+            permissionId: event.permissionId,
+            optionId: allowOption.optionId,
+          });
+          return;
+        }
         metrics.approval_interrupts += 1;
         runError = "approval_required";
         runFinished = true;

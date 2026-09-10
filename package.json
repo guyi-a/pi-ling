@@ -6,7 +6,7 @@
   "scripts": {
     "postinstall": "electron-rebuild -f -w node-pty",
     "build": "pnpm build:packages && pnpm --filter @pi-ling/desktop build",
-    "build:packages": "pnpm --filter @pi-ling/runtime-contracts build && pnpm --filter @pi-ling/session-events build && pnpm --filter @pi-ling/agent-core build && pnpm --filter @pi-ling/coding-agent build && pnpm --filter @pi-ling/native-runtime build && pnpm --filter @pi-ling/dsh-runtime build && pnpm --filter @pi-ling/dsh-transcript build && pnpm --filter @pi-ling/claude-transcript build && pnpm --filter @pi-ling/coding-eval build",
+    "build:packages": "pnpm --filter @pi-ling/runtime-contracts build && pnpm --filter @pi-ling/compaction build && pnpm --filter @pi-ling/session-events build && pnpm --filter @pi-ling/agent-core build && pnpm --filter @pi-ling/coding-agent build && pnpm --filter @pi-ling/native-runtime build && pnpm --filter @pi-ling/dsh-runtime build && pnpm --filter @pi-ling/dsh-transcript build && pnpm --filter @pi-ling/claude-transcript build && pnpm --filter @pi-ling/claude-runtime build && pnpm --filter @pi-ling/coding-eval build",
     "eval:validate": "pnpm --filter @pi-ling/coding-eval validate",
     "eval:reference": "pnpm --filter @pi-ling/coding-eval run-suite --driver reference --ledger ../../.coding-eval/ledger.jsonl",
     "eval:noop": "pnpm --filter @pi-ling/coding-eval run-suite --driver noop --ledger ../../.coding-eval/ledger.jsonl",

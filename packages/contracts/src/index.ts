@@ -8,6 +8,7 @@ export const IPC_CHANNELS = {
   timelineSnapshot: "timeline:snapshot",
   workspaceSelect: "workspace:select",
   approvalResolve: "approval:resolve",
+  questionResolve: "question:resolve",
   changesGet: "changes:get",
   diffGet: "diff:get",
   workspaceTree: "workspace:tree",
@@ -22,6 +23,7 @@ export const IPC_CHANNELS = {
   workspacesList: "workspaces:list",
   workspacesAdd: "workspaces:add",
   sessionApprovalMode: "session:approval-mode",
+  sessionComposerMode: "session:composer-mode",
   sessionRuntime: "session:runtime",
   themeSet: "theme:set",
   terminalStart: "terminal:start",
@@ -32,6 +34,7 @@ export const IPC_CHANNELS = {
   terminalExit: "terminal:exit",
   attachmentSaveImage: "attachment:save-image",
   attachmentPickImages: "attachment:pick-images",
+  taskUpdated: "task:updated",
 } as const;
 
 export interface AppInfo {
@@ -46,8 +49,10 @@ export interface AgentStatus {
   availableRuntimes: RuntimeKind[];
   provider: string;
   model: string;
+  contextWindow?: number;
   configured: boolean;
   approvalMode: ApprovalMode;
+  composerMode: ComposerMode;
   workspace?: WorkspaceInfo;
 }
 
@@ -70,6 +75,7 @@ export interface AgentPromptRequest {
   prompt: string;
   sessionId?: string;
   attachments?: PromptAttachment[];
+  composerMode?: ComposerMode;
 }
 
 export interface AgentPromptAccepted {
@@ -104,10 +110,50 @@ export type SessionLifecycle =
   | "idle"
   | "running"
   | "awaiting_approval"
+  | "awaiting_question"
   | "crashed";
 
 export type ApprovalMode = "manual" | "accept-write" | "auto";
+export type ComposerMode = "plan" | "ask" | "agent";
 export type RuntimeKind = "native" | "dsh" | "claude";
+
+export type SubagentType = "explore";
+export type SubagentMode = "foreground" | "background";
+
+export interface SubagentSpec {
+  type: SubagentType;
+  mode: SubagentMode;
+  description: string;
+  prompt: string;
+}
+
+export type BackgroundTaskStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "interrupted";
+
+export interface BackgroundTask {
+  id: string;
+  parentSessionId: string;
+  parentRunId: string;
+  parentToolCallId: string;
+  childSessionId?: string;
+  status: BackgroundTaskStatus;
+  description: string;
+  summary?: string;
+  error?: string;
+  createdAt: number;
+  updatedAt: number;
+  continuedAt?: number;
+}
+
+export interface TaskUpdatedEvent {
+  sessionId: string;
+  task: BackgroundTask;
+}
 export type AppTheme = "dark" | "light";
 /** 变更面板的数据来源；agent=当前会话基线的改动（非 git），其余为 git 作用域 */
 export type ChangesSource =
@@ -167,6 +213,7 @@ export type SessionEvent =
   | {
       kind: "run.started";
       userMessage: CanonicalMessage;
+      continuation?: boolean;
     }
   | {
       kind: "run.ended";
@@ -198,6 +245,17 @@ export type SessionEvent =
       approved: boolean;
     }
   | {
+      kind: "question.requested";
+      toolItemId: string;
+      question: QuestionRequest;
+    }
+  | {
+      kind: "question.answered";
+      toolItemId: string;
+      callId: string;
+      answers: AskUserAnswer[];
+    }
+  | {
       kind: "changes.committed";
       callId: string;
       files: ChangedFile[];
@@ -209,12 +267,32 @@ export type SessionEvent =
     }
   | {
       kind: "compaction.applied";
+      compactionId: string;
+      throughMessageId: string;
       summary: CanonicalMessage;
       replacedMessageIds: string[];
+      replacedCount: number;
+      estimatedTokens?: number;
     }
   | {
       kind: "session.status.changed";
       lifecycle: SessionLifecycle;
+    }
+  | {
+      kind: "subagent.spawned";
+      parentToolCallId: string;
+      childSessionId: string;
+      childRunId: string;
+      subagentType: SubagentType;
+      description: string;
+    }
+  | {
+      kind: "task.notified";
+      taskId: string;
+      status: BackgroundTaskStatus;
+      description: string;
+      summary?: string;
+      error?: string;
     };
 
 export interface SessionEventEnvelope {
@@ -268,6 +346,7 @@ export interface SessionSummary {
   workspace: WorkspaceInfo;
   lifecycle: SessionLifecycle;
   approvalMode: ApprovalMode;
+  composerMode: ComposerMode;
   runtimeKind: RuntimeKind;
   runtimeVersion?: string;
   pinnedAt?: number;
@@ -288,6 +367,7 @@ export interface SessionActivation {
   status: AgentStatus;
   snapshot: TimelineSnapshot;
   bufferFrames: StreamFrameEnvelope[];
+  backgroundTasks: BackgroundTask[];
   activationRevision: number;
 }
 
@@ -315,6 +395,34 @@ export interface ApprovalDecisionRequest {
   approved: boolean;
   effectDigest: string;
   reason?: string;
+}
+
+export interface AskUserOption {
+  label: string;
+  description?: string;
+}
+
+export interface AskUserQuestion {
+  id: string;
+  question: string;
+  header?: string;
+  options?: AskUserOption[];
+}
+
+export interface AskUserAnswer {
+  id: string;
+  selected: string[];
+  custom?: string;
+}
+
+export interface QuestionRequest {
+  callId: string;
+  questions: AskUserQuestion[];
+}
+
+export interface QuestionAnswerRequest {
+  callId: string;
+  answers: AskUserAnswer[];
 }
 
 export interface ChangedFile {
@@ -383,6 +491,7 @@ export type TimelineEvent =
       type: "run_start";
       userItemId: string;
       prompt: string;
+      continuation?: boolean;
       attachments?: TimelineUserAttachment[];
     }
   | {
@@ -454,11 +563,33 @@ export type TimelineEvent =
       approved: boolean;
     }
   | {
+      type: "question_requested";
+      turnId: string;
+      itemId: string;
+      toolItemId: string;
+      question: QuestionRequest;
+    }
+  | {
+      type: "question_answered";
+      turnId: string;
+      itemId: string;
+      toolItemId: string;
+      callId: string;
+      answers: AskUserAnswer[];
+    }
+  | {
       type: "changes";
       turnId: string;
       itemId: string;
       callId: string;
       files: ChangedFile[];
+    }
+  | {
+      type: "compaction_marker";
+      itemId: string;
+      compactionId: string;
+      replacedCount: number;
+      throughMessageId: string;
     };
 
 export interface TimelineEnvelope {
@@ -723,6 +854,7 @@ export interface DesktopApi {
   cancelPrompt(requestId: string): Promise<boolean>;
   selectWorkspace(runtimeKind?: RuntimeKind): Promise<SessionActivation | undefined>;
   resolveApproval(decision: ApprovalDecisionRequest): Promise<boolean>;
+  resolveQuestion(request: QuestionAnswerRequest): Promise<boolean>;
   getChanges(source?: ChangesSource): Promise<ChangedFile[]>;
   getDiff(path: string, source?: ChangesSource): Promise<FileDiff | undefined>;
   workspaceTree(root: string): Promise<WorkspaceTreeResult>;
@@ -741,6 +873,7 @@ export interface DesktopApi {
   archiveSession(sessionId: string): Promise<SessionArchiveResult>;
   restoreSession(sessionId: string): Promise<SessionSummary>;
   setApprovalMode(mode: ApprovalMode): Promise<SessionSummary>;
+  setComposerMode(mode: ComposerMode): Promise<SessionSummary>;
   switchRuntime(runtimeKind: RuntimeKind): Promise<SessionActivation>;
   setTheme(theme: AppTheme): Promise<void>;
   terminalStart(request: TerminalStartRequest): Promise<TerminalStartResult>;
@@ -758,6 +891,7 @@ export interface DesktopApi {
   onTerminalExit(listener: (event: TerminalExitEvent) => void): () => void;
   onTimelineEvent(listener: (event: TimelineEnvelope) => void): () => void;
   onStreamFrame(listener: (frame: StreamFrameEnvelope) => void): () => void;
+  onTaskUpdated(listener: (event: TaskUpdatedEvent) => void): () => void;
   getEvalSnapshot(): Promise<EvalPanelSnapshot>;
   getEvalState(): Promise<EvalWorkbenchState>;
   runEvalSuite(request: EvalRunSuiteRequest): Promise<EvalRunAccepted>;

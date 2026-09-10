@@ -136,6 +136,72 @@ describe("timeline reducer", () => {
     expect(twice.lastSeq).toBe(once.lastSeq);
   });
 
+  it("cancels pending questions when a run ends without completing", () => {
+    const events = [
+      envelope(1, {
+        type: "run_start",
+        userItemId: "user",
+        prompt: "pick mode",
+      }),
+      envelope(2, {
+        type: "question_requested",
+        turnId: "turn",
+        itemId: "call-1:question",
+        toolItemId: "call-1",
+        question: {
+          runId: "run-1",
+          turnId: "turn",
+          callId: "call-1",
+          questions: [{ id: "mode", question: "Which mode?" }],
+        },
+      }),
+      envelope(3, { type: "run_end", status: "cancelled" }),
+    ];
+    const state = events.reduce(
+      applyTimelineEnvelope,
+      createTimelineState(),
+    );
+    expect(
+      state.items.find((item) => item.kind === "question")?.status,
+    ).toBe("cancelled");
+  });
+
+  it("marks running tools as failed when a run is cancelled", () => {
+    const events = [
+      envelope(1, {
+        type: "run_start",
+        userItemId: "user",
+        prompt: "sleep",
+      }),
+      envelope(2, {
+        type: "tool_requested",
+        turnId: "turn",
+        itemId: "call-1",
+        callId: "call-1",
+        tool: "run_command",
+        arguments: { command: "sleep 10" },
+      }),
+      envelope(3, {
+        type: "tool_start",
+        turnId: "turn",
+        itemId: "call-1",
+        callId: "call-1",
+        tool: "run_command",
+        arguments: { command: "sleep 10" },
+      }),
+      envelope(4, { type: "run_end", status: "cancelled" }),
+    ];
+    const state = events.reduce(
+      applyTimelineEnvelope,
+      createTimelineState(),
+    );
+    const tool = state.items.find((item) => item.kind === "tool");
+    expect(tool).toMatchObject({
+      status: "failed",
+      output: "Run cancelled by user",
+    });
+  });
+
   it("settles tools that never finished when a run fails", () => {
     const events = [
       envelope(1, {

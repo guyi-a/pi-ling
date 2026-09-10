@@ -7,7 +7,9 @@ import type {
 import { describe, expect, it } from "vitest";
 
 import {
+  projectAgentMessages,
   projectCanonicalMessages,
+  projectRawCanonicalMessages,
   projectTimelineSnapshot,
   TimelineProjector,
 } from "../src/index.js";
@@ -38,6 +40,30 @@ function event(
 }
 
 describe("session event projectors", () => {
+  it("projects task.notified into a synthetic user message", () => {
+    const messages = projectCanonicalMessages([
+      event(1, { kind: "run.started", userMessage: user }),
+      event(2, {
+        kind: "task.notified",
+        taskId: "task-1",
+        status: "completed",
+        description: "Explore auth",
+        summary: "Auth is in src/auth.ts",
+      }),
+    ]);
+    expect(messages).toHaveLength(2);
+    expect(messages[1]?.role).toBe("user");
+    expect(messages[1]?.content[0]).toMatchObject({
+      type: "text",
+    });
+    const text =
+      messages[1]?.content[0]?.type === "text"
+        ? messages[1].content[0].text
+        : "";
+    expect(text).toContain("<task-notification");
+    expect(text).toContain("Auth is in src/auth.ts");
+  });
+
   it("deduplicates canonical messages by stable identity", () => {
     expect(
       projectCanonicalMessages([
@@ -199,6 +225,83 @@ describe("session event projectors", () => {
       batch.events.map(({ event }) => event.type),
     );
     expect(projector.snapshot()).toEqual(batch);
+  });
+
+  it("keeps raw canonical history while agent projection folds compaction", () => {
+    const assistant: CanonicalMessage = {
+      id: "assistant-old",
+      role: "assistant",
+      content: [{ type: "text", text: "old answer" }],
+      sourceRuntime: "native",
+      createdAt: 2,
+    };
+    const summary: CanonicalMessage = {
+      id: "compaction:comp-1",
+      role: "user",
+      content: [{ type: "text", text: "<compacted-summary>secret</compacted-summary>" }],
+      sourceRuntime: "native",
+      createdAt: 3,
+      rawPayload: { internal: true, compaction: true },
+    };
+    const events = [
+      event(1, { kind: "run.started", userMessage: user }),
+      event(2, {
+        kind: "message.assistant.committed",
+        message: assistant,
+        stopReason: "stop",
+      }),
+      event(3, {
+        kind: "compaction.applied",
+        compactionId: "comp-1",
+        throughMessageId: assistant.id,
+        summary,
+        replacedMessageIds: [user.id, assistant.id],
+        replacedCount: 2,
+      }),
+      event(4, {
+        kind: "run.started",
+        userMessage: {
+          ...user,
+          id: "user-2",
+          content: [{ type: "text", text: "continue" }],
+        },
+      }),
+    ];
+    expect(projectRawCanonicalMessages(events)).toHaveLength(3);
+    expect(projectAgentMessages(events).map((message) => message.id)).toEqual([
+      "compaction:comp-1",
+      "user-2",
+    ]);
+    expect(projectCanonicalMessages(events)).toEqual(projectAgentMessages(events));
+  });
+
+  it("projects compaction.applied into a timeline marker without summary text", () => {
+    const summary: CanonicalMessage = {
+      id: "compaction:comp-1",
+      role: "user",
+      content: [{ type: "text", text: "<compacted-summary>secret</compacted-summary>" }],
+      sourceRuntime: "native",
+      createdAt: 3,
+      rawPayload: { internal: true, compaction: true },
+    };
+    const snapshot = projectTimelineSnapshot("session", [
+      event(1, { kind: "run.started", userMessage: user }),
+      event(2, {
+        kind: "compaction.applied",
+        compactionId: "comp-1",
+        throughMessageId: user.id,
+        summary,
+        replacedMessageIds: [user.id],
+        replacedCount: 1,
+      }),
+    ]);
+    const marker = snapshot.events.find(
+      (entry) => entry.event.type === "compaction_marker",
+    )?.event;
+    expect(marker?.type).toBe("compaction_marker");
+    if (marker?.type !== "compaction_marker") return;
+    expect(marker.replacedCount).toBe(1);
+    expect(JSON.stringify(snapshot.events)).not.toContain("secret");
   });
 
   it("skips duplicate session event seq on idempotent replay", () => {

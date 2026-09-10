@@ -32,6 +32,9 @@ export class Agent {
   readonly #state: MutableAgentState;
   readonly #streamFn: AgentOptions["streamFn"];
   readonly #beforeToolCall: BeforeToolCall | undefined;
+  readonly #prepareContext: AgentOptions["prepareContext"];
+  readonly #recoverContextOverflow: AgentOptions["recoverContextOverflow"];
+  readonly #wrapToolResult: AgentOptions["wrapToolResult"];
   readonly #maxTurns: number;
   readonly #listeners = new Set<AgentEventListener>();
   #active:
@@ -53,6 +56,9 @@ export class Agent {
     };
     this.#streamFn = options.streamFn;
     this.#beforeToolCall = options.beforeToolCall;
+    this.#prepareContext = options.prepareContext;
+    this.#recoverContextOverflow = options.recoverContextOverflow;
+    this.#wrapToolResult = options.wrapToolResult;
     this.#maxTurns = options.maxTurns ?? 20;
   }
 
@@ -77,6 +83,68 @@ export class Agent {
       throw new Error("Cannot change tools while the agent is running");
     }
     this.#state.tools = [...tools];
+  }
+
+  setSystemPrompt(systemPrompt: string): void {
+    if (this.#state.isStreaming) {
+      throw new Error("Cannot change system prompt while the agent is running");
+    }
+    this.#state.systemPrompt = systemPrompt;
+  }
+
+  async continueRun(options: { runId?: string } = {}): Promise<void> {
+    if (this.#active) {
+      throw new Error("Agent is already processing a prompt");
+    }
+    const last = this.#state.messages.at(-1);
+    if (!last || last.role !== "user") {
+      throw new Error("Cannot continue without a trailing user message");
+    }
+
+    const controller = new AbortController();
+    const runId = options.runId ?? randomUUID();
+    this.#state.isStreaming = true;
+    this.#state.errorMessage = undefined;
+
+    const promise = runAgentLoop({
+      runId,
+      context: {
+        systemPrompt: this.#state.systemPrompt,
+        messages: this.#state.messages,
+        tools: this.#state.tools,
+      },
+      model: this.#state.model,
+      reasoning: this.#state.thinkingLevel,
+      tools: this.#state.tools,
+      signal: controller.signal,
+      streamFn: this.#streamFn,
+      ...(this.#beforeToolCall
+        ? { beforeToolCall: this.#beforeToolCall }
+        : {}),
+      ...(this.#prepareContext
+        ? { prepareContext: this.#prepareContext }
+        : {}),
+      ...(this.#recoverContextOverflow
+        ? { recoverContextOverflow: this.#recoverContextOverflow }
+        : {}),
+      ...(this.#wrapToolResult
+        ? { wrapToolResult: this.#wrapToolResult }
+        : {}),
+      maxTurns: this.#maxTurns,
+      emit: async (event) => {
+        this.#reduce(event);
+        for (const listener of this.#listeners) {
+          await listener(event, controller.signal);
+        }
+      },
+    })
+      .then(() => undefined)
+      .finally(() => {
+        this.#state.isStreaming = false;
+        this.#active = undefined;
+      });
+    this.#active = { controller, promise };
+    await promise;
   }
 
   async prompt(
@@ -142,8 +210,8 @@ export class Agent {
     await promise;
   }
 
-  abort(): void {
-    this.#active?.controller.abort();
+  abort(reason?: unknown): void {
+    this.#active?.controller.abort(reason);
   }
 
   waitForIdle(): Promise<void> {
@@ -187,6 +255,15 @@ export class Agent {
       ...(this.#beforeToolCall
         ? { beforeToolCall: this.#beforeToolCall }
         : {}),
+      ...(this.#prepareContext
+        ? { prepareContext: this.#prepareContext }
+        : {}),
+      ...(this.#recoverContextOverflow
+        ? { recoverContextOverflow: this.#recoverContextOverflow }
+        : {}),
+      ...(this.#wrapToolResult
+        ? { wrapToolResult: this.#wrapToolResult }
+        : {}),
       maxTurns: this.#maxTurns,
       emit: async (event) => {
         this.#reduce(event);
@@ -219,6 +296,15 @@ export class Agent {
       streamFn: this.#streamFn,
       ...(this.#beforeToolCall
         ? { beforeToolCall: this.#beforeToolCall }
+        : {}),
+      ...(this.#prepareContext
+        ? { prepareContext: this.#prepareContext }
+        : {}),
+      ...(this.#recoverContextOverflow
+        ? { recoverContextOverflow: this.#recoverContextOverflow }
+        : {}),
+      ...(this.#wrapToolResult
+        ? { wrapToolResult: this.#wrapToolResult }
         : {}),
       maxTurns: this.#maxTurns,
       emit: async (event) => {

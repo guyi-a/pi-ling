@@ -38,8 +38,11 @@ export function DefaultToolCard(props: { item: ToolTimelineItem }) {
             ? CircleSlash
             : null;
   const target = resolveToolTarget(item);
+  const failedLike = item.status === "failed" || item.status === "denied";
   const expandable =
-    Object.keys(item.arguments).length > 0 || Boolean(item.output);
+    failedLike ||
+    Object.keys(item.arguments).length > 0 ||
+    Boolean(item.output);
 
   return (
     <div
@@ -72,10 +75,10 @@ export function DefaultToolCard(props: { item: ToolTimelineItem }) {
               <pre>{JSON.stringify(item.arguments, null, 2)}</pre>
             </section>
           ) : null}
-          {item.output ? (
+          {item.output || failedLike ? (
             <section>
-              <span>Output</span>
-              <pre>{item.output}</pre>
+              <span>{failedLike ? "Error" : "Output"}</span>
+              <pre>{item.output ?? "Tool failed without captured output."}</pre>
             </section>
           ) : null}
         </div>

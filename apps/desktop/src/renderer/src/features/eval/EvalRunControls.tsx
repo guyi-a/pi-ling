@@ -1,9 +1,10 @@
 import type { EvalRunSuiteRequest } from "@pi-ling/contracts";
 import { useState } from "react";
 
-export function EvalToolbar(props: {
+import { EvalField } from "./EvalField";
+
+export function EvalRunControls(props: {
   running: boolean;
-  progressText: string | null;
   onRun: (request: EvalRunSuiteRequest) => void;
   onCancel: () => void;
   onRefresh: () => void;
@@ -16,14 +17,10 @@ export function EvalToolbar(props: {
   const [label, setLabel] = useState("");
 
   return (
-    <header className="eval-toolbar">
-      <span
-        className={`eval-status-dot ${props.running ? "is-running" : ""}`}
-        aria-hidden="true"
-      />
-      <label className="eval-toolbar-field">
-        <span>Driver</span>
+    <div className="eval-run-controls">
+      <EvalField label="驱动">
         <select
+          className="eval-control"
           value={driver}
           disabled={props.running}
           onChange={(event) =>
@@ -34,23 +31,34 @@ export function EvalToolbar(props: {
           <option value="agent">Agent</option>
           <option value="noop">Noop</option>
         </select>
-      </label>
-      <label className="eval-toolbar-field">
-        <span>Runtime</span>
+      </EvalField>
+      <EvalField
+        label="运行时"
+        className={driver !== "agent" ? "eval-field-inactive-hint" : undefined}
+      >
         <select
+          className="eval-control"
           value={runtime}
-          disabled={props.running || driver !== "agent"}
-          onChange={(event) =>
-            setRuntime(event.target.value as EvalRunSuiteRequest["runtime"])
+          disabled={props.running}
+          title={
+            driver !== "agent"
+              ? "仅 Agent 驱动时使用；切换后将自动选 Agent"
+              : undefined
           }
+          onChange={(event) => {
+            setRuntime(event.target.value as EvalRunSuiteRequest["runtime"]);
+            if (driver !== "agent") {
+              setDriver("agent");
+            }
+          }}
         >
           <option value="native">Native</option>
           <option value="dsh">DSH</option>
         </select>
-      </label>
-      <label className="eval-toolbar-field">
-        <span>Scope</span>
+      </EvalField>
+      <EvalField label="范围">
         <select
+          className="eval-control"
           value={scope}
           disabled={props.running}
           onChange={(event) =>
@@ -60,18 +68,18 @@ export function EvalToolbar(props: {
           <option value="baseline">Baseline</option>
           <option value="full">Full</option>
         </select>
-      </label>
-      <label className="eval-toolbar-field eval-toolbar-label">
-        <span>Label</span>
+      </EvalField>
+      <EvalField label="标签" className="eval-field-label-input">
         <input
+          className="eval-control"
           type="text"
           value={label}
           disabled={props.running}
-          placeholder="auto"
+          placeholder="自动"
           onChange={(event) => setLabel(event.target.value)}
         />
-      </label>
-      <div className="eval-toolbar-actions">
+      </EvalField>
+      <div className="eval-run-actions">
         <button
           type="button"
           className="eval-button eval-button-primary"
@@ -85,7 +93,7 @@ export function EvalToolbar(props: {
             })
           }
         >
-          Run Suite
+          运行套件
         </button>
         <button
           type="button"
@@ -93,7 +101,7 @@ export function EvalToolbar(props: {
           disabled={!props.running}
           onClick={() => props.onCancel()}
         >
-          Stop
+          停止
         </button>
         <button
           type="button"
@@ -101,12 +109,9 @@ export function EvalToolbar(props: {
           disabled={props.running}
           onClick={() => props.onRefresh()}
         >
-          Refresh
+          刷新
         </button>
       </div>
-      {props.progressText ? (
-        <span className="eval-progress-text">{props.progressText}</span>
-      ) : null}
-    </header>
+    </div>
   );
 }

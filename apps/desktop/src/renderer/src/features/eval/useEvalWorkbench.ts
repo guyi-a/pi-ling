@@ -165,9 +165,34 @@ export function useEvalWorkbench() {
   };
 
   const saveOverride = async (request: EvalTaskOverrideRequest) => {
-    const next = await window.piLing.saveEvalTaskOverride(request);
-    setState(next);
-    await loadTaskDetail(request.taskId);
+    if (request.enabled !== undefined) {
+      setState((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          tasks: prev.tasks.map((task) =>
+            task.id === request.taskId
+              ? {
+                  ...task,
+                  enabled: request.enabled!,
+                  ...(request.enabled === false
+                    ? { baselineIncluded: false }
+                    : {}),
+                }
+              : task,
+          ),
+        };
+      });
+    }
+    try {
+      const next = await window.piLing.saveEvalTaskOverride(request);
+      setState(next);
+      await loadTaskDetail(request.taskId);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+      await refresh();
+      await loadTaskDetail(request.taskId);
+    }
   };
 
   const clearOverride = async (taskId: string) => {

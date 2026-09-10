@@ -3,21 +3,28 @@ import { describe, expect, it } from "vitest";
 
 import { EvalCatalogTab } from "./EvalCatalogTab";
 import { EvalCompareTab } from "./EvalCompareTab";
+import { EvalEmptyState } from "./EvalEmptyState";
+import { EvalPanel } from "./EvalPanel";
 import { EvalResultsTab } from "./EvalResultsTab";
-import { EvalToolbar } from "./EvalToolbar";
+import { EvalRunControls } from "./EvalRunControls";
 
 describe("Eval workbench", () => {
-  it("renders toolbar and tab shells", () => {
+  it("hides panel when inactive", () => {
+    const html = renderToStaticMarkup(<EvalPanel active={false} />);
+    expect(html).toContain("is-hidden");
+    expect(html).toContain('aria-hidden="true"');
+  });
+
+  it("renders run controls and tab shells in Chinese", () => {
     const toolbar = renderToStaticMarkup(
-      <EvalToolbar
+      <EvalRunControls
         running={false}
-        progressText={null}
         onRun={() => {}}
         onCancel={() => {}}
         onRefresh={() => {}}
       />,
     );
-    expect(toolbar).toContain("Run Suite");
+    expect(toolbar).toContain("运行套件");
     expect(toolbar).toContain("Reference");
 
     const catalog = renderToStaticMarkup(
@@ -34,7 +41,7 @@ describe("Eval workbench", () => {
             hasLocalOverride: false,
           },
         ]}
-        statsText="1 tasks · 1 baseline · 0 judged"
+        statsText="共 1 项 · 1 条基线 · 0 条已评判"
         taskDetail={null}
         selectedTaskId={null}
         running={false}
@@ -46,6 +53,7 @@ describe("Eval workbench", () => {
       />,
     );
     expect(catalog).toContain("smoke-fix-typo");
+    expect(catalog).toContain("搜索任务 ID 或标题");
 
     const results = renderToStaticMarkup(
       <EvalResultsTab
@@ -58,7 +66,7 @@ describe("Eval workbench", () => {
         onRunReference={() => {}}
       />,
     );
-    expect(results).toContain("Run Reference Suite");
+    expect(results).toContain("运行 Reference 套件");
 
     const compare = renderToStaticMarkup(
       <EvalCompareTab
@@ -81,6 +89,14 @@ describe("Eval workbench", () => {
         onCompare={() => {}}
       />,
     );
-    expect(compare).toContain("Run at least two suites");
+    expect(compare).toContain("至少运行两次套件");
+  });
+
+  it("renders centered empty state", () => {
+    const html = renderToStaticMarkup(
+      <EvalEmptyState title="结果" description="还没有评测运行记录。" />,
+    );
+    expect(html).toContain("eval-empty");
+    expect(html).toContain("结果");
   });
 });

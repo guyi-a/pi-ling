@@ -4,10 +4,28 @@ import type {
   EvalSuiteRunSummary,
 } from "@pi-ling/contracts";
 
-import { formatPassRate, runLabel, statusClass, statusLabel } from "./eval-format";
+import { EvalEmptyState } from "./EvalEmptyState";
+import { EvalField } from "./EvalField";
+import { EvalStatusBadge } from "./EvalStatusBadge";
+import { formatPassRate, runLabel } from "./eval-format";
 
 function runOptionValue(run: EvalSuiteRunSummary): string {
   return `${run.experiment}\0${run.variant}`;
+}
+
+function regressionLabel(row: {
+  statusChanged: boolean;
+  baselineStatus: "passed" | "failed" | "skipped" | "error" | "missing";
+  candidateStatus: "passed" | "failed" | "skipped" | "error" | "missing";
+}): string | null {
+  if (!row.statusChanged) return null;
+  if (row.baselineStatus === "passed" && row.candidateStatus !== "passed") {
+    return "回归";
+  }
+  if (row.baselineStatus !== "passed" && row.candidateStatus === "passed") {
+    return "修复";
+  }
+  return "变化";
 }
 
 export function EvalCompareTab(props: {
@@ -45,31 +63,38 @@ export function EvalCompareTab(props: {
 
   if (props.runs.length < 2) {
     return (
-      <div className="eval-empty">
-        <p>Run at least two suites to compare pass rate and per-task changes.</p>
-      </div>
+      <EvalEmptyState
+        title="对比"
+        description="至少运行两次套件后，才能对比通过率与任务变化。"
+      />
     );
   }
+
+  const changedCount =
+    props.compareView?.taskRows.filter((row) => row.statusChanged).length ?? 0;
+  const regressions =
+    props.compareView?.taskRows.filter(
+      (row) =>
+        row.statusChanged &&
+        row.baselineStatus === "passed" &&
+        row.candidateStatus !== "passed",
+    ).length ?? 0;
+  const fixes =
+    props.compareView?.taskRows.filter(
+      (row) =>
+        row.statusChanged &&
+        row.baselineStatus !== "passed" &&
+        row.candidateStatus === "passed",
+    ).length ?? 0;
 
   return (
     <div className="eval-compare-tab">
       <div className="eval-compare-toolbar">
-        <label>
-          <span>Baseline</span>
-          <select value={baselineKey} onChange={(e) => updateBaseline(e.target.value)}>
-            {props.runs.map((run) => (
-              <option key={runOptionValue(run)} value={runOptionValue(run)}>
-                {runLabel(run)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <span className="eval-compare-vs">vs</span>
-        <label>
-          <span>Candidate</span>
+        <EvalField label="基线">
           <select
-            value={candidateKey}
-            onChange={(e) => updateCandidate(e.target.value)}
+            className="eval-control"
+            value={baselineKey}
+            onChange={(event) => updateBaseline(event.target.value)}
           >
             {props.runs.map((run) => (
               <option key={runOptionValue(run)} value={runOptionValue(run)}>
@@ -77,77 +102,86 @@ export function EvalCompareTab(props: {
               </option>
             ))}
           </select>
-        </label>
+        </EvalField>
+        <span className="eval-compare-vs">vs</span>
+        <EvalField label="候选">
+          <select
+            className="eval-control"
+            value={candidateKey}
+            onChange={(event) => updateCandidate(event.target.value)}
+          >
+            {props.runs.map((run) => (
+              <option key={runOptionValue(run)} value={runOptionValue(run)}>
+                {runLabel(run)}
+              </option>
+            ))}
+          </select>
+        </EvalField>
       </div>
       {props.compareView ? (
         <>
-          <div className="eval-compare-kpi">
-            <span>
-              Pass rate{" "}
-              {formatPassRate(props.compareView.summary.baseline_pass_rate)} →{" "}
-              {formatPassRate(props.compareView.summary.candidate_pass_rate)}
-            </span>
-            <span>
-              Lift {props.compareView.summary.pass_rate_lift >= 0 ? "+" : ""}
-              {formatPassRate(props.compareView.summary.pass_rate_lift)}
-            </span>
-            <span>
-              Avg duration Δ{" "}
-              {props.compareView.summary.metrics.duration_ms.delta >= 0 ? "+" : ""}
-              {props.compareView.summary.metrics.duration_ms.delta}ms
-            </span>
-            <span>
-              Avg tools Δ{" "}
-              {props.compareView.summary.metrics.tool_calls.delta >= 0 ? "+" : ""}
-              {props.compareView.summary.metrics.tool_calls.delta}
-            </span>
+          <div className="eval-kpi-grid">
+            <div className="eval-kpi-card">
+              <span className="eval-kpi-label">通过率</span>
+              <strong className="eval-kpi-value">
+                {formatPassRate(props.compareView.summary.baseline_pass_rate)} →{" "}
+                {formatPassRate(props.compareView.summary.candidate_pass_rate)}
+              </strong>
+            </div>
+            <div className="eval-kpi-card">
+              <span className="eval-kpi-label">Δ 通过率</span>
+              <strong className="eval-kpi-value">
+                {props.compareView.summary.pass_rate_lift >= 0 ? "+" : ""}
+                {formatPassRate(props.compareView.summary.pass_rate_lift)}
+              </strong>
+            </div>
+            <div className="eval-kpi-card">
+              <span className="eval-kpi-label">变化任务</span>
+              <strong className="eval-kpi-value">{changedCount}</strong>
+            </div>
+            <div className="eval-kpi-card">
+              <span className="eval-kpi-label">回归 / 修复</span>
+              <strong className="eval-kpi-value">
+                {regressions} / {fixes}
+              </strong>
+            </div>
           </div>
-          <table className="eval-table eval-compare-table">
-            <thead>
-              <tr>
-                <th>Task</th>
-                <th>Baseline</th>
-                <th>Candidate</th>
-                <th>Δ Duration</th>
-                <th>Δ Tools</th>
-              </tr>
-            </thead>
-            <tbody>
-              {props.compareView.taskRows.map((row) => (
-                <tr
+          <div className="eval-compare-list">
+            {props.compareView.taskRows.map((row) => {
+              const deltaLabel = regressionLabel(row);
+              return (
+                <div
                   key={row.taskId}
-                  className={row.statusChanged ? "is-changed" : undefined}
+                  className={`eval-compare-row ${
+                    row.statusChanged ? "is-changed" : ""
+                  }`}
                 >
-                  <td>{row.taskId}</td>
-                  <td>
-                    <span className={`eval-status ${statusClass(row.baselineStatus)}`}>
-                      {statusLabel(row.baselineStatus)}
-                    </span>
-                  </td>
-                  <td>
-                    <span
-                      className={`eval-status ${statusClass(row.candidateStatus)}`}
-                    >
-                      {statusLabel(row.candidateStatus)}
-                    </span>
-                  </td>
-                  <td>
+                  <span className="eval-compare-task-id">{row.taskId}</span>
+                  <div className="eval-compare-statuses">
+                    <EvalStatusBadge status={row.baselineStatus} />
+                    <span className="eval-compare-arrow">→</span>
+                    <EvalStatusBadge status={row.candidateStatus} />
+                  </div>
+                  <span className="eval-compare-delta">
                     {row.durationDeltaMs !== undefined
                       ? `${row.durationDeltaMs >= 0 ? "+" : ""}${row.durationDeltaMs}ms`
                       : "—"}
-                  </td>
-                  <td>
+                  </span>
+                  <span className="eval-compare-delta">
                     {row.toolCallsDelta !== undefined
-                      ? `${row.toolCallsDelta >= 0 ? "+" : ""}${row.toolCallsDelta}`
+                      ? `${row.toolCallsDelta >= 0 ? "+" : ""}${row.toolCallsDelta} tools`
                       : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </span>
+                  {deltaLabel ? (
+                    <span className="eval-pill eval-pill-accent">{deltaLabel}</span>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
           {props.compareView.summary.diagnostics.length > 0 ? (
             <details className="eval-compare-diagnostics">
-              <summary>Diagnostics</summary>
+              <summary>诊断详情</summary>
               <ul>
                 {props.compareView.summary.diagnostics.map((item) => (
                   <li key={item}>{item}</li>
@@ -157,9 +191,10 @@ export function EvalCompareTab(props: {
           ) : null}
         </>
       ) : (
-        <div className="eval-empty">
-          <p>Select baseline and candidate runs to compare.</p>
-        </div>
+        <EvalEmptyState
+          title="对比"
+          description="选择基线与候选运行后开始对比。"
+        />
       )}
     </div>
   );

@@ -31,9 +31,11 @@ describe("SessionStore", () => {
     expect(session.title).toBe("Test");
     expect(session.workspaceId).toBeTruthy();
     expect(session.approvalMode).toBe("manual");
+    expect(session.composerMode).toBe("agent");
     expect(store.setApprovalMode(session.id, "auto").approvalMode).toBe(
       "auto",
     );
+    expect(store.setComposerMode(session.id, "plan").composerMode).toBe("plan");
     expect(store.listSessions()).toHaveLength(1);
     store.deleteSession(session.id);
     expect(store.listSessions()).toHaveLength(0);
@@ -316,6 +318,87 @@ describe("SessionStore", () => {
     );
   });
 
+  it("migrates legacy lifecycle checks to allow awaiting_question", () => {
+    store.close();
+    const filename = path.join(directory, "legacy-lifecycle.db");
+    const legacy = new DatabaseSync(filename);
+    legacy.exec(`
+      CREATE TABLE sessions (
+        session_id TEXT PRIMARY KEY,
+        workspace_root TEXT NOT NULL,
+        title TEXT NOT NULL,
+        lifecycle TEXT NOT NULL DEFAULT 'idle'
+          CHECK (lifecycle IN ('idle', 'running', 'awaiting_approval', 'crashed')),
+        approval_mode TEXT NOT NULL DEFAULT 'manual',
+        composer_mode TEXT NOT NULL DEFAULT 'agent',
+        runtime_kind TEXT NOT NULL DEFAULT 'native',
+        runtime_version TEXT,
+        runtime_session_id TEXT,
+        active_run_id TEXT,
+        last_seq INTEGER NOT NULL DEFAULT 0,
+        last_event_seq INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      INSERT INTO sessions VALUES
+        ('legacy-1', '${directory.replaceAll("'", "''")}', 'One', 'idle',
+         'manual', 'agent', 'native', NULL, NULL, NULL, 0, 0, 1, 1);
+    `);
+    legacy.close();
+
+    store = new SessionStore(filename);
+    store.setLifecycle("legacy-1", "awaiting_question", "run-1");
+    expect(store.getSession("legacy-1")?.lifecycle).toBe("awaiting_question");
+
+    store.close();
+    store = new SessionStore(filename);
+    expect(store.getSession("legacy-1")?.lifecycle).toBe("awaiting_question");
+  });
+
+  it("persists awaiting_question checkpoints", () => {
+    store.createSession({ id: "session-1", workspaceRoot: directory });
+    const question = {
+      runId: "run-1",
+      turnId: "run-1:turn:1",
+      callId: "call-1",
+      questions: [{ id: "mode", question: "Which mode?" }],
+    };
+    store.setCheckpoint({
+      sessionId: "session-1",
+      runId: "run-1",
+      phase: "awaiting_question",
+      turnId: question.turnId,
+      pendingCallId: question.callId,
+      pendingQuestion: question,
+      updatedAt: 1,
+    });
+    store.setLifecycle("session-1", "awaiting_question", "run-1");
+    store.appendSessionEvent({
+      sessionId: "session-1",
+      runtimeKind: "native",
+      runId: "run-1",
+      turnId: question.turnId,
+      toolCallId: question.callId,
+      idempotencyKey: "question:call-1:requested",
+      event: {
+        kind: "question.requested",
+        toolItemId: question.callId,
+        question: {
+          callId: question.callId,
+          questions: question.questions,
+        },
+      },
+    });
+
+    expect(store.getActiveCheckpoint("session-1")).toMatchObject({
+      phase: "awaiting_question",
+      pendingQuestion: question,
+    });
+    expect(store.getSession("session-1")?.lifecycle).toBe("awaiting_question");
+    store.reconcile();
+    expect(store.getSession("session-1")?.lifecycle).toBe("awaiting_question");
+  });
+
   it("marks an interrupted model stream as crashed exactly once", () => {
     store.createSession({ id: "session-1", workspaceRoot: directory });
     store.setLifecycle("session-1", "running", "run-1");
@@ -389,5 +472,70 @@ describe("SessionStore", () => {
     expect(store.getActiveCheckpoint("session-1")?.phase).toBe(
       "between_turns",
     );
+  });
+
+  it("tracks background task continuation claims", () => {
+    const session = store.createSession({
+      id: "session-1",
+      workspaceRoot: directory,
+    });
+    const task = store.createBackgroundTask({
+      id: "task-1",
+      parentSessionId: session.id,
+      parentRunId: "run-1",
+      parentToolCallId: "tool-1",
+      description: "Explore auth",
+    });
+    store.updateBackgroundTask(task.id, {
+      status: "completed",
+      summary: "done",
+    });
+    store.appendSessionEvent({
+      sessionId: session.id,
+      runtimeKind: "native",
+      runId: "run-1",
+      idempotencyKey: "task:task-1:notified",
+      event: {
+        kind: "task.notified",
+        taskId: task.id,
+        status: "completed",
+        description: task.description,
+        summary: "done",
+      },
+    });
+    expect(store.hasTaskNotification(session.id, task.id)).toBe(true);
+    const claimed = store.claimPendingContinuations(session.id);
+    expect(claimed.map((entry) => entry.id)).toEqual([task.id]);
+    store.releaseContinuations([task.id]);
+    expect(store.claimPendingContinuations(session.id)).toHaveLength(1);
+  });
+
+  it("hides child sessions from listSessions", () => {
+    const parent = store.createSession({
+      id: "parent",
+      workspaceRoot: directory,
+    });
+    store.createSession({
+      id: "child",
+      workspaceId: parent.workspaceId,
+      parentSessionId: parent.id,
+    });
+    expect(store.listSessions().map((entry) => entry.id)).toEqual([parent.id]);
+  });
+
+  it("hides child sessions from listWorkspaces sidebar data", () => {
+    const parent = store.createSession({
+      id: "parent",
+      workspaceRoot: directory,
+    });
+    store.createSession({
+      id: "child",
+      workspaceId: parent.workspaceId,
+      parentSessionId: parent.id,
+    });
+    const workspace = store.listWorkspaces().find(
+      (entry) => entry.id === parent.workspaceId,
+    );
+    expect(workspace?.sessions.map((entry) => entry.id)).toEqual([parent.id]);
   });
 });

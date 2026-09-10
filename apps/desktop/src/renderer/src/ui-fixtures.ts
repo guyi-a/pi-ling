@@ -40,6 +40,7 @@ export function createUiFixture(name: UiFixtureName): UiFixture {
           ? "running"
           : "idle",
     approvalMode: "manual",
+    composerMode: "agent",
     runtimeKind: "native",
     createdAt: now - 3_600_000,
     updatedAt: now - 120_000,
@@ -91,6 +92,7 @@ export function createUiFixture(name: UiFixtureName): UiFixture {
     model: "deepseek-v4-pro",
     configured: true,
     approvalMode: "manual",
+    composerMode: "agent",
     workspace: session.workspace,
   };
   const timeline = createTimelineState();

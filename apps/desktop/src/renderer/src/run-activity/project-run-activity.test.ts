@@ -226,6 +226,108 @@ describe("projectRunActivities", () => {
     });
   });
 
+  it("summarizes a foreground subagent on the outer run activity row", () => {
+    const activity = project([
+      {
+        kind: "tool",
+        id: "subagent",
+        runId: "run",
+        turnId: "turn",
+        createdSeq: 1,
+        callId: "subagent",
+        tool: "spawn_subagent",
+        arguments: {
+          description: "Summarize project files",
+          prompt: "Read README and package.json.",
+        },
+        status: "completed",
+      },
+    ], "completed");
+    expect(activity.summary).toBe("Subagent · 1");
+  });
+
+  it("summarizes subagent from allTools even when not yet visible", () => {
+    const activity = projectRunActivities({
+      items: [
+        {
+          kind: "tool",
+          id: "subagent",
+          runId: "run",
+          turnId: "turn",
+          createdSeq: 1,
+          callId: "subagent",
+          tool: "spawn_subagent",
+          arguments: {
+            description: "Summarize project files",
+            prompt: "Read README and package.json.",
+          },
+          status: "running",
+        },
+      ],
+      runs: { run: { id: "run", status: "running" } },
+      visibleToolIds: new Set(),
+      presentingRunIds: new Set(["run"]),
+    })[0]!;
+    expect(activity.summary).toBe("Subagent · 1");
+    expect(activity.counters.toolCount).toBe(0);
+    expect(activity.counters.subagents).toEqual([
+      { description: "Summarize project files", background: false },
+    ]);
+  });
+
+  it("summarizes a background subagent on the outer run activity row", () => {
+    const activity = project([
+      {
+        kind: "tool",
+        id: "subagent",
+        runId: "run",
+        turnId: "turn",
+        createdSeq: 1,
+        callId: "subagent",
+        tool: "spawn_subagent",
+        arguments: {
+          description: "Scan agent-core sources",
+          prompt: "Read core files under packages/agent-core.",
+          run_in_background: true,
+        },
+        status: "completed",
+      },
+    ], "completed");
+    expect(activity.summary).toBe("Subagent · 1");
+  });
+
+  it("summarizes multiple subagents with a compact count", () => {
+    const activity = project([
+      {
+        kind: "tool",
+        id: "subagent-a",
+        runId: "run",
+        turnId: "turn",
+        createdSeq: 1,
+        callId: "subagent-a",
+        tool: "spawn_subagent",
+        arguments: { description: "Task A", prompt: "Do A." },
+        status: "completed",
+      },
+      {
+        kind: "tool",
+        id: "subagent-b",
+        runId: "run",
+        turnId: "turn",
+        createdSeq: 2,
+        callId: "subagent-b",
+        tool: "spawn_subagent",
+        arguments: {
+          description: "Task B",
+          prompt: "Do B.",
+          run_in_background: true,
+        },
+        status: "completed",
+      },
+    ], "completed");
+    expect(activity.summary).toBe("Subagent · 2");
+  });
+
   it("counts glob and grep toward explored files in the summary", () => {
     const activity = projectRunActivities({
       items: [

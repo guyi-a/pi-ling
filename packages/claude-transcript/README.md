@@ -26,5 +26,5 @@ pnpm --filter @pi-ling/claude-transcript test
 ```
 
 The real proof requires a usable Claude Agent SDK credential. It has been
-verified through the KLink Anthropic gateway with
-`claude-haiku-4-5-20251001`; no credential is stored in this package.
+verified with `claude-haiku-4-5-20251001` via an Anthropic-compatible API;
+no credential is stored in this package.

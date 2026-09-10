@@ -62,7 +62,7 @@ describe("trace-event-summary", () => {
           contextUsage: { used: 8700, size: 1_000_000 },
         }),
       ).label,
-    ).toBe("assistant_end · stop · 8.7k/1M context");
+    ).toBe("assistant_end · stop · 8.7k 输入");
   });
 
   it("groups consecutive muted events for collapsed trace rows", () => {

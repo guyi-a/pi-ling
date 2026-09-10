@@ -10,15 +10,15 @@ export function statusLabel(
 ): string {
   switch (status) {
     case "passed":
-      return "Passed";
+      return "通过";
     case "failed":
-      return "Failed";
+      return "失败";
     case "skipped":
-      return "Skipped";
+      return "跳过";
     case "error":
-      return "Error";
+      return "错误";
     default:
-      return "Missing";
+      return "缺失";
   }
 }
 

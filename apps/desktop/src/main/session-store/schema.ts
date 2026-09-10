@@ -22,9 +22,11 @@ CREATE TABLE IF NOT EXISTS sessions (
   workspace_root TEXT NOT NULL,
   title TEXT NOT NULL,
   lifecycle TEXT NOT NULL DEFAULT 'idle'
-    CHECK (lifecycle IN ('idle', 'running', 'awaiting_approval', 'crashed')),
+    CHECK (lifecycle IN ('idle', 'running', 'awaiting_approval', 'awaiting_question', 'crashed')),
   approval_mode TEXT NOT NULL DEFAULT 'manual'
     CHECK (approval_mode IN ('manual', 'accept-write', 'auto')),
+  composer_mode TEXT NOT NULL DEFAULT 'agent'
+    CHECK (composer_mode IN ('plan', 'ask', 'agent')),
   runtime_kind TEXT NOT NULL DEFAULT 'native'
     CHECK (runtime_kind IN ('native', 'dsh')),
   runtime_version TEXT,
@@ -32,6 +34,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   pinned_at INTEGER,
   archived_at INTEGER,
   active_run_id TEXT,
+  parent_session_id TEXT,
   last_seq INTEGER NOT NULL DEFAULT 0,
   last_event_seq INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
@@ -133,6 +136,7 @@ CREATE TABLE IF NOT EXISTS run_checkpoints (
   pending_call_id TEXT,
   pending_tool_json TEXT,
   pending_approval_json TEXT,
+  pending_question_json TEXT,
   runtime_kind TEXT,
   last_durable_seq INTEGER,
   projection_version INTEGER NOT NULL DEFAULT 1,
@@ -165,4 +169,29 @@ CREATE TABLE IF NOT EXISTS file_baselines (
   PRIMARY KEY (session_id, path),
   FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS background_tasks (
+  task_id TEXT PRIMARY KEY,
+  parent_session_id TEXT NOT NULL,
+  parent_run_id TEXT NOT NULL,
+  parent_tool_call_id TEXT NOT NULL,
+  child_session_id TEXT,
+  status TEXT NOT NULL
+    CHECK (status IN (
+      'pending', 'running', 'completed', 'failed', 'cancelled', 'interrupted'
+    )),
+  description TEXT NOT NULL,
+  summary TEXT,
+  error TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  continued_at INTEGER,
+  FOREIGN KEY (parent_session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_background_tasks_parent
+  ON background_tasks(parent_session_id, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_background_tasks_status
+  ON background_tasks(status);
 `;

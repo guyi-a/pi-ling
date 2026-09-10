@@ -292,7 +292,8 @@
   background: var(--accent);
 }
 
-.session-status.awaiting_approval {
+.session-status.awaiting_approval,
+.session-status.awaiting_question {
   background: var(--warning);
 }
 

@@ -24,7 +24,7 @@ describe("workbench chrome", () => {
       </>,
     );
 
-    expect(html).toContain("Application menu");
+    expect(html).toContain("pi-ling");
     expect(html).toContain("Review runtime changes");
     expect(html).toContain('aria-label="Workbench"');
     expect(html).toContain("Changes");

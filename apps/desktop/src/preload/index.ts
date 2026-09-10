@@ -1,6 +1,7 @@
 import type {
   ApprovalDecisionRequest,
   ApprovalMode,
+  ComposerMode,
   AgentPromptRequest,
   AppTheme,
   ChangesSource,
@@ -13,11 +14,13 @@ import type {
   EvalSuiteProgressEvent,
   EvalTaskOverrideRequest,
   EvalWorkbenchState,
+  QuestionAnswerRequest,
   RuntimeKind,
   StreamFrameEnvelope,
   TerminalExitEvent,
   TerminalOutputEvent,
   TerminalStartRequest,
+  TaskUpdatedEvent,
   TimelineEnvelope,
   WorkspaceFileContent,
   WorkspaceTreeResult,
@@ -29,10 +32,12 @@ const AGENT_STATUS_CHANNEL = "agent:get-status";
 const AGENT_SEND_CHANNEL = "agent:send";
 const AGENT_CANCEL_CHANNEL = "agent:cancel";
 const TIMELINE_EVENT_CHANNEL = "timeline:event";
+const TASK_UPDATED_CHANNEL = "task:updated";
 const TIMELINE_FRAME_CHANNEL = "timeline:frame";
 const TIMELINE_SNAPSHOT_CHANNEL = "timeline:snapshot";
 const WORKSPACE_SELECT_CHANNEL = "workspace:select";
 const APPROVAL_RESOLVE_CHANNEL = "approval:resolve";
+const QUESTION_RESOLVE_CHANNEL = "question:resolve";
 const CHANGES_GET_CHANNEL = "changes:get";
 const DIFF_GET_CHANNEL = "diff:get";
 const WORKSPACE_TREE_CHANNEL = "workspace:tree";
@@ -47,6 +52,7 @@ const SESSIONS_RESTORE_CHANNEL = "sessions:restore";
 const WORKSPACES_LIST_CHANNEL = "workspaces:list";
 const WORKSPACES_ADD_CHANNEL = "workspaces:add";
 const SESSION_APPROVAL_MODE_CHANNEL = "session:approval-mode";
+const SESSION_COMPOSER_MODE_CHANNEL = "session:composer-mode";
 const SESSION_RUNTIME_CHANNEL = "session:runtime";
 const THEME_SET_CHANNEL = "theme:set";
 const TERMINAL_START_CHANNEL = "terminal:start";
@@ -92,6 +98,8 @@ const desktopApi: DesktopApi = {
     ipcRenderer.invoke(WORKSPACE_SELECT_CHANNEL, runtimeKind),
   resolveApproval: (decision: ApprovalDecisionRequest) =>
     ipcRenderer.invoke(APPROVAL_RESOLVE_CHANNEL, decision),
+  resolveQuestion: (request: QuestionAnswerRequest) =>
+    ipcRenderer.invoke(QUESTION_RESOLVE_CHANNEL, request),
   getChanges: (source?: ChangesSource) =>
     ipcRenderer.invoke(CHANGES_GET_CHANNEL, source),
   getDiff: (path: string, source?: ChangesSource) =>
@@ -120,6 +128,8 @@ const desktopApi: DesktopApi = {
     ipcRenderer.invoke(SESSIONS_RESTORE_CHANNEL, sessionId),
   setApprovalMode: (mode: ApprovalMode) =>
     ipcRenderer.invoke(SESSION_APPROVAL_MODE_CHANNEL, mode),
+  setComposerMode: (mode: ComposerMode) =>
+    ipcRenderer.invoke(SESSION_COMPOSER_MODE_CHANNEL, mode),
   switchRuntime: (runtimeKind: RuntimeKind) =>
     ipcRenderer.invoke(SESSION_RUNTIME_CHANNEL, runtimeKind),
   setTheme: (theme: AppTheme) => ipcRenderer.invoke(THEME_SET_CHANNEL, theme),
@@ -181,6 +191,14 @@ const desktopApi: DesktopApi = {
     ) => listener(value);
     ipcRenderer.on(TIMELINE_FRAME_CHANNEL, handler);
     return () => ipcRenderer.removeListener(TIMELINE_FRAME_CHANNEL, handler);
+  },
+  onTaskUpdated: (listener: (event: TaskUpdatedEvent) => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      value: TaskUpdatedEvent,
+    ) => listener(value);
+    ipcRenderer.on(TASK_UPDATED_CHANNEL, handler);
+    return () => ipcRenderer.removeListener(TASK_UPDATED_CHANNEL, handler);
   },
   getEvalSnapshot: (): Promise<EvalPanelSnapshot> =>
     ipcRenderer.invoke(EVAL_SNAPSHOT_CHANNEL),

@@ -3,6 +3,9 @@ import { editToolCallIds } from "./run-changes";
 import { isExitPlanModeTool } from "../features/plans/project-session-plans";
 import {
   classifyTool,
+  isBackgroundSubagent,
+  isSubagentTool,
+  subagentDescription,
   toolAction,
   toolTarget,
 } from "./tool-taxonomy";
@@ -18,6 +21,13 @@ function exploreTarget(tool: ToolTimelineItem): string | undefined {
   return target
     ? target.replaceAll("\\", "/").toLowerCase()
     : undefined;
+}
+
+function summaryPartForSubagents(
+  subagents: RunActivityCounters["subagents"],
+): string | undefined {
+  if (subagents.length === 0) return undefined;
+  return `subagent · ${subagents.length}`;
 }
 
 function summary(counters: RunActivityCounters): string {
@@ -42,6 +52,10 @@ function summary(counters: RunActivityCounters): string {
         counters.commandCount === 1 ? "command" : "commands"
       }`,
     );
+  }
+  const subagentPart = summaryPartForSubagents(counters.subagents);
+  if (subagentPart) {
+    parts.push(subagentPart);
   }
   if (parts.length === 0 && counters.toolCount) {
     parts.push(
@@ -105,7 +119,19 @@ export function projectRunActivities(input: {
     const user = items.find((item) => item.kind === "user");
     const edited = new Set<string>();
     const explored = new Set<string>();
+    const subagents: RunActivityCounters["subagents"] = [];
     let commandCount = 0;
+    for (const tool of allTools) {
+      if (
+        isSubagentTool(tool) &&
+        (tool.status === "completed" || tool.status === "running")
+      ) {
+        subagents.push({
+          description: subagentDescription(tool.arguments),
+          background: isBackgroundSubagent(tool.arguments),
+        });
+      }
+    }
     for (const tool of tools) {
       if (
         tool.status !== "completed" &&
@@ -134,8 +160,9 @@ export function projectRunActivities(input: {
     const counters: RunActivityCounters = {
       editedFiles: [...edited],
       exploredFiles: [...explored],
+      subagents,
       commandCount,
-      toolCount: tools.length,
+      toolCount: tools.filter((tool) => !isSubagentTool(tool)).length,
       failedToolCount: tools.filter(
         (tool) => tool.status === "failed" || tool.status === "denied",
       ).length,
@@ -198,7 +225,9 @@ export function projectRunActivities(input: {
             ? "editing"
             : category === "explore" || category === "network"
               ? "exploring"
-              : category === "command" || category === "agent"
+              : category === "command" ||
+                  category === "agent" ||
+                  category === "subagent"
                 ? "running"
                 : "planning";
       currentAction = {

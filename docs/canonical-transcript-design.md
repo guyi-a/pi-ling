@@ -488,7 +488,7 @@ Claude 是否能满足产品要求，需要真实 PoC 验证 SessionStore mirror
 
 确定性 SQLite 单测、TypeScript 和构建均通过。
 
-真实 SDK PoC 已通过 Boom KLink Anthropic Gateway 和
+真实 SDK PoC 已通过 Anthropic 兼容 API 与
 `claude-haiku-4-5-20251001` 验证，凭据仅临时注入测试进程，未写入项目文件。
 
 验证链路：

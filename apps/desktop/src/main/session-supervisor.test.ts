@@ -60,6 +60,29 @@ describe("SessionSupervisor", () => {
     await fs.rm(root, { recursive: true, force: true });
   });
 
+  it("includes background tasks when activating a session", async () => {
+    const session = await supervisor.create({
+      workspaceRoot: root,
+      title: "Main",
+    });
+    store.createBackgroundTask({
+      id: "task-1",
+      parentSessionId: session.session.id,
+      parentRunId: "run-1",
+      parentToolCallId: "tool-call-1",
+      description: "Scan sources",
+    });
+    const activated = await supervisor.activate(session.session.id);
+    expect(activated.backgroundTasks).toEqual([
+      expect.objectContaining({
+        id: "task-1",
+        parentToolCallId: "tool-call-1",
+        status: "pending",
+        description: "Scan sources",
+      }),
+    ]);
+  });
+
   it("creates, switches and isolates session snapshots", async () => {
     const first = await supervisor.create({
       workspaceRoot: root,
