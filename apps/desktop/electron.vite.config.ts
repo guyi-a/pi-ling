@@ -1,10 +1,27 @@
+import { spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "electron-vite";
+import type { Plugin } from "vite";
 
 const root = dirname(fileURLToPath(import.meta.url));
+
+function copyBootstrapPlugin(): Plugin {
+  return {
+    name: "copy-bootstrap",
+    closeBundle() {
+      const result = spawnSync("node", ["scripts/copy-bootstrap.mjs"], {
+        cwd: root,
+        stdio: "inherit",
+      });
+      if (result.status !== 0) {
+        throw new Error("copy-bootstrap.mjs failed");
+      }
+    },
+  };
+}
 
 /** Bundled into main so Node 24 does not load workspace `src/*.ts` from node_modules. */
 const bundledMainDeps = [
@@ -23,6 +40,7 @@ const bundledMainDeps = [
 
 export default defineConfig({
   main: {
+    plugins: [copyBootstrapPlugin()],
     build: {
       externalizeDeps: {
         exclude: bundledMainDeps,

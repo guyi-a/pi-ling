@@ -284,14 +284,16 @@
   overflow-y: visible;
 }
 
-.composer-stack.has-approval-overlay {
+.composer-stack.has-approval-overlay,
+.composer-stack.has-question-overlay {
   z-index: 4;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.composer-stack.has-approval-overlay .composer {
+.composer-stack.has-approval-overlay .composer,
+.composer-stack.has-question-overlay .composer {
   pointer-events: none;
   user-select: none;
 }

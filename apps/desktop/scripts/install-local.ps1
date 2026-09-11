@@ -1,11 +1,11 @@
 param(
-  [string]$SourceRoot = (Join-Path $PSScriptRoot "..\release-install17\win-unpacked")
+  [string]$SourceRoot = (Join-Path $PSScriptRoot "..\release-install18\win-unpacked")
 )
 
 $ErrorActionPreference = "Stop"
 
 if (-not (Test-Path (Join-Path $SourceRoot "pi-ling.exe"))) {
-  throw "Missing build at $SourceRoot. Run: pnpm run build && pnpm exec electron-builder --config electron-builder.yml --win dir --x64 --config.directories.output=release-install17"
+  throw "Missing build at $SourceRoot. Run: pnpm run build && pnpm exec electron-builder --config electron-builder.yml --win dir --x64 --config.directories.output=release-install18"
 }
 
 Get-Process pi-ling -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue

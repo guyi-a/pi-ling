@@ -714,15 +714,11 @@
 }
 
 .question-dock {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  z-index: 4;
+  position: relative;
+  z-index: 3;
   display: flex;
   flex-direction: column;
   width: 100%;
-  min-height: 100%;
   max-height: min(70vh, 460px);
   margin: 0;
   padding: 12px 14px 10px;
@@ -737,6 +733,7 @@
 }
 
 .question-dock-title {
+  flex-shrink: 0;
   margin-bottom: 8px;
   color: var(--muted-2);
   font-size: 12px;
@@ -759,6 +756,7 @@
 }
 
 .question-prompt {
+  flex-shrink: 0;
   color: var(--text);
   font-size: 14px;
   line-height: 1.45;

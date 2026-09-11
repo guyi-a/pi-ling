@@ -411,6 +411,21 @@ export function ChatView(props: {
             composerOverlay ? " has-approval-overlay has-question-overlay" : ""
           }`}
         >
+          {pendingQuestions[0] ? (
+            <QuestionDock
+              question={pendingQuestions[0]}
+              onSubmit={(answers) => {
+                void onQuestion(pendingQuestions[0], answers);
+              }}
+            />
+          ) : (
+            <ApprovalDock
+              approvals={pendingApprovals}
+              onDecision={(approval, approved) => {
+                void onApproval(approval, approved);
+              }}
+            />
+          )}
           <form
             className="composer"
             onSubmit={submit}
@@ -551,21 +566,6 @@ export function ChatView(props: {
             )}
           </div>
         </form>
-          {pendingQuestions[0] ? (
-            <QuestionDock
-              question={pendingQuestions[0]}
-              onSubmit={(answers) => {
-                void onQuestion(pendingQuestions[0], answers);
-              }}
-            />
-          ) : (
-            <ApprovalDock
-              approvals={pendingApprovals}
-              onDecision={(approval, approved) => {
-                void onApproval(approval, approved);
-              }}
-            />
-          )}
         </div>
       </div>
       </div>
