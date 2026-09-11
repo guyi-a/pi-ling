@@ -9,9 +9,14 @@ import {
   type ToolResultMessage,
   type Usage,
   type UserMessage,
+  isRetryableAssistantError,
 } from "@earendil-works/pi-ai";
 import { Value } from "typebox/value";
 
+import {
+  DEFAULT_STREAM_RETRIES,
+  DEFAULT_STREAM_RETRY_BASE_MS,
+} from "./constants.js";
 import { pruneContextToolResults } from "./intra-pruner.js";
 import type {
   AgentEvent,
@@ -65,6 +70,24 @@ function emptyUsage(): Usage {
       total: 0,
     },
   };
+}
+
+function sleepMs(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(Object.assign(new Error("Aborted"), { name: "AbortError" }));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      reject(Object.assign(new Error("Aborted"), { name: "AbortError" }));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 function failureMessage(
@@ -299,6 +322,7 @@ export async function runAgentLoop(
         : {}),
     });
     let overflowRetried = false;
+    let streamRetries = 0;
     let assistant!: AssistantMessage;
     let started = false;
 
@@ -337,6 +361,19 @@ export async function runAgentLoop(
         }
         assistant = await stream.result();
         context.messages = modelContext.messages;
+        if (
+          assistant.stopReason === "error" &&
+          isRetryableAssistantError(assistant) &&
+          streamRetries < DEFAULT_STREAM_RETRIES &&
+          !options.signal.aborted
+        ) {
+          streamRetries += 1;
+          await sleepMs(
+            DEFAULT_STREAM_RETRY_BASE_MS * 2 ** (streamRetries - 1),
+            options.signal,
+          );
+          continue;
+        }
         break;
       } catch (error) {
         if (

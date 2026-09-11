@@ -71,7 +71,7 @@ export class SubagentService {
         messages: [],
       },
       streamFn: input.streamFn,
-      maxTurns: 20,
+      maxTurns: 50,
       beforeToolCall: async () => ({ allow: true }),
     });
 

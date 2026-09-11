@@ -8,6 +8,7 @@ import type {
   UserMessage,
 } from "@earendil-works/pi-ai";
 
+import { DEFAULT_MAX_TURNS } from "./constants.js";
 import { resumeAgentLoop, runAgentLoop } from "./agent-loop.js";
 import type {
   AgentEvent,
@@ -59,7 +60,7 @@ export class Agent {
     this.#prepareContext = options.prepareContext;
     this.#recoverContextOverflow = options.recoverContextOverflow;
     this.#wrapToolResult = options.wrapToolResult;
-    this.#maxTurns = options.maxTurns ?? 20;
+    this.#maxTurns = options.maxTurns ?? DEFAULT_MAX_TURNS;
   }
 
   get state(): AgentState {
