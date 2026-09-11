@@ -1,5 +1,4 @@
-import { createRequire, registerHooks } from "node:module";
-import { join } from "node:path";
+import { registerHooks } from "node:module";
 import { pathToFileURL } from "node:url";
 
 const shimUrl = new URL("./fs-ext-shim.js", import.meta.url).href;
@@ -12,13 +11,14 @@ registerHooks({
     try {
       return nextResolve(specifier, context);
     } catch (error) {
-      const moduleRoot = process.env["PI_LING_DSH_MODULE_ROOT"];
-      if (!moduleRoot || !specifier.startsWith("@deepseek-ai/")) throw error;
-      const require = createRequire(join(moduleRoot, "__resolver.cjs"));
-      return {
-        url: pathToFileURL(require.resolve(specifier)).href,
-        shortCircuit: true,
-      };
+      const resolveParent = process.env["PI_LING_DSH_RESOLVE_PARENT"]?.trim();
+      if (!resolveParent || !specifier.startsWith("@deepseek-ai/")) {
+        throw error;
+      }
+      return nextResolve(specifier, {
+        ...context,
+        parentURL: pathToFileURL(resolveParent).href,
+      });
     }
   },
 });

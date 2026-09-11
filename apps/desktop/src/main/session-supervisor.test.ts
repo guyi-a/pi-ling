@@ -7,6 +7,7 @@ import type {
   RuntimeAdapter,
   RuntimeCapabilities,
   RuntimeEventListener,
+  RuntimeSessionImportOptions,
   RuntimeSessionOptions,
 } from "@pi-ling/runtime-contracts";
 
@@ -41,6 +42,17 @@ class FakeDshRuntime implements RuntimeAdapter {
     return () => this.listeners.delete(listener);
   }
   async dispose() {}
+}
+
+class FakeCodexRuntime extends FakeDshRuntime {
+  readonly kind = "codex" as const;
+  setSessionOptions(_sessionId: string, _options: unknown) {}
+  async importSession(options: RuntimeSessionImportOptions) {
+    return {
+      externalSessionId:
+        options.appendToExternalSessionId ?? options.sessionId,
+    };
+  }
 }
 
 describe("SessionSupervisor", () => {
@@ -124,6 +136,24 @@ describe("SessionSupervisor", () => {
     });
   });
 
+  it("switches to codex runtime in place", async () => {
+    await supervisor.dispose();
+    supervisor = new SessionSupervisor(
+      store,
+      () => {},
+      () => {},
+      undefined,
+      new FakeCodexRuntime(),
+    );
+    const created = await supervisor.create({
+      workspaceRoot: root,
+      runtimeKind: "native",
+    });
+    const switched = await supervisor.switchRuntime("codex");
+    expect(switched.session.id).toBe(created.session.id);
+    expect(switched.session.runtimeKind).toBe("codex");
+  });
+
   it("switches runtime in place without creating another session", async () => {
     await supervisor.dispose();
     supervisor = new SessionSupervisor(
@@ -131,6 +161,7 @@ describe("SessionSupervisor", () => {
       () => {},
       () => {},
       new FakeDshRuntime(),
+      undefined,
     );
     const created = await supervisor.create({
       workspaceRoot: root,
@@ -191,6 +222,7 @@ describe("SessionSupervisor", () => {
       () => {},
       () => {},
       runtime,
+      undefined,
     );
     const first = await supervisor.create({
       workspaceRoot: root,

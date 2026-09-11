@@ -8,6 +8,7 @@ import { runJudge, applyJudgeThreshold } from "./judge.js";
 import { writeResponseFile } from "./response-file.js";
 import { scoreWorktree } from "./score-worktree.js";
 import { runShell } from "./shell.js";
+import type { AgentRunOptions } from "./agent-drivers/types.js";
 import type {
   CommandResult,
   ExperimentRun,
@@ -26,10 +27,11 @@ export interface RunOptions {
   driver?: string;
   runtime?: string;
   approvalMode?: string;
+  abortSignal?: AbortSignal;
   action?: (
     worktree: string,
     task: TaskSpec,
-    timeoutMs: number,
+    runOptions?: AgentRunOptions,
   ) => Promise<{
     action: CommandResult;
     metrics?: RunResult["metrics"];
@@ -149,7 +151,11 @@ export async function runTask(
     if (options.skipAction) {
       result.action = { name: "noop", command: "", exit_code: 0, duration_ms: 0 };
     } else if (options.action) {
-      const actionResult = await options.action(worktree, task, timeoutMs);
+      const agentRunOptions: AgentRunOptions = {};
+      if (options.abortSignal) {
+        agentRunOptions.abortSignal = options.abortSignal;
+      }
+      const actionResult = await options.action(worktree, task, agentRunOptions);
       result.action = actionResult.action;
       if (actionResult.metrics) {
         result.metrics = actionResult.metrics;

@@ -52,8 +52,36 @@ describe("resolveDshLaunchConfig", () => {
       ),
     ).toMatchObject({
       enabled: true,
-      reason: expect.stringContaining("PI_LING_DSH_BIN"),
+      reason: expect.stringMatching(/PI_LING_DSH_BIN|dsh:setup/),
     });
+  });
+
+  it("auto-detects DSH from .dsh-source when repo root is known", async () => {
+    const { root, bin } = await installation();
+    const repoRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "pi-ling-dsh-repo-"),
+    );
+    directories.push(repoRoot);
+    await fs.symlink(
+      root,
+      path.join(repoRoot, ".dsh-source"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    const result = resolveDshLaunchConfig(
+      { PI_LING_DSH_ENABLED: "true" },
+      "/user-data",
+      process.execPath,
+      repoRoot,
+    );
+    expect(result).toMatchObject({
+      enabled: true,
+      sourceRoot: root,
+    });
+    if (!("options" in result)) {
+      throw new Error(`expected DSH options: ${result.reason}`);
+    }
+    expect(result.options.dshBin).toContain(".dsh-source");
+    expect(result.options.dshBin.endsWith("bin.js")).toBe(true);
   });
 
   it("rejects an installation with the wrong version", async () => {
@@ -105,20 +133,23 @@ describe("resolveDshLaunchConfig", () => {
     });
   });
 
-  it("allows Electron to launch DSH with Node from PATH", async () => {
+  it("prefers a real Node binary from PATH over Electron", async () => {
     const { bin } = await installation();
-    expect(
-      resolveDshLaunchConfig(
-        {
-          PI_LING_DSH_ENABLED: "true",
-          PI_LING_DSH_BIN: bin,
-        },
-        "/user-data",
-        "node",
-      ),
-    ).toMatchObject({
-      enabled: true,
-      options: { command: "node" },
-    });
+    const result = resolveDshLaunchConfig(
+      {
+        PI_LING_DSH_ENABLED: "true",
+        PI_LING_DSH_BIN: bin,
+      },
+      "/user-data",
+      "C:/Apps/pi-ling.exe",
+    );
+    expect(result).toMatchObject({ enabled: true });
+    if (!("options" in result)) {
+      throw new Error(`expected DSH options: ${result.reason}`);
+    }
+    expect(result.options.command.endsWith("node.exe")).toBe(
+      process.platform === "win32",
+    );
+    expect(result.options.command).not.toBe("C:/Apps/pi-ling.exe");
   });
 });

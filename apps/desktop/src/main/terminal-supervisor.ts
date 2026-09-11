@@ -8,8 +8,16 @@ import type {
   TerminalStartResult,
 } from "@pi-ling/contracts";
 import type { IPty } from "node-pty";
-import * as pty from "node-pty";
 import type { WebContents } from "electron";
+
+type NodePtyModule = typeof import("node-pty");
+
+let ptyModulePromise: Promise<NodePtyModule> | undefined;
+
+function loadPtyModule(): Promise<NodePtyModule> {
+  ptyModulePromise ??= import("node-pty");
+  return ptyModulePromise;
+}
 
 const TERMINAL_OUTPUT_CHANNEL = "terminal:output";
 const TERMINAL_EXIT_CHANNEL = "terminal:exit";
@@ -28,10 +36,10 @@ export class TerminalSupervisor {
   private readonly sessions = new Map<number, Map<string, PtySession>>();
   private readonly cleanupAttached = new Set<number>();
 
-  start(
+  async start(
     webContents: WebContents,
     request: TerminalStartRequest,
-  ): TerminalStartResult {
+  ): Promise<TerminalStartResult> {
     this.attachCleanup(webContents);
     const webContentsId = webContents.id;
     const cwd = request.cwd.trim();
@@ -44,6 +52,7 @@ export class TerminalSupervisor {
     const shell = resolveShell();
     const sessionId = createSessionId();
 
+    const pty = await loadPtyModule();
     const terminal = pty.spawn(shell.path, shell.args, {
       name: "xterm-256color",
       cols,

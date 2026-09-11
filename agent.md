@@ -6,7 +6,7 @@
 
 - 不修改或复制 LingCoWork 主工程。
 - LingCoWork 仅作为需求、设计和评测参考。
-- 产品统一支持 Native、DeepSeek Harness 和 Claude Agent SDK Runtime；
+- 产品统一支持 Native、DeepSeek Harness 和 DeepSeek Codex Runtime；
   Native 模型层限定为 DeepSeek 和 Anthropic Claude。
 
 ## 技术栈与架构
@@ -68,16 +68,16 @@ Electron Main Supervisor
   Native 与 DSH 共用 Effect 决策规则，但保留各自门控实现。
 - DSH developer preview 未经安全审计，只能在 feature flag 和首次安全确认后启用。
 
-### Claude Runtime
+### Codex Runtime
 
-- Electron Main 使用 `@anthropic-ai/claude-agent-sdk` 管理 Claude Code 子进程。
-- Claude partial message 作为 transient frame，完整 Assistant Message 才写入
-  durable Session Event。
-- Claude `sessionStore` 将 opaque Transcript 投影镜像到 pi-ling SQLite，
-  用于原生 Resume。
-- 跨 Runtime 切换到 Claude 使用 `shouldQuery:false` 注入 Canonical
-  delta/summary；不得宣称为无损 cold seed。
-- `PreToolUse` 与 `canUseTool` 映射到产品统一 Effect Approval Policy。
+- Electron Main 使用 `@openai/codex-sdk` 驱动 Codex Agent 引擎（`codex exec --experimental-json`），
+  不是嵌入 Codex CLI TUI 产品。
+- 桌面启用：`PI_LING_CODEX_ENABLED=true` 且配置 `DEEPSEEK_API_KEY`；`PI_LING_CODEX_HOME`
+  隔离 Codex 配置（DeepSeek Responses API + `deepseek-flash`）。
+- Codex thread id 与产品 session id 分开持久化；支持 Native ↔ DSH ↔ Codex 同会话切换
+  （canonical import + watermark）。
+- Plan 模式映射 Codex `update_plan` → Plans 面板；Composer `plan/ask/agent` 映射 sandbox。
+- 审批：thread 级 `approvalPolicy` + 产品 ApprovalMode（`codex-approval-policy.ts`）。
 
 ## Coding Harness
 

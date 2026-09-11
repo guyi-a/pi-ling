@@ -6,9 +6,27 @@ import { defineConfig } from "electron-vite";
 
 const root = dirname(fileURLToPath(import.meta.url));
 
+/** Bundled into main so Node 24 does not load workspace `src/*.ts` from node_modules. */
+const bundledMainDeps = [
+  "@agentclientprotocol/sdk",
+  "@pi-ling/agent-core",
+  "@pi-ling/coding-agent",
+  "@pi-ling/coding-eval",
+  "@pi-ling/codex-runtime",
+  "@pi-ling/compaction",
+  "@pi-ling/contracts",
+  "@pi-ling/dsh-runtime",
+  "@pi-ling/runtime-contracts",
+  "@pi-ling/session-events",
+  "zod",
+];
+
 export default defineConfig({
   main: {
     build: {
+      externalizeDeps: {
+        exclude: bundledMainDeps,
+      },
       rollupOptions: {
         external: ["node-pty"],
         input: resolve(root, "src/main/index.ts"),

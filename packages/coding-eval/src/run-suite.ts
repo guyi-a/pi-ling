@@ -1,4 +1,7 @@
-import { createAgentDriver } from "./agent-drivers/index.js";
+import {
+  createAgentDriver,
+  disposeSharedCodexEvalRuntime,
+} from "./agent-drivers/index.js";
 import {
   judgeConfigFromEnv,
   judgeEnabled,
@@ -166,15 +169,8 @@ export async function runOneTask(
     approvalMode: "auto",
     judge: options.judge,
     judgeThreshold: options.judgeThreshold,
-    action: (worktree, currentTask, timeoutMs) =>
-      agentDriver.run(
-        worktree,
-        currentTask,
-        timeoutMs,
-        options.abortSignal
-          ? { abortSignal: options.abortSignal }
-          : undefined,
-      ),
+    action: (worktree, currentTask, runOptions) =>
+      agentDriver.run(worktree, currentTask, runOptions),
   });
   return { result, exitCode: result.status === "passed" ? 0 : 1 };
 }
@@ -283,6 +279,10 @@ export async function runSuite(options: RunSuiteOptions): Promise<RunSuiteSummar
       error: message,
     });
     throw error;
+  } finally {
+    if (options.driver === "agent" && options.runtime === "codex") {
+      await disposeSharedCodexEvalRuntime();
+    }
   }
 
   emit({

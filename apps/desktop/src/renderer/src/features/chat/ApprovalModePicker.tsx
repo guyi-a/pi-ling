@@ -7,7 +7,9 @@ import {
   Zap,
   type LucideIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { createPortal } from "react-dom";
+
+import { useAnchoredMenu } from "./use-anchored-menu.js";
 
 const modes: Array<{
   value: ApprovalMode;
@@ -38,55 +40,85 @@ const modes: Array<{
 export function ApprovalModePicker(props: {
   value: ApprovalMode;
   disabled?: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onChange: (mode: ApprovalMode) => Promise<void>;
 }) {
-  const [open, setOpen] = useState(false);
   const selected = modes.find((mode) => mode.value === props.value) ?? modes[0]!;
   const SelectedIcon = selected.icon;
+  const close = () => props.onOpenChange(false);
+  const { position, rootRef, triggerRef, menuRef } = useAnchoredMenu(
+    props.open,
+    close,
+  );
+
+  const menu =
+    props.open && position
+      ? createPortal(
+          <div
+            ref={menuRef}
+            className="composer-menu composer-menu-portal approval-mode-menu"
+            role="menu"
+            style={{
+              left: `${position.left}px`,
+              bottom: `${position.bottom}px`,
+            }}
+          >
+            {modes.map((mode) => {
+              const Icon = mode.icon;
+              return (
+                <button
+                  type="button"
+                  className={mode.value === props.value ? "selected" : ""}
+                  disabled={props.disabled}
+                  key={mode.value}
+                  onClick={() => {
+                    close();
+                    if (mode.value !== props.value) {
+                      void props.onChange(mode.value);
+                    }
+                  }}
+                >
+                  <Icon />
+                  <span>
+                    <strong>{mode.label}</strong>
+                    <small>{mode.description}</small>
+                  </span>
+                  {mode.value === props.value ? <Check /> : null}
+                </button>
+              );
+            })}
+          </div>,
+          document.body,
+        )
+      : null;
 
   return (
-    <details
-      className="approval-mode"
-      open={open}
-      onToggle={(event) => setOpen(event.currentTarget.open)}
-    >
-      <summary
-        aria-label="审批模式"
-        aria-disabled={props.disabled}
-        onClick={(event) => {
-          if (props.disabled) event.preventDefault();
-        }}
+    <>
+      <div
+        ref={rootRef}
+        className={`approval-mode${props.open ? " is-open" : ""}`}
       >
-        <SelectedIcon />
-        {selected.label}
-        <ChevronDown className="approval-mode-chevron" />
-      </summary>
-      <div className="approval-mode-menu">
-        {modes.map((mode) => {
-          const Icon = mode.icon;
-          return (
-            <button
-              type="button"
-              className={mode.value === props.value ? "selected" : ""}
-              disabled={props.disabled}
-              key={mode.value}
-              onClick={() => {
-                setOpen(false);
-                if (mode.value !== props.value) {
-                  void props.onChange(mode.value);
-                }
-              }}
-            >
-              <Icon />
-              <span>
-                <strong>{mode.label}</strong>
-                <small>{mode.description}</small>
-              </span>
-              {mode.value === props.value ? <Check /> : null}
-            </button>
-          );
-        })}
+        <button
+          ref={triggerRef}
+          type="button"
+          className="approval-mode-trigger"
+          aria-label="审批模式"
+          aria-haspopup="menu"
+          aria-expanded={props.open}
+          disabled={props.disabled}
+          onClick={() => {
+            if (!props.disabled) {
+              props.onOpenChange(!props.open);
+            }
+          }}
+        >
+          <SelectedIcon />
+          {selected.label}
+          <ChevronDown className="approval-mode-chevron" />
+        </button>
       </div>
-    </details>
+      {menu}
+    </>
   );
 }

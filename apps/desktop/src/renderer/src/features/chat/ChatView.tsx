@@ -65,6 +65,8 @@ export function shouldSubmitComposer(input: {
 
 const EMPTY_ATTACHMENTS: PromptAttachment[] = [];
 
+type ComposerMenu = "runtime" | "approval" | "composer";
+
 export function ChatView(props: {
   sessionId: string | null;
   items: TimelineItem[];
@@ -127,6 +129,9 @@ export function ChatView(props: {
   } = props;
   const [prompt, setPrompt] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
+  const [openComposerMenu, setOpenComposerMenu] = useState<ComposerMenu | null>(
+    null,
+  );
   const attachmentsEnabled = runtimeKind === "native";
   const attachmentSessionId = sessionId ?? "draft";
   const attachments = useAttachmentsStore(
@@ -153,6 +158,7 @@ export function ChatView(props: {
   const presentation = useMessagePresentation({
     sessionId,
     items,
+    runs,
     liveMessageIds,
     fastForwardRunIds,
     onComplete: onMessagePresented,
@@ -477,6 +483,10 @@ export function ChatView(props: {
                 value={runtimeKind}
                 available={availableRuntimes}
                 disabled={composerBusy}
+                open={openComposerMenu === "runtime"}
+                onOpenChange={(open) => {
+                  setOpenComposerMenu(open ? "runtime" : null);
+                }}
                 switching={Boolean(runtimeSwitching)}
                 switchingTo={runtimeSwitchTarget ?? null}
                 onChange={onRuntimeChange}
@@ -484,12 +494,20 @@ export function ChatView(props: {
               <ApprovalModePicker
                 value={approvalMode}
                 disabled={!workspaceReady || composerBusy}
+                open={openComposerMenu === "approval"}
+                onOpenChange={(open) => {
+                  setOpenComposerMenu(open ? "approval" : null);
+                }}
                 onChange={onApprovalModeChange}
               />
               <ComposerModePicker
                 value={composerMode}
                 runtimeKind={runtimeKind}
                 disabled={!workspaceReady || composerBusy}
+                open={openComposerMenu === "composer"}
+                onOpenChange={(open) => {
+                  setOpenComposerMenu(open ? "composer" : null);
+                }}
                 onChange={onComposerModeChange}
               />
             </div>

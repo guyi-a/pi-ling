@@ -5,9 +5,10 @@ import {
   methods,
   ndJsonStream,
   PROTOCOL_VERSION,
+  RequestError,
 } from "@agentclientprotocol/sdk";
 
-const sessions = new Set();
+const activeSessions = new Set();
 let resolveCancel;
 
 createAgent({ name: "pi-ling-fake-dsh" })
@@ -23,18 +24,30 @@ createAgent({ name: "pi-ling-fake-dsh" })
   )
   .onRequest(methods.agent.session.new, () => {
     const sessionId = process.env.FAKE_SESSION_ID ?? randomUUID();
-    sessions.add(sessionId);
+    if (activeSessions.has(sessionId)) {
+      throw RequestError.invalidParams(
+        undefined,
+        `session is already active: ${sessionId}`,
+      );
+    }
+    activeSessions.add(sessionId);
     return Promise.resolve({ sessionId });
   })
   .onRequest(methods.agent.session.resume, ({ params }) => {
-    sessions.add(params.sessionId);
+    if (activeSessions.has(params.sessionId)) {
+      throw RequestError.invalidParams(
+        undefined,
+        `session is already active: ${params.sessionId}`,
+      );
+    }
+    activeSessions.add(params.sessionId);
     return Promise.resolve({});
   })
   .onRequest(methods.agent.session.list, () =>
     Promise.resolve({ sessions: [], nextCursor: null }),
   )
   .onRequest(methods.agent.session.close, ({ params }) => {
-    sessions.delete(params.sessionId);
+    activeSessions.delete(params.sessionId);
     return Promise.resolve({});
   })
   .onRequest(methods.agent.session.prompt, async ({ params, client }) => {

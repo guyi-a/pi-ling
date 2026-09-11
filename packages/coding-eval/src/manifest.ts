@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -32,7 +32,14 @@ const BUILTIN_SMOKE_PROMPTS: Record<string, string> = {
 const DIFFICULTIES = new Set(["smoke", "medium", "hard"]);
 
 export function defaultCatalogPath(): string {
-  return join(packageRoot, "..", "catalog", "catalog.json");
+  const candidates = [
+    join(packageRoot, "..", "catalog", "catalog.json"),
+    join(packageRoot, "catalog", "catalog.json"),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return candidates[0]!;
 }
 
 export function loadCatalog(path = defaultCatalogPath()): Catalog {

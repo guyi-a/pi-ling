@@ -82,6 +82,21 @@ describe("DshRuntimeAdapter", () => {
     });
   });
 
+  it("treats resume of an already active DSH session as success", async () => {
+    const remoteSessionId = "remote-session-active";
+    const adapter = runtime({ FAKE_SESSION_ID: remoteSessionId });
+    const created = await adapter.createSession({
+      sessionId: "local-a",
+      workspaceRoot: process.cwd(),
+    });
+    const resumed = await adapter.resumeSession({
+      sessionId: "local-b",
+      workspaceRoot: process.cwd(),
+      externalSessionId: created.externalSessionId,
+    });
+    expect(resumed.externalSessionId).toBe(remoteSessionId);
+  });
+
   it("resumes a closed session with the original external id", async () => {
     const remoteSessionId = "remote-session-42";
     const adapter = runtime({ FAKE_SESSION_ID: remoteSessionId });

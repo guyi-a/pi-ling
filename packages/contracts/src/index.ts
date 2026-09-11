@@ -115,7 +115,7 @@ export type SessionLifecycle =
 
 export type ApprovalMode = "manual" | "accept-write" | "auto";
 export type ComposerMode = "plan" | "ask" | "agent";
-export type RuntimeKind = "native" | "dsh" | "claude";
+export type RuntimeKind = "native" | "dsh" | "codex";
 
 export type SubagentType = "explore";
 export type SubagentMode = "foreground" | "background";
@@ -741,6 +741,7 @@ export interface EvalWorkbenchState {
   overridesPath: string;
   tasks: EvalTaskView[];
   runs: EvalSuiteRunSummary[];
+  availableEvalRuntimes: Array<"native" | "dsh" | "codex">;
   latestRun?: EvalLatestRun;
   activeRun?: EvalActiveRun;
   suggestedCompare?: EvalCompareRequest;
@@ -748,7 +749,7 @@ export interface EvalWorkbenchState {
 
 export interface EvalRunSuiteRequest {
   driver: "reference" | "agent" | "noop";
-  runtime: "native" | "dsh";
+  runtime: "native" | "dsh" | "codex";
   scope: "baseline" | "full" | "selected";
   taskIds?: string[];
   variantLabel?: string;
@@ -758,7 +759,7 @@ export interface EvalRunSuiteRequest {
 export interface EvalRunTaskRequest {
   taskId: string;
   driver: "reference" | "agent";
-  runtime: "native" | "dsh";
+  runtime: "native" | "dsh" | "codex";
   variantLabel?: string;
   judgeMode?: "auto" | "on" | "off";
 }

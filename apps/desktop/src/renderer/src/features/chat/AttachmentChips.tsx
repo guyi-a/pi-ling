@@ -1,6 +1,6 @@
 import { X } from "lucide-react";
 
-import { workspaceDownloadURL } from "../../lib/workspace-url";
+import { workspaceInlineURL } from "../../lib/workspace-url";
 import {
   useAttachmentsStore,
   type AttachedImage,
@@ -11,7 +11,7 @@ function AttachmentChip(props: {
   workspaceRoot: string;
   onRemove: () => void;
 }) {
-  const src = workspaceDownloadURL(props.workspaceRoot, props.file.relativePath);
+  const src = workspaceInlineURL(props.workspaceRoot, props.file.relativePath);
   return (
     <div className="attachment-chip">
       <img

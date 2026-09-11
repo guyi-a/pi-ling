@@ -127,7 +127,7 @@ export async function maybeCompactSessionBeforeRun(
 
   return store.appendSessionEvent({
     sessionId,
-    runtimeKind: "native",
+    runtimeKind: store.getSession(sessionId)?.runtimeKind ?? "native",
     runId: "session",
     messageId: result.summaryMessage.id,
     idempotencyKey: `compaction:${result.record.id}`,

@@ -5,6 +5,7 @@ import { EvalField } from "./EvalField";
 
 export function EvalRunControls(props: {
   running: boolean;
+  availableRuntimes: EvalRunSuiteRequest["runtime"][];
   onRun: (request: EvalRunSuiteRequest) => void;
   onCancel: () => void;
   onRefresh: () => void;
@@ -53,7 +54,18 @@ export function EvalRunControls(props: {
           }}
         >
           <option value="native">Native</option>
-          <option value="dsh">DSH</option>
+          <option
+            value="dsh"
+            disabled={!props.availableRuntimes.includes("dsh")}
+          >
+            DSH
+          </option>
+          <option
+            value="codex"
+            disabled={!props.availableRuntimes.includes("codex")}
+          >
+            Codex
+          </option>
         </select>
       </EvalField>
       <EvalField label="范围">

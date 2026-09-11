@@ -14,10 +14,36 @@ import type {
   EvalValidateCatalogResult,
   EvalWorkbenchState,
 } from "@pi-ling/contracts";
-import { shell } from "electron";
+import { resolve } from "node:path";
+
+import { app, shell } from "electron";
 import type { WebContents } from "electron";
 
+import { resolveCodexLaunchConfig } from "./codex-launch-config.js";
+import { resolveDshLaunchConfig } from "./dsh-launch-config.js";
 import { getEvalRunService } from "./eval-run-service.js";
+
+function availableEvalRuntimes(): Array<"native" | "dsh" | "codex"> {
+  const runtimes: Array<"native" | "dsh" | "codex"> = ["native"];
+  const userDataPath = app.getPath("userData");
+  const repoRoot = process.env["PI_LING_REPO_ROOT"]?.trim()
+    ? resolve(process.env["PI_LING_REPO_ROOT"])
+    : undefined;
+  const dshLaunch = resolveDshLaunchConfig(
+    process.env,
+    userDataPath,
+    undefined,
+    repoRoot,
+  );
+  if (dshLaunch.enabled && "options" in dshLaunch) {
+    runtimes.push("dsh");
+  }
+  const codexLaunch = resolveCodexLaunchConfig(process.env, userDataPath);
+  if (codexLaunch.enabled && "options" in codexLaunch) {
+    runtimes.push("codex");
+  }
+  return runtimes;
+}
 
 type CodingEvalModule = typeof import("@pi-ling/coding-eval");
 type RunResult = import("@pi-ling/coding-eval").RunResult;
@@ -132,6 +158,7 @@ export async function getEvalWorkbenchState(
     ledgerPath,
     catalogPath: effective.catalogPath,
     overridesPath: effective.overridesPath,
+    availableEvalRuntimes: availableEvalRuntimes(),
     tasks: effective.catalog.tasks.map((task) =>
       toTaskView(codingEval, task, overrideIds),
     ),

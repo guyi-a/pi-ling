@@ -45,6 +45,7 @@ export {
 } from "./judge.js";
 
 export { createAgentDriver } from "./agent-drivers/index.js";
+export { dshEvalAvailable } from "./agent-drivers/dsh-env.js";
 
 export {
 

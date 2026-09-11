@@ -9,22 +9,33 @@ import type {
   RuntimeEventListener,
   RuntimePermissionDecision,
   RuntimeSessionHandle,
+  RuntimeSessionImportOptions,
   RuntimeSessionOptions,
 } from "@pi-ling/runtime-contracts";
 import type {
   ApprovalMode,
+  CanonicalMessage,
   TimelineEnvelope,
 } from "@pi-ling/contracts";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DshAgentSession } from "./dsh-agent-session.js";
 import { RunMessageBuffer } from "./run-message-buffer.js";
+import * as sessionCompaction from "./session-compaction.js";
 import { SessionStore } from "./session-store/session-store.js";
+
+interface RecordedImport {
+  mode: "import" | "append";
+  sessionId: string;
+  messageCount: number;
+  appendToExternalSessionId?: string;
+}
 
 class FakeDshRuntime implements RuntimeAdapter {
   readonly kind = "dsh" as const;
   readonly capabilities = {} as RuntimeCapabilities;
   readonly listeners = new Set<RuntimeEventListener>();
+  readonly imports: RecordedImport[] = [];
   permission?: RuntimePermissionDecision;
   permissionEvent?: Omit<
     Extract<RuntimeEvent, { type: "permission" }>,
@@ -39,6 +50,20 @@ class FakeDshRuntime implements RuntimeAdapter {
   }
   resumeSession(options: RuntimeSessionOptions) {
     return this.createSession(options);
+  }
+  async importSession(options: RuntimeSessionImportOptions) {
+    this.imports.push({
+      mode: options.appendToExternalSessionId ? "append" : "import",
+      sessionId: options.sessionId,
+      messageCount: options.canonicalMessages.length,
+      ...(options.appendToExternalSessionId
+        ? { appendToExternalSessionId: options.appendToExternalSessionId }
+        : {}),
+    });
+    return {
+      externalSessionId:
+        options.appendToExternalSessionId ?? options.sessionId,
+    };
   }
   async send(sessionId: string, runId: string) {
     const executionGroupId = `${runId}:exec`;
@@ -128,9 +153,28 @@ describe("DshAgentSession", () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     store.close();
     await fs.rm(directory, { recursive: true, force: true });
   });
+
+  function seedUserRun(sessionId: string, runId: string, text: string): number {
+    const userMessage: CanonicalMessage = {
+      id: `${runId}:user`,
+      role: "user",
+      content: [{ type: "text", text }],
+      sourceRuntime: "dsh",
+      createdAt: Date.now(),
+    };
+    return store.appendSessionEvent({
+      sessionId,
+      runtimeKind: "dsh",
+      runId,
+      messageId: userMessage.id,
+      idempotencyKey: `run:${runId}:start`,
+      event: { kind: "run.started", userMessage },
+    }).seq;
+  }
 
   it("maps DSH updates to ordered pi-ling timeline events", async () => {
     const summary = store.createSession({
@@ -481,5 +525,146 @@ describe("DshAgentSession", () => {
       ).toBe(testCase.asks ? "awaiting_approval" : "running");
       await session.dispose();
     }
+  });
+
+  it("re-imports full history on open when compaction crossed the watermark", async () => {
+    const summary = store.createSession({
+      workspaceRoot: directory,
+      runtimeKind: "dsh",
+      runtimeVersion: "0.1.3-alpha.1",
+    });
+    const firstSeq = seedUserRun(summary.id, "run-old", "hello");
+    store.appendSessionEvent({
+      sessionId: summary.id,
+      runtimeKind: "dsh",
+      runId: "run-old",
+      turnId: "run-old:assistant",
+      messageId: "run-old:assistant",
+      idempotencyKey: "assistant:run-old:assistant",
+      event: {
+        kind: "message.assistant.committed",
+        message: {
+          id: "run-old:assistant",
+          role: "assistant",
+          content: [{ type: "text", text: "world" }],
+          sourceRuntime: "dsh",
+          createdAt: Date.now(),
+        },
+        stopReason: "stop",
+        usage: { input: 0, output: 0, totalTokens: 0, cost: 0 },
+      },
+    });
+    store.setRuntimeImport(summary.id, "remote-old", firstSeq + 1);
+    const summaryMessage: CanonicalMessage = {
+      id: "compaction:comp-1",
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: '<compacted-summary id="comp-1">folded</compacted-summary>',
+        },
+      ],
+      sourceRuntime: "dsh",
+      createdAt: Date.now(),
+      rawPayload: { internal: true, compaction: true, compactionId: "comp-1" },
+    };
+    store.appendSessionEvent({
+      sessionId: summary.id,
+      // Compaction from another runtime must not advance the DSH watermark.
+      runtimeKind: "native",
+      runId: "session",
+      messageId: summaryMessage.id,
+      idempotencyKey: "compaction:comp-1",
+      event: {
+        kind: "compaction.applied",
+        compactionId: "comp-1",
+        throughMessageId: "run-old:assistant",
+        summary: summaryMessage,
+        replacedMessageIds: ["run-old:user", "run-old:assistant"],
+        replacedCount: 2,
+      },
+    });
+
+    const runtime = new FakeDshRuntime();
+    await DshAgentSession.open({
+      store,
+      session: summary,
+      runtime,
+      emit: () => {},
+      buffer: new RunMessageBuffer(() => {}),
+      availableRuntimes: ["native", "dsh"],
+    });
+
+    expect(runtime.imports).toHaveLength(1);
+    expect(runtime.imports[0]).toMatchObject({
+      mode: "import",
+      messageCount: 1,
+    });
+    expect(runtime.imports[0]?.appendToExternalSessionId).toBeUndefined();
+    expect(store.getRuntimeSessionId(summary.id)).not.toBe("remote-old");
+  });
+
+  it("re-imports compacted history before startPrompt sends", async () => {
+    const summary = store.createSession({
+      workspaceRoot: directory,
+      runtimeKind: "dsh",
+      runtimeVersion: "0.1.3-alpha.1",
+    });
+    seedUserRun(summary.id, "run-seed", "prior");
+    store.setRuntimeImport(summary.id, "remote-seed", 1);
+
+    const summaryMessage: CanonicalMessage = {
+      id: "compaction:comp-2",
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: "<compacted-summary>folded</compacted-summary>",
+        },
+      ],
+      sourceRuntime: "dsh",
+      createdAt: Date.now(),
+      rawPayload: { internal: true, compaction: true, compactionId: "comp-2" },
+    };
+    const compacted = store.appendSessionEvent({
+      sessionId: summary.id,
+      runtimeKind: "native",
+      runId: "session",
+      messageId: summaryMessage.id,
+      idempotencyKey: "compaction:comp-2",
+      event: {
+        kind: "compaction.applied",
+        compactionId: "comp-2",
+        throughMessageId: "run-seed:user",
+        summary: summaryMessage,
+        replacedMessageIds: ["run-seed:user"],
+        replacedCount: 1,
+      },
+    });
+
+    vi.spyOn(sessionCompaction, "maybeCompactSessionBeforeRun").mockResolvedValueOnce(
+      compacted,
+    );
+
+    const runtime = new FakeDshRuntime();
+    runtime.send = async () => {};
+    const session = await DshAgentSession.open({
+      store,
+      session: summary,
+      runtime,
+      emit: () => {},
+      buffer: new RunMessageBuffer(() => {}),
+      availableRuntimes: ["native", "dsh"],
+    });
+    session.startPrompt("run-next", "continue");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const freshImports = runtime.imports.filter((entry) => entry.mode === "import");
+    expect(freshImports.length).toBeGreaterThan(0);
+    expect(freshImports.at(-1)).toMatchObject({
+      mode: "import",
+      messageCount: 1,
+    });
+    await session.dispose();
   });
 });

@@ -13,6 +13,17 @@ function runOptionValue(run: EvalSuiteRunSummary): string {
   return `${run.experiment}\0${run.variant}`;
 }
 
+function findRun(
+  runs: EvalSuiteRunSummary[],
+  key: string,
+): EvalSuiteRunSummary | undefined {
+  const [experiment, variant] = key.split("\0");
+  if (!experiment || !variant) return undefined;
+  return runs.find(
+    (run) => run.experiment === experiment && run.variant === variant,
+  );
+}
+
 function regressionLabel(row: {
   statusChanged: boolean;
   baselineStatus: "passed" | "failed" | "skipped" | "error" | "missing";
@@ -44,20 +55,28 @@ export function EvalCompareTab(props: {
   const updateBaseline = (value: string) => {
     const [experiment, variant] = value.split("\0");
     if (!experiment || !variant || !props.compareRequest) return;
+    const run = findRun(props.runs, value);
     props.onCompare({
       ...props.compareRequest,
       experiment,
       baselineVariant: variant,
+      ...(run?.runtime
+        ? { baselineRuntime: run.runtime }
+        : { baselineRuntime: undefined }),
     });
   };
 
   const updateCandidate = (value: string) => {
     const [experiment, variant] = value.split("\0");
     if (!experiment || !variant || !props.compareRequest) return;
+    const run = findRun(props.runs, value);
     props.onCompare({
       ...props.compareRequest,
       experiment,
       candidateVariant: variant,
+      ...(run?.runtime
+        ? { candidateRuntime: run.runtime }
+        : { candidateRuntime: undefined }),
     });
   };
 

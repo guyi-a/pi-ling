@@ -30,7 +30,15 @@ export function extractPlanText(
   item: Pick<ToolTimelineItem, "arguments" | "output">,
 ): string {
   const args = item.arguments;
-  for (const key of ["plan", "content", "text", "body", "summary"]) {
+  for (const key of [
+    "plan",
+    "content",
+    "text",
+    "body",
+    "summary",
+    "markdown",
+    "steps",
+  ]) {
     const value = args[key];
     if (typeof value === "string" && value.trim()) return value.trim();
   }
@@ -192,11 +200,23 @@ function resolveNativePlanStatus(
   return "draft";
 }
 
-function resolvePlanStatus(
+function resolveCodexPlanStatus(
   plan: SessionPlan,
   items: readonly TimelineItem[],
   runs: Readonly<Record<string, TimelineRun>>,
 ): SessionPlanStatus {
+  return resolveNativePlanStatus(plan, items, runs);
+}
+
+function resolvePlanStatus(
+  plan: SessionPlan,
+  items: readonly TimelineItem[],
+  runs: Readonly<Record<string, TimelineRun>>,
+  runtimeKind?: RuntimeKind,
+): SessionPlanStatus {
+  if (runtimeKind === "codex") {
+    return resolveCodexPlanStatus(plan, items, runs);
+  }
   if (plan.exitCallId || findExitPlanTool(items, plan.runId)) {
     return resolveDshPlanStatus(plan, items, runs);
   }
@@ -205,6 +225,7 @@ function resolvePlanStatus(
 
 export interface ProjectSessionPlansOptions {
   buildRunByPlanRunId?: ReadonlyMap<string, string>;
+  runtimeKind?: RuntimeKind;
 }
 
 export function projectSessionPlans(
@@ -251,7 +272,12 @@ export function projectSessionPlans(
 
   for (const plan of byRun.values()) {
     plan.buildRunId = options.buildRunByPlanRunId?.get(plan.runId);
-    plan.status = resolvePlanStatus(plan, items, runs);
+    plan.status = resolvePlanStatus(
+      plan,
+      items,
+      runs,
+      options.runtimeKind,
+    );
     plan.pendingApproval = undefined;
     if (plan.status === "ready" && plan.exitCallId) {
       const pending = findPendingExitApproval(
@@ -366,6 +392,7 @@ export function findPlanReadyForBuild(input: {
   }
 
   const plans = projectSessionPlans(input.items, input.runs, {
+    runtimeKind: input.runtimeKind,
     buildRunByPlanRunId: input.buildRunByPlanRunId,
   });
   for (const plan of plans.values()) {

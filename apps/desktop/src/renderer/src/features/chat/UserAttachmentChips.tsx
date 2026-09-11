@@ -1,6 +1,6 @@
 import type { TimelineUserAttachment } from "@pi-ling/contracts";
 
-import { workspaceDownloadURL } from "../../lib/workspace-url";
+import { workspaceInlineURL } from "../../lib/workspace-url";
 import { useFilesStore } from "../files/store";
 
 export function UserAttachmentChips(props: {
@@ -13,7 +13,7 @@ export function UserAttachmentChips(props: {
     <div className="user-attachment-chips" aria-label="消息图片">
       {props.attachments.map((attachment) => {
         const src = props.workspaceRoot
-          ? workspaceDownloadURL(props.workspaceRoot, attachment.relativePath)
+          ? workspaceInlineURL(props.workspaceRoot, attachment.relativePath)
           : undefined;
         return (
           <button

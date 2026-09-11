@@ -12,7 +12,7 @@ pi-ling 是一个用于运行和展示编码 Agent 会话的工程，核心包�
 - `packages/agent-core/`：Agent 循环与核心类型定义。
 - `packages/coding-agent/`：编码 Agent 实现，包含工具、审批与变更追踪。
 - `packages/runtime-contracts/`、`packages/native-runtime/`、`packages/dsh-runtime/`：运行时契约与不同适配实现。
-- `packages/session-events/`、`packages/claude-transcript/`、`packages/dsh-transcript/`：会话事件与转录相关逻辑。
+- `packages/session-events/`、`packages/dsh-transcript/`：会话事件与转录相关逻辑。
 - `packages/coding-eval/`：编码任务评测与打分工具。
 - `docs/`：设计与集成文档。
 - `scripts/`：辅助脚本。
@@ -31,10 +31,12 @@ pi-ling 是一个用于运行和展示编码 Agent 会话的工程，核心包�
    pnpm test
    ```
 
-3. 启动桌面端：
+3. 复制 `.env.example` 为 `.env`，填入 `DEEPSEEK_API_KEY` 等配置。
+
+4. 启动桌面端：
 
    ```bash
-   pnpm --filter desktop dev
+   pnpm dev
    ```
 
 更多细节请参阅 `docs/` 目录下的文档。

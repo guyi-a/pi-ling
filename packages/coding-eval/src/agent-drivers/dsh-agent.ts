@@ -9,6 +9,7 @@ import type { RuntimeEvent } from "@pi-ling/runtime-contracts";
 import { effectivePrompt } from "../manifest.js";
 import type { AgentMetrics, TaskSpec } from "../types.js";
 import { buildDshRuntimeOptions } from "./dsh-env.js";
+import { waitUntil } from "./wait-for-run.js";
 import type { AgentDriver, AgentRunOptions } from "./types.js";
 
 function emptyMetrics(): AgentMetrics {
@@ -27,8 +28,7 @@ export class DshAgentDriver implements AgentDriver {
   async run(
     worktree: string,
     task: TaskSpec,
-    timeoutMs: number,
-    _options: AgentRunOptions = {},
+    options: AgentRunOptions = {},
   ) {
     const started = Date.now();
     const prompt = effectivePrompt(task);
@@ -91,19 +91,19 @@ export class DshAgentDriver implements AgentDriver {
         sessionId,
         workspaceRoot: worktree,
       });
-      const timer = setTimeout(() => {
-        void runtime.cancel(sessionId);
-        runError = "timeout";
+      await runtime.send(sessionId, runId, prompt);
+      await waitUntil(() => runFinished, {
+        ...options,
+        onTimeout: () => {
+          void runtime.cancel(sessionId);
+          runError = "timeout";
+          runFinished = true;
+        },
+      });
+      if (options.abortSignal?.aborted && !runFinished) {
+        runError = "cancelled";
         runFinished = true;
-      }, timeoutMs);
-      try {
-        await runtime.send(sessionId, runId, prompt);
-      } finally {
-        clearTimeout(timer);
-      }
-      const deadline = Date.now() + 5_000;
-      while (!runFinished && Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 25));
+        await runtime.cancel(sessionId);
       }
       await runtime.closeSession(sessionId);
     } catch (error) {

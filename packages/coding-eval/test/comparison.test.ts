@@ -67,6 +67,63 @@ describe("comparison", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
+  it("ignores stale runtime filters when variants already identify a run", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "coding-eval-compare-runtime-"));
+    const ledgerPath = join(dir, "ledger.jsonl");
+    const base: RunResult = {
+      task_id: "smoke-fix-typo",
+      title: "Fix typo",
+      driver: "agent",
+      runtime: "codex",
+      experiment_run: {
+        experiment: "eval-panel",
+        variant: "agent-codex-20260911-193923",
+        iteration: 1,
+      },
+      started_at: new Date().toISOString(),
+      duration_ms: 10,
+      status: "passed",
+      action: { name: "action", command: "", exit_code: 0, duration_ms: 1 },
+      verification: [],
+      score: {
+        passed: true,
+        violations: [],
+        diff: {
+          changed_files: 1,
+          added_lines: 1,
+          deleted_lines: 1,
+          paths: ["message.txt"],
+        },
+      },
+    };
+    const candidate: RunResult = {
+      ...base,
+      runtime: "native",
+      experiment_run: {
+        experiment: "eval-panel",
+        variant: "agent-native-20260911-185239",
+        iteration: 1,
+      },
+    };
+    await writeFile(
+      ledgerPath,
+      `${JSON.stringify(base)}\n${JSON.stringify(candidate)}\n`,
+      "utf8",
+    );
+    const summary = await compareLedger({
+      ledgerPath,
+      experiment: "eval-panel",
+      baseline: "agent-codex-20260911-193923",
+      candidate: "agent-native-20260911-185239",
+      baselineRuntime: "native",
+      candidateRuntime: "dsh",
+    });
+    expect(summary.pairs).toBe(1);
+    expect(summary.baseline_pass_rate).toBe(1);
+    expect(summary.candidate_pass_rate).toBe(1);
+    await rm(dir, { recursive: true, force: true });
+  });
+
   it("supports comparing a variant with itself", async () => {
     const dir = await mkdtemp(join(tmpdir(), "coding-eval-compare-self-"));
     const ledgerPath = join(dir, "ledger.jsonl");

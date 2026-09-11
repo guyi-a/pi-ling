@@ -286,6 +286,9 @@
 
 .composer-stack.has-approval-overlay {
   z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .composer-stack.has-approval-overlay .composer {
@@ -358,52 +361,59 @@
   flex: 0 0 auto;
 }
 
-.approval-mode > summary {
+.approval-mode-trigger,
+.composer-mode-trigger {
   height: 25px;
   display: flex;
   align-items: center;
   gap: 5px;
   padding: 0 6px;
   color: var(--muted);
+  border: 0;
   border-radius: 5px;
+  background: transparent;
   cursor: pointer;
-  list-style: none;
+  font: inherit;
   font-size: 13px;
 }
 
-.approval-mode > summary::-webkit-details-marker {
-  display: none;
-}
-
-.approval-mode > summary:hover {
+.approval-mode-trigger:hover:not(:disabled),
+.composer-mode-trigger:hover:not(:disabled) {
   color: var(--text-soft);
   background: var(--surface-hover);
 }
 
-.approval-mode > summary svg {
+.approval-mode-trigger:disabled,
+.composer-mode-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.approval-mode-trigger svg,
+.composer-mode-trigger svg {
   width: 12px;
   height: 12px;
 }
 
-.approval-mode-chevron {
+.approval-mode-chevron,
+.composer-mode-chevron {
   transition: transform 120ms ease;
 }
 
-.approval-mode[open] .approval-mode-chevron {
+.approval-mode.is-open .approval-mode-chevron,
+.composer-mode.is-open .composer-mode-chevron,
+.runtime-picker-wrap.is-open .runtime-picker-trigger svg:last-child {
   transform: rotate(180deg);
 }
 
-.approval-mode-menu {
-  position: absolute;
-  z-index: 20;
-  bottom: calc(100% + 8px);
-  left: 0;
+.composer-menu-portal {
+  position: fixed;
+  z-index: 1000;
+}
+
+.approval-mode-menu,
+.composer-mode-menu {
   width: 268px;
-  padding: 5px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
-  background: var(--menu-bg);
-  box-shadow: 0 14px 34px var(--shadow);
 }
 
 .approval-mode-menu button {
@@ -453,47 +463,7 @@
   flex: 0 0 auto;
 }
 
-.composer-mode > summary {
-  height: 25px;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0 6px;
-  color: var(--muted);
-  border-radius: 5px;
-  cursor: pointer;
-  list-style: none;
-  font-size: 13px;
-}
-
-.composer-mode > summary::-webkit-details-marker {
-  display: none;
-}
-
-.composer-mode > summary:hover {
-  color: var(--text-soft);
-  background: var(--surface-hover);
-}
-
-.composer-mode > summary svg {
-  width: 12px;
-  height: 12px;
-}
-
-.composer-mode-chevron {
-  transition: transform 120ms ease;
-}
-
-.composer-mode[open] .composer-mode-chevron {
-  transform: rotate(180deg);
-}
-
-.composer-mode-menu {
-  position: absolute;
-  z-index: 20;
-  bottom: calc(100% + 8px);
-  left: 0;
-  width: 268px;
+.composer-menu {
   padding: 5px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
@@ -543,34 +513,36 @@
   font-size: 13px;
 }
 
-.runtime-picker {
-  position: relative;
+.runtime-picker-wrap {
   flex: 0 0 auto;
 }
 
-.runtime-picker > summary {
+.runtime-picker-trigger {
   height: 25px;
   display: flex;
   align-items: center;
   gap: 5px;
   padding: 0 6px;
   color: var(--muted);
+  border: 0;
   border-radius: 5px;
+  background: transparent;
   cursor: pointer;
-  list-style: none;
+  font: inherit;
   font-size: 13px;
 }
 
-.runtime-picker > summary::-webkit-details-marker {
-  display: none;
-}
-
-.runtime-picker > summary:hover {
+.runtime-picker-trigger:hover:not(:disabled) {
   color: var(--text-soft);
   background: var(--surface-hover);
 }
 
-.runtime-picker.is-switching > summary {
+.runtime-picker-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.runtime-picker-wrap.is-switching .runtime-picker-trigger {
   color: var(--text-soft);
   cursor: wait;
 }
@@ -581,22 +553,15 @@
   }
 }
 
-.runtime-picker > summary svg {
+.runtime-picker-trigger svg {
   width: 12px;
   height: 12px;
 }
 
 .runtime-menu {
-  position: absolute;
-  z-index: 20;
-  bottom: calc(100% + 8px);
-  left: 0;
   width: 230px;
-  padding: 5px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
-  background: var(--menu-bg);
-  box-shadow: 0 14px 34px var(--shadow);
+  max-height: min(240px, 40vh);
+  overflow-y: auto;
 }
 
 .runtime-menu button {

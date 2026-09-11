@@ -1,7 +1,12 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
-import type { DshRuntimeOptions } from "@pi-ling/dsh-runtime";
+import {
+  resolveDshNodeExecutable,
+  type DshRuntimeOptions,
+} from "@pi-ling/dsh-runtime";
+
+export { resolveDshNodeExecutable };
 
 import { DSH_PI_AI_PROFILE_PATCH } from "./dsh-pi-ai-profile.js";
 
@@ -29,24 +34,37 @@ function manifestVersion(path: string): string | undefined {
   }
 }
 
+export function resolveDefaultDshBin(repoRoot: string): string {
+  return join(repoRoot, ".dsh-source", "apps", "cli", "lib", "bin.js");
+}
+
 export function resolveDshLaunchConfig(
   env: NodeJS.ProcessEnv,
   userDataPath: string,
-  nodeExecutable = process.versions.electron ? "node" : process.execPath,
+  nodeExecutable = process.execPath,
+  repoRoot?: string,
 ): DshLaunchResolution {
   if (env["PI_LING_DSH_ENABLED"] !== "true") {
     return { enabled: false };
   }
 
+  const effectiveRepoRoot =
+    repoRoot ??
+    (env["PI_LING_REPO_ROOT"]?.trim()
+      ? resolve(env["PI_LING_REPO_ROOT"])
+      : undefined);
   const configuredBin = env["PI_LING_DSH_BIN"]?.trim();
-  if (!configuredBin) {
+  const dshBin = resolve(
+    configuredBin ||
+      (effectiveRepoRoot ? resolveDefaultDshBin(effectiveRepoRoot) : ""),
+  );
+  if (!configuredBin && !effectiveRepoRoot) {
     return {
       enabled: true,
       reason:
-        "PI_LING_DSH_ENABLED=true requires an explicit PI_LING_DSH_BIN",
+        "PI_LING_DSH_ENABLED=true requires PI_LING_DSH_BIN in .env or pnpm dsh:setup",
     };
   }
-  const dshBin = resolve(configuredBin);
   if (!existsSync(dshBin)) {
     return {
       enabled: true,
@@ -55,7 +73,7 @@ export function resolveDshLaunchConfig(
   }
 
   const cliManifest = resolve(dirname(dshBin), "../package.json");
-  const sourceRoot = resolve(dirname(dshBin), "../../..");
+  const sourceRoot = realpathSync(resolve(dirname(dshBin), "../../.."));
   const rootManifest = join(sourceRoot, "package.json");
   const cliVersion = manifestVersion(cliManifest);
   const rootVersion = manifestVersion(rootManifest);
@@ -71,8 +89,7 @@ export function resolveDshLaunchConfig(
     };
   }
 
-  const configuredNode = env["PI_LING_NODE_BIN"]?.trim();
-  const command = configuredNode ? resolve(configuredNode) : nodeExecutable;
+  const command = resolveDshNodeExecutable(env, nodeExecutable);
   if (isAbsolute(command) && !existsSync(command)) {
     return {
       enabled: true,

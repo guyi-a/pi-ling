@@ -13,6 +13,11 @@ export {
   type CodingAgentOptions,
 } from "./coding-agent.js";
 export {
+  PI_LING_DEEPSEEK_MODEL,
+  PI_LING_DEEPSEEK_PROVIDER,
+  registerPiLingDeepseekProvider,
+} from "./deepseek-provider.js";
+export {
   ChangeTracker,
   type ChangedFile,
   type FileBaseline,

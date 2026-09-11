@@ -25,7 +25,7 @@ describe("DshAgentDriver", () => {
         configurable: true,
         value: "39.0.0",
       });
-      expect(resolveDshNodeCommand({})).toBe("node");
+      expect(resolveDshNodeCommand({})).toBe(process.execPath);
       expect(
         resolveDshNodeCommand({ PI_LING_NODE_BIN: "C:\\\\node\\\\node.exe" }),
       ).toBe("C:\\\\node\\\\node.exe");

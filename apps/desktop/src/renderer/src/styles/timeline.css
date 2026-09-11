@@ -534,28 +534,13 @@
 }
 
 .approval-dock {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
+  position: relative;
   z-index: 3;
   display: flex;
-  width: 100%;
-  min-height: 100%;
-  max-height: min(70vh, 420px);
-  margin: 0;
-}
-
-.approval-dock .approval-card.pending {
-  display: flex;
-  flex: 1;
   flex-direction: column;
-  gap: 8px;
   width: 100%;
-  min-height: 100%;
-  max-height: inherit;
+  max-height: min(55vh, 400px);
   margin: 0;
-  padding: 12px 14px 10px;
   overflow: hidden;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
@@ -566,9 +551,30 @@
   backdrop-filter: blur(10px);
 }
 
+.approval-dock .approval-card.pending {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 12px 14px 10px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.approval-dock .approval-title {
+  flex-shrink: 0;
+}
+
 .approval-dock .approval-card-body {
-  flex: 1 1 auto;
-  min-height: 72px;
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
 }
 
@@ -591,7 +597,7 @@
 
 .approval-dock .approval-actions {
   flex-shrink: 0;
-  margin-top: 0;
+  margin-top: auto;
   padding-top: 8px;
   border-top: 1px solid var(--border-subtle);
 }
@@ -677,10 +683,6 @@
 .approval-details pre {
   max-height: 120px;
   margin-top: 6px;
-}
-
-.approval-dock .approval-actions {
-  margin-top: 0;
 }
 
 .approval-actions {

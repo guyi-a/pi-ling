@@ -1,4 +1,4 @@
-export type RuntimeKind = "native" | "dsh" | "claude";
+export type RuntimeKind = "native" | "dsh" | "codex";
 
 export interface RuntimeCapabilities {
   modelSwitching: boolean;
@@ -13,12 +13,29 @@ export interface RuntimeCapabilities {
   fileCheckpoint: boolean;
 }
 
+export type RuntimeSandboxMode =
+  | "read-only"
+  | "workspace-write"
+  | "danger-full-access";
+
+export type RuntimeApprovalPolicy =
+  | "never"
+  | "on-request"
+  | "on-failure"
+  | "untrusted";
+
 export interface RuntimeSessionOptions {
   sessionId: string;
   workspaceRoot: string;
   provider?: string;
   model?: string;
   externalSessionId?: string;
+  /** Codex: sandbox for tool/file access. */
+  sandboxMode?: RuntimeSandboxMode;
+  /** Codex: when to ask before executing tools. */
+  approvalPolicy?: RuntimeApprovalPolicy;
+  /** Runtime-specific interaction mode. */
+  composerMode?: "plan" | "ask" | "agent";
 }
 
 export interface RuntimeSessionHandle {
@@ -44,6 +61,12 @@ export interface RuntimeSessionImportOptions {
    */
   appendToExternalSessionId?: string;
   startTurn?: number;
+  /** Codex: sandbox for tool/file access. */
+  sandboxMode?: RuntimeSandboxMode;
+  /** Codex: when to ask before executing tools. */
+  approvalPolicy?: RuntimeApprovalPolicy;
+  /** Runtime-specific interaction mode. */
+  composerMode?: "plan" | "ask" | "agent";
 }
 
 export interface RuntimeSessionImportResult {
@@ -110,6 +133,25 @@ export type RuntimeEvent =
       options: RuntimePermissionOption[];
     }
   | {
+      type: "question";
+      sessionId: string;
+      runId: string;
+      executionGroupId: string;
+      questionId: string;
+      callId: string;
+      questions: Array<{
+        id: string;
+        question: string;
+        header?: string;
+        allowMultiple?: boolean;
+        options?: Array<{
+          id: string;
+          label: string;
+          description?: string;
+        }>;
+      }>;
+    }
+  | {
       type: "context_usage";
       sessionId: string;
       runId: string;
@@ -136,6 +178,12 @@ export interface RuntimePermissionDecision {
   cancelled?: boolean;
 }
 
+export interface RuntimeQuestionDecision {
+  questionId: string;
+  answers: Array<{ questionId: string; optionIds: string[] }>;
+  cancelled?: boolean;
+}
+
 export type RuntimeEventListener = (
   event: RuntimeEvent,
 ) => void | Promise<void>;
@@ -156,6 +204,7 @@ export interface RuntimeAdapter {
   send(sessionId: string, runId: string, prompt: string): Promise<void>;
   cancel(sessionId: string): Promise<void>;
   resolvePermission(decision: RuntimePermissionDecision): Promise<boolean>;
+  resolveQuestion?(decision: RuntimeQuestionDecision): Promise<boolean>;
   closeSession(sessionId: string): Promise<void>;
   subscribe(listener: RuntimeEventListener): () => void;
   dispose(): Promise<void>;

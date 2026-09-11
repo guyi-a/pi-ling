@@ -115,7 +115,6 @@ export async function compareLedger(
     const runtime = result.runtime;
     const key = comparisonKey(result);
     if (variant === options.baseline) {
-      if (options.baselineRuntime && runtime !== options.baselineRuntime) continue;
       if (baselineRuns.has(key)) {
         summary.diagnostics.push(
           `duplicate observation: ${variant}/${key}`,
@@ -125,7 +124,6 @@ export async function compareLedger(
       baselineRuns.set(key, result);
     }
     if (variant === options.candidate) {
-      if (options.candidateRuntime && runtime !== options.candidateRuntime) continue;
       if (candidateRuns.has(key)) {
         summary.diagnostics.push(
           `duplicate observation: ${variant}/${key}`,

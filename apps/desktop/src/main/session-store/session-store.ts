@@ -31,6 +31,12 @@ import type {
 } from "@pi-ling/contracts";
 
 import { SESSION_SCHEMA } from "./schema.js";
+import {
+  DEFAULT_SESSION_TITLE,
+  deriveSessionTitle,
+  isPlaceholderSessionTitle,
+  userMessageText,
+} from "./session-title.js";
 
 export type CheckpointPhase =
   | "started"
@@ -356,6 +362,8 @@ export class SessionStore {
       ON sessions(workspace_id, archived_at, pinned_at DESC, updated_at DESC)
     `);
     this.#migrateSubagents();
+    this.#migrateRemoveClaudeRuntimeKind();
+    this.#migrateAddCodexRuntimeKind();
     this.#migrateRuntimeSessions();
     this.#migrateSessionEvents();
   }
@@ -385,7 +393,9 @@ export class SessionStore {
     }
     const title =
       input.title?.trim() ||
-      (input.parentSessionId ? `Subagent ${id.slice(0, 8)}` : workspace.name);
+      (input.parentSessionId
+        ? `Subagent ${id.slice(0, 8)}`
+        : DEFAULT_SESSION_TITLE);
     this.#db
       .prepare(
         `INSERT INTO sessions
@@ -630,6 +640,13 @@ export class SessionStore {
            WHERE session_id = ? AND runtime_kind = ?`,
         )
         .run(seq, emittedAt, input.sessionId, input.runtimeKind);
+      if (input.event.kind === "run.started") {
+        this.#maybeAutotitleSession(
+          input.sessionId,
+          input.event.userMessage,
+          emittedAt,
+        );
+      }
       return {
         sessionId: input.sessionId,
         seq,
@@ -647,6 +664,34 @@ export class SessionStore {
         ...(input.rawPayload ? { rawPayload: input.rawPayload } : {}),
       };
     });
+  }
+
+  #maybeAutotitleSession(
+    sessionId: string,
+    userMessage: CanonicalMessage,
+    updatedAt: number,
+  ): void {
+    const row = this.#db
+      .prepare(
+        `SELECT s.title, w.name AS workspace_name
+         FROM sessions s
+         LEFT JOIN workspaces w ON w.workspace_id = s.workspace_id
+         WHERE s.session_id = ?`,
+      )
+      .get(sessionId) as
+      | { title: string; workspace_name: string | null }
+      | undefined;
+    if (!row) return;
+    const workspaceName = row.workspace_name ?? "";
+    if (!isPlaceholderSessionTitle(row.title, workspaceName)) return;
+    const text = userMessageText(userMessage);
+    if (!text) return;
+    const title = deriveSessionTitle(text);
+    this.#db
+      .prepare(
+        `UPDATE sessions SET title = ?, updated_at = ? WHERE session_id = ?`,
+      )
+      .run(title, updatedAt, sessionId);
   }
 
   loadSessionEvents(sessionId: string): SessionEventEnvelope[] {
@@ -999,6 +1044,7 @@ export class SessionStore {
     sessionId: string,
     externalSessionId: string,
     lastSyncedCanonicalSeq: number,
+    projectionVersion?: number,
   ): void {
     const session = this.getSession(sessionId);
     if (!session) throw new Error(`Session not found: ${sessionId}`);
@@ -1014,6 +1060,7 @@ export class SessionStore {
       externalSessionId,
       lastSyncedCanonicalSeq,
       runtimeStatus: "idle",
+      ...(projectionVersion !== undefined ? { projectionVersion } : {}),
     });
   }
 
@@ -1021,7 +1068,7 @@ export class SessionStore {
     const session = this.getSession(sessionId);
     if (session) {
       const mapped = this.getRuntimeSession(sessionId, session.runtimeKind);
-      if (mapped?.externalSessionId) return mapped.externalSessionId;
+      if (mapped) return mapped.externalSessionId;
     }
     const row = this.#db
       .prepare(
@@ -1694,6 +1741,149 @@ export class SessionStore {
       )
       .all(workspaceId) as unknown as SessionRow[];
     return rows.map(sessionFromRow);
+  }
+
+  #migrateAddCodexRuntimeKind(): void {
+    const definition = this.#db
+      .prepare(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'sessions'",
+      )
+      .get() as { sql: string } | undefined;
+    if (!definition?.sql || definition.sql.includes("'codex'")) {
+      return;
+    }
+
+    const columns = (
+      this.#db.prepare("PRAGMA table_info(sessions)").all() as Array<{
+        name: string;
+      }>
+    ).map((column) => column.name);
+    const columnList = columns.join(", ");
+
+    this.#db.exec("PRAGMA foreign_keys = OFF");
+    try {
+      this.#transaction(() => {
+        this.#db.exec(`
+        CREATE TABLE sessions__codex_runtime_migration (
+          session_id TEXT PRIMARY KEY,
+          workspace_id TEXT REFERENCES workspaces(workspace_id),
+          workspace_root TEXT NOT NULL,
+          title TEXT NOT NULL,
+          lifecycle TEXT NOT NULL DEFAULT 'idle'
+            CHECK (lifecycle IN ('idle', 'running', 'awaiting_approval', 'awaiting_question', 'crashed')),
+          approval_mode TEXT NOT NULL DEFAULT 'manual'
+            CHECK (approval_mode IN ('manual', 'accept-write', 'auto')),
+          composer_mode TEXT NOT NULL DEFAULT 'agent'
+            CHECK (composer_mode IN ('plan', 'ask', 'agent')),
+          runtime_kind TEXT NOT NULL DEFAULT 'native'
+            CHECK (runtime_kind IN ('native', 'dsh', 'codex')),
+          runtime_version TEXT,
+          runtime_session_id TEXT,
+          pinned_at INTEGER,
+          archived_at INTEGER,
+          active_run_id TEXT,
+          parent_session_id TEXT,
+          last_seq INTEGER NOT NULL DEFAULT 0,
+          last_event_seq INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        )
+      `);
+        this.#db.exec(`
+        INSERT INTO sessions__codex_runtime_migration (${columnList})
+        SELECT ${columnList} FROM sessions
+      `);
+        this.#db.exec("DROP TABLE sessions");
+        this.#db.exec(
+          "ALTER TABLE sessions__codex_runtime_migration RENAME TO sessions",
+        );
+      });
+    } finally {
+      this.#db.exec("PRAGMA foreign_keys = ON");
+    }
+    this.#db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_sessions_updated
+      ON sessions(updated_at DESC)
+    `);
+    this.#db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_sessions_sidebar
+      ON sessions(workspace_id, archived_at, pinned_at DESC, updated_at DESC)
+    `);
+  }
+
+  #migrateRemoveClaudeRuntimeKind(): void {
+    const definition = this.#db
+      .prepare(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'sessions'",
+      )
+      .get() as { sql: string } | undefined;
+    if (!definition?.sql || !definition.sql.includes("'claude'")) {
+      return;
+    }
+
+    const columns = (
+      this.#db.prepare("PRAGMA table_info(sessions)").all() as Array<{
+        name: string;
+      }>
+    ).map((column) => column.name);
+    const columnList = columns.join(", ");
+    const selectList = columns
+      .map((column) =>
+        column === "runtime_kind"
+          ? "CASE runtime_kind WHEN 'claude' THEN 'native' ELSE runtime_kind END AS runtime_kind"
+          : column,
+      )
+      .join(", ");
+
+    this.#db.exec("PRAGMA foreign_keys = OFF");
+    try {
+      this.#transaction(() => {
+        this.#db.exec(`
+        CREATE TABLE sessions__runtime_kind_migration (
+          session_id TEXT PRIMARY KEY,
+          workspace_id TEXT REFERENCES workspaces(workspace_id),
+          workspace_root TEXT NOT NULL,
+          title TEXT NOT NULL,
+          lifecycle TEXT NOT NULL DEFAULT 'idle'
+            CHECK (lifecycle IN ('idle', 'running', 'awaiting_approval', 'awaiting_question', 'crashed')),
+          approval_mode TEXT NOT NULL DEFAULT 'manual'
+            CHECK (approval_mode IN ('manual', 'accept-write', 'auto')),
+          composer_mode TEXT NOT NULL DEFAULT 'agent'
+            CHECK (composer_mode IN ('plan', 'ask', 'agent')),
+          runtime_kind TEXT NOT NULL DEFAULT 'native'
+            CHECK (runtime_kind IN ('native', 'dsh')),
+          runtime_version TEXT,
+          runtime_session_id TEXT,
+          pinned_at INTEGER,
+          archived_at INTEGER,
+          active_run_id TEXT,
+          parent_session_id TEXT,
+          last_seq INTEGER NOT NULL DEFAULT 0,
+          last_event_seq INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        )
+      `);
+        this.#db.exec(`
+        INSERT INTO sessions__runtime_kind_migration (${columnList})
+        SELECT ${selectList} FROM sessions
+      `);
+        this.#db.exec("DROP TABLE sessions");
+        this.#db.exec(
+          "ALTER TABLE sessions__runtime_kind_migration RENAME TO sessions",
+        );
+      });
+    } finally {
+      this.#db.exec("PRAGMA foreign_keys = ON");
+    }
+    this.#db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_sessions_updated
+      ON sessions(updated_at DESC)
+    `);
+    this.#db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_sessions_sidebar
+      ON sessions(workspace_id, archived_at, pinned_at DESC, updated_at DESC)
+    `);
   }
 
   #migrateSessionLifecycleCheck(): void {

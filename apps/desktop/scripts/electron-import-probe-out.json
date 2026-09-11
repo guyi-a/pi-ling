@@ -1,0 +1,5 @@
+{
+  "zod/v4": "ok",
+  "dsh-runtime": "ok",
+  "schema-deserialize": "Error: Package subpath './dist/schema-deserialize.js' is not defined by \"exports\" in E:\\pi-ling\\apps\\desktop\\node_modules\\@agentclientprotocol\\sdk\\package.json imported from E:\\pi-ling\\apps\\desktop\\scripts\\electron-import-probe.mjs"
+}

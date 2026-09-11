@@ -122,25 +122,28 @@ describe("chat components", () => {
     ).toBe(false);
   });
 
-  it("renders all three approval modes", () => {
+  it("renders selected approval mode trigger", () => {
     const html = renderToStaticMarkup(
-      <ApprovalModePicker value="accept-write" onChange={async () => {}} />,
+      <ApprovalModePicker
+        value="accept-write"
+        open={false}
+        onOpenChange={() => {}}
+        onChange={async () => {}}
+      />,
     );
-    expect(html).toContain("手动确认");
     expect(html).toContain("接受编辑");
-    expect(html).toContain("自动执行");
   });
 
-  it("renders all three composer modes", () => {
+  it("renders selected composer mode trigger", () => {
     const html = renderToStaticMarkup(
       <ComposerModePicker
         value="plan"
         runtimeKind="native"
+        open={false}
+        onOpenChange={() => {}}
         onChange={async () => {}}
       />,
     );
     expect(html).toContain("Plan");
-    expect(html).toContain("Ask");
-    expect(html).toContain("Agent");
   });
 });

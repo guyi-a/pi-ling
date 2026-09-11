@@ -19,6 +19,7 @@ describe("Eval workbench", () => {
     const toolbar = renderToStaticMarkup(
       <EvalRunControls
         running={false}
+        availableRuntimes={["native", "dsh"]}
         onRun={() => {}}
         onCancel={() => {}}
         onRefresh={() => {}}

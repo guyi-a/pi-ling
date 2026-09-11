@@ -1,6 +1,9 @@
 import {
   CodingAgent,
+  PI_LING_DEEPSEEK_MODEL,
+  PI_LING_DEEPSEEK_PROVIDER,
   SubagentService,
+  registerPiLingDeepseekProvider,
   wrapPromptForComposerMode,
   Workspace,
   type ApprovalDecision,
@@ -22,7 +25,6 @@ import {
   type Usage,
   type UserMessage,
 } from "@earendil-works/pi-ai";
-import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 import type {
   AgentStatus,
   AgentUsage,
@@ -60,11 +62,10 @@ import {
   type RunCheckpoint,
 } from "./session-store/session-store.js";
 
-const PROVIDER = "deepseek";
-const MODEL = "deepseek-v4-pro";
-const VISION_MODEL = "deepseek-v4-flash-vision-exp";
+const PROVIDER = PI_LING_DEEPSEEK_PROVIDER;
+const MODEL = PI_LING_DEEPSEEK_MODEL;
 const models = createModels();
-models.setProvider(deepseekProvider());
+registerPiLingDeepseekProvider(models);
 
 function emptyUsage(): Usage {
   return {
@@ -441,10 +442,9 @@ export class PiAgentSession {
         this.#flush(started);
         await this.#rehydrateAgentMessages();
         const hasImages = attachments.length > 0;
-        const targetModelId = hasImages ? VISION_MODEL : MODEL;
-        const model = models.getModel(PROVIDER, targetModelId);
+        const model = models.getModel(PROVIDER, MODEL);
         if (!model) {
-          throw new Error(`Model is unavailable: ${PROVIDER}/${targetModelId}`);
+          throw new Error(`Model is unavailable: ${PROVIDER}/${MODEL}`);
         }
         this.#model = model;
         this.#agent.setModel(model);

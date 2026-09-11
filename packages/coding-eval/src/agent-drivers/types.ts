@@ -17,7 +17,6 @@ export interface AgentDriver {
   run(
     worktree: string,
     task: TaskSpec,
-    timeoutMs: number,
     options?: AgentRunOptions,
   ): Promise<AgentActionResult>;
 }

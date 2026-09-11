@@ -311,6 +311,10 @@
   transform: rotate(-18deg);
 }
 
+.session-state-icon.crashed {
+  color: var(--danger);
+}
+
 .session-state-icon.unavailable {
   color: var(--warning);
 }

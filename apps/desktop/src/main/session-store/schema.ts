@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   composer_mode TEXT NOT NULL DEFAULT 'agent'
     CHECK (composer_mode IN ('plan', 'ask', 'agent')),
   runtime_kind TEXT NOT NULL DEFAULT 'native'
-    CHECK (runtime_kind IN ('native', 'dsh')),
+    CHECK (runtime_kind IN ('native', 'dsh', 'codex')),
   runtime_version TEXT,
   runtime_session_id TEXT,
   pinned_at INTEGER,

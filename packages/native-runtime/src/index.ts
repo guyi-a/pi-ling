@@ -3,7 +3,11 @@ import {
   type CodingAgentEvent,
 } from "@pi-ling/coding-agent";
 import { createModels } from "@earendil-works/pi-ai";
-import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
+import {
+  PI_LING_DEEPSEEK_MODEL,
+  PI_LING_DEEPSEEK_PROVIDER,
+  registerPiLingDeepseekProvider,
+} from "@pi-ling/coding-agent";
 import type {
   RuntimeAdapter,
   RuntimeCapabilities,
@@ -15,7 +19,7 @@ import type {
 } from "@pi-ling/runtime-contracts";
 
 const models = createModels();
-models.setProvider(deepseekProvider());
+registerPiLingDeepseekProvider(models);
 
 function executionGroupId(runId: string): string {
   return `${runId}:exec`;
@@ -48,8 +52,8 @@ export class NativeRuntimeAdapter implements RuntimeAdapter {
     options: RuntimeSessionOptions,
   ): Promise<RuntimeSessionHandle> {
     const model = models.getModel(
-      options.provider ?? "deepseek",
-      options.model ?? "deepseek-v4-pro",
+      options.provider ?? PI_LING_DEEPSEEK_PROVIDER,
+      options.model ?? PI_LING_DEEPSEEK_MODEL,
     );
     if (!model) throw new Error("Native runtime model is unavailable");
     let agent!: CodingAgent;

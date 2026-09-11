@@ -246,17 +246,20 @@ export function projectRunActivities(input: {
     const hasUnsettledWork = allTools.some((tool) =>
       ["requested", "awaiting-approval", "running"].includes(tool.status),
     );
-    const lastSegment = segments.at(-1);
+    const lastAssistant = assistants.at(-1);
+    const lastTurnHasTools = lastAssistant
+      ? allTools.some((tool) => tool.turnId === lastAssistant.turnId)
+      : false;
     const finalAssistant =
       lifecycle !== "running" &&
       !hasUnsettledWork &&
       !pendingApproval &&
-      lastSegment &&
-      lastSegment.tools.length === 0 &&
-      lastSegment.content.trim() &&
-      lastSegment.assistant.stopReason !== undefined &&
-      lastSegment.assistant.stopReason !== "toolUse"
-        ? lastSegment.assistant
+      lastAssistant &&
+      !lastTurnHasTools &&
+      lastAssistant.text.trim() &&
+      lastAssistant.stopReason !== undefined &&
+      lastAssistant.stopReason !== "toolUse"
+        ? lastAssistant
         : undefined;
     const workSegments = finalAssistant
       ? segments.slice(0, -1)

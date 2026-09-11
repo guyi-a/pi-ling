@@ -1,18 +1,22 @@
 import { contentText } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai";
-import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 import {
   CodingAgent,
+  PI_LING_DEEPSEEK_MODEL,
+  PI_LING_DEEPSEEK_PROVIDER,
+  registerPiLingDeepseekProvider,
   type ApprovalMode,
   type CodingAgentEvent,
 } from "@pi-ling/coding-agent";
 
+import { loadDotenv } from "../env.js";
 import { effectivePrompt } from "../manifest.js";
+import { resolveRepoRoot } from "../paths.js";
 import type { AgentMetrics, TaskSpec } from "../types.js";
 import type { AgentDriver, AgentRunOptions } from "./types.js";
 
 const models = createModels();
-models.setProvider(deepseekProvider());
+registerPiLingDeepseekProvider(models);
 
 function emptyMetrics(): AgentMetrics {
   return {
@@ -43,9 +47,9 @@ export class NativeAgentDriver implements AgentDriver {
   async run(
     worktree: string,
     task: TaskSpec,
-    timeoutMs: number,
     options: AgentRunOptions = {},
   ) {
+    loadDotenv(resolveRepoRoot());
     const started = Date.now();
     const prompt = effectivePrompt(task);
     const metrics = emptyMetrics();
@@ -53,8 +57,8 @@ export class NativeAgentDriver implements AgentDriver {
     let assistantChunks: string[] = [];
     let failed = false;
     let failureReason = "";
-    const provider = "deepseek";
-    const modelId = "deepseek-v4-pro";
+    const provider = PI_LING_DEEPSEEK_PROVIDER;
+    const modelId = PI_LING_DEEPSEEK_MODEL;
     const model = models.getModel(provider, modelId);
     if (!model) {
       return {
@@ -118,12 +122,6 @@ export class NativeAgentDriver implements AgentDriver {
         externalAbort.addEventListener("abort", onExternalAbort, { once: true });
       }
     }
-    const timer = setTimeout(() => {
-      failed = true;
-      failureReason = "timeout";
-      agent.cancel();
-    }, timeoutMs);
-
     try {
       await agent.prompt(prompt, `eval-${task.id}`);
       await agent.waitForIdle();
@@ -140,7 +138,6 @@ export class NativeAgentDriver implements AgentDriver {
       failureReason =
         error instanceof Error ? error.message : String(error);
     } finally {
-      clearTimeout(timer);
       if (externalAbort) {
         externalAbort.removeEventListener("abort", onExternalAbort);
       }

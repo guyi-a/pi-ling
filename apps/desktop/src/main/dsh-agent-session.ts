@@ -1,5 +1,3 @@
-import { randomUUID } from "node:crypto";
-
 import {
   ChangeTracker,
   wrapPromptForComposerMode,
@@ -138,26 +136,21 @@ export class DshAgentSession {
       model: "deepseek-v4-pro",
     };
 
+    const { reimportDshSessionIfNeeded } = await import(
+      "./dsh-session-import.js"
+    );
+    if (
+      await reimportDshSessionIfNeeded({
+        store: options.store,
+        sessionId: options.session.id,
+        workspaceRoot: options.session.workspace.root,
+        runtime: options.runtime,
+      })
+    ) {
+      return instance;
+    }
+
     if (!externalSessionId) {
-      if (messages.length > 0 && options.runtime.importSession) {
-        const importedId = randomUUID();
-        await options.runtime.importSession({
-          sessionId: importedId,
-          ...importOptions,
-          canonicalMessages: messages,
-        });
-        options.store.setRuntimeImport(
-          options.session.id,
-          importedId,
-          events.at(-1)?.seq ?? 0,
-        );
-        await options.runtime.resumeSession({
-          sessionId: options.session.id,
-          workspaceRoot: options.session.workspace.root,
-          externalSessionId: importedId,
-        });
-        return instance;
-      }
       const handle = await options.runtime.createSession({
         sessionId: options.session.id,
         workspaceRoot: options.session.workspace.root,
@@ -247,7 +240,6 @@ export class DshAgentSession {
     this.#assistantToolCalls = [];
     this.#contextUsage = undefined;
     this.#runTurn = 0;
-    this.#store.setLifecycle(this.#session.id, "running", runId);
     const userMessage: CanonicalMessage = {
       id: `${runId}:user`,
       role: "user",
@@ -255,23 +247,37 @@ export class DshAgentSession {
       sourceRuntime: "dsh",
       createdAt: Date.now(),
     };
-    this.#flush(
-      this.#store.appendSessionEvent({
-        sessionId: this.#session.id,
-        runtimeKind: "dsh",
-        runId,
-        messageId: userMessage.id,
-        idempotencyKey: `run:${runId}:start`,
-        event: { kind: "run.started", userMessage },
-      }),
-    );
     const runtimePrompt = wrapPromptForComposerMode(prompt, this.#composerMode);
-    void this.#runtime
-      .send(this.#session.id, runId, runtimePrompt)
-      .catch(() => {})
-      .finally(() => {
+    void (async () => {
+      try {
+        const { maybeCompactAndReimportDshSession } = await import(
+          "./dsh-session-import.js"
+        );
+        const compacted = await maybeCompactAndReimportDshSession({
+          store: this.#store,
+          sessionId: this.#session.id,
+          workspaceRoot: this.#session.workspace.root,
+          runtime: this.#runtime,
+        });
+        if (compacted) this.#flush(compacted);
+        this.#store.setLifecycle(this.#session.id, "running", runId);
+        this.#flush(
+          this.#store.appendSessionEvent({
+            sessionId: this.#session.id,
+            runtimeKind: "dsh",
+            runId,
+            messageId: userMessage.id,
+            idempotencyKey: `run:${runId}:start`,
+            event: { kind: "run.started", userMessage },
+          }),
+        );
+        await this.#runtime.send(this.#session.id, runId, runtimePrompt);
+      } catch {
+        /* runtime errors are surfaced through run_end / lifecycle */
+      } finally {
         if (this.#activeRunId === runId) this.#activeRunId = null;
-      });
+      }
+    })();
   }
 
   async cancel(runId: string): Promise<boolean> {

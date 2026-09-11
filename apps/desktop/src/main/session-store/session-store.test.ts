@@ -7,6 +7,7 @@ import type { Message } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { SessionStore } from "./session-store.js";
+import { SESSION_SCHEMA } from "./schema.js";
 
 describe("SessionStore", () => {
   let directory = "";
@@ -20,6 +21,36 @@ describe("SessionStore", () => {
   afterEach(async () => {
     store.close();
     await fs.rm(directory, { recursive: true, force: true });
+  });
+
+  it("migrates legacy claude runtime sessions to native", () => {
+    const dbPath = path.join(directory, "legacy-claude.db");
+    const db = new DatabaseSync(dbPath);
+    db.exec(
+      SESSION_SCHEMA.replace(
+        "CHECK (runtime_kind IN ('native', 'dsh', 'codex'))",
+        "CHECK (runtime_kind IN ('native', 'dsh', 'claude'))",
+      ),
+    );
+    const now = Date.now();
+    db.prepare(`
+      INSERT INTO workspaces (
+        workspace_id, root, root_key, name, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `).run("ws-1", directory, directory.toLowerCase(), "Legacy", now, now);
+    db.prepare(`
+      INSERT INTO sessions (
+        session_id, workspace_id, workspace_root, title, runtime_kind,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run("session-claude", "ws-1", directory, "Claude", "claude", now, now);
+    db.close();
+
+    const legacyStore = new SessionStore(dbPath);
+    expect(legacyStore.getSession("session-claude")?.runtimeKind).toBe(
+      "native",
+    );
+    legacyStore.close();
   });
 
   it("creates, lists and deletes sessions", () => {
@@ -50,6 +81,32 @@ describe("SessionStore", () => {
     expect(duplicate.id).toBe(first.id);
     expect(store.listWorkspaces()).toHaveLength(1);
     expect(store.listWorkspaces()[0]?.sessions).toEqual([]);
+  });
+
+  it("autotitles sessions from the first user message", () => {
+    const session = store.createSession({
+      id: "titled-session",
+      workspaceRoot: directory,
+    });
+    expect(session.title).toBe("新对话");
+    store.appendSessionEvent({
+      sessionId: session.id,
+      runtimeKind: "native",
+      runId: "run-title",
+      messageId: "user-title",
+      idempotencyKey: "run:run-title:start",
+      event: {
+        kind: "run.started",
+        userMessage: {
+          id: "user-title",
+          role: "user",
+          content: [{ type: "text", text: "Fix the login bug" }],
+          sourceRuntime: "native",
+          createdAt: 1,
+        },
+      },
+    });
+    expect(store.getSession(session.id)?.title).toBe("Fix the login bug");
   });
 
   it("stores idempotent canonical events and runtime projections", () => {
@@ -221,6 +278,20 @@ describe("SessionStore", () => {
     expect(store.getRuntimeSessionId(session.id)).toBe(
       "remote-dsh-session",
     );
+  });
+
+  it("does not reuse another runtime external id after switching runtime kind", () => {
+    const session = store.createSession({
+      id: "runtime-switch",
+      workspaceRoot: directory,
+      runtimeKind: "native",
+    });
+    store.setRuntimeSessionId(session.id, "native-remote");
+    store.setRuntime(session.id, "codex", "0.154.0");
+    expect(store.getRuntimeSessionId(session.id)).toBeUndefined();
+    expect(
+      store.getRuntimeSession(session.id, "native")?.externalSessionId,
+    ).toBe("native-remote");
   });
 
   it("allocates monotonic timeline sequence values transactionally", () => {

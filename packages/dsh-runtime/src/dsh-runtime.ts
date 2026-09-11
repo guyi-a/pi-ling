@@ -11,6 +11,7 @@ import {
   ndJsonStream,
   PROTOCOL_VERSION,
   type ClientConnection,
+  RequestError,
   type RequestPermissionResponse,
   type SessionUpdate,
 } from "@agentclientprotocol/sdk";
@@ -50,6 +51,9 @@ interface ToolDetails {
   input?: unknown;
 }
 
+/** pi-ai catalog model for DSH; Native uses `deepseek-flash` via runtime registration. */
+export const DSH_DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-pro" as const;
+
 const ALLOWED_ENV = [
   "PATH",
   "Path",
@@ -61,15 +65,21 @@ const ALLOWED_ENV = [
   "COMSPEC",
 ] as const;
 
-function childEnvironment(options: DshRuntimeOptions): NodeJS.ProcessEnv {
+function childEnvironment(
+  options: DshRuntimeOptions,
+  command: string,
+): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const key of ALLOWED_ENV) {
     if (process.env[key] !== undefined) env[key] = process.env[key];
   }
+  const usesElectronAsNode =
+    process.versions.electron &&
+    resolve(command) === resolve(process.execPath);
   return {
     ...env,
     DSH_HOME: options.dshHome,
-    ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
+    ...(usesElectronAsNode ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
     ...options.env,
   };
 }
@@ -126,6 +136,28 @@ function withMessageId<T extends Record<string, unknown>>(
   return messageId ? { ...value, messageId } : value;
 }
 
+function isSessionAlreadyActiveError(
+  error: unknown,
+  externalSessionId: string,
+): boolean {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  if (!message.includes("already active")) return false;
+  if (error instanceof RequestError && error.code === -32602) {
+    return true;
+  }
+  return message.includes(externalSessionId.toLowerCase());
+}
+
+async function pathExists(file: string): Promise<boolean> {
+  try {
+    await fs.access(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function waitForFile(
   file: string,
   timeoutMs: number,
@@ -133,17 +165,42 @@ async function waitForFile(
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (true) {
-    try {
-      await fs.access(file);
-      return;
-    } catch {
-      // fall through to poll again
-    }
+    if (await pathExists(file)) return;
     if (Date.now() > deadline) {
       throw new Error(`timed out waiting for ${file}`);
     }
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
+}
+
+async function readImportError(errorPath: string): Promise<string> {
+  const detail = (await fs.readFile(errorPath, "utf8")).trim();
+  return detail || "DSH session import failed";
+}
+
+async function waitForImportDone(
+  requestPath: string,
+  donePath: string,
+  timeoutMs: number,
+  intervalMs = 50,
+): Promise<void> {
+  const errorPath = `${requestPath}.error`;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() <= deadline) {
+    if (await pathExists(donePath)) return;
+    if (await pathExists(errorPath)) {
+      throw new Error(await readImportError(errorPath));
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  if (await pathExists(errorPath)) {
+    throw new Error(await readImportError(errorPath));
+  }
+  throw new Error(`timed out waiting for ${donePath}`);
+}
+
+function stripProfileInserts(content: string): string {
+  return content.replace(/\n- insert:[\s\S]*/g, "").trimEnd();
 }
 
 export class DshRuntimeAdapter implements RuntimeAdapter {
@@ -178,10 +235,11 @@ export class DshRuntimeAdapter implements RuntimeAdapter {
 
   initialize(): Promise<void> {
     if (this.#disposed) return Promise.reject(new Error("DSH runtime disposed"));
+    if (!this.#childAlive()) {
+      this.#resetRuntimeConnection();
+    }
     return (this.#initializing ??= this.#start().catch((error: unknown) => {
-      this.#initializing = undefined;
-      this.#connection?.close(error);
-      this.#connection = undefined;
+      this.#resetRuntimeConnection();
       throw error;
     }));
   }
@@ -205,46 +263,43 @@ export class DshRuntimeAdapter implements RuntimeAdapter {
     options: RuntimeSessionOptions,
   ): Promise<RuntimeSessionHandle> {
     if (!options.externalSessionId) return this.createSession(options);
+    const externalSessionId = options.externalSessionId;
+    if (this.#sessions.get(options.sessionId) === externalSessionId) {
+      return {
+        sessionId: options.sessionId,
+        externalSessionId,
+      };
+    }
     const agent = await this.#agent();
-    await agent.request(methods.agent.session.resume, {
-      sessionId: options.externalSessionId,
-      cwd: options.workspaceRoot,
-      mcpServers: [],
-    });
-    this.#sessions.set(options.sessionId, options.externalSessionId);
+    try {
+      await agent.request(methods.agent.session.resume, {
+        sessionId: externalSessionId,
+        cwd: options.workspaceRoot,
+        mcpServers: [],
+      });
+    } catch (error) {
+      if (!isSessionAlreadyActiveError(error, externalSessionId)) {
+        throw error;
+      }
+    }
+    this.#sessions.set(options.sessionId, externalSessionId);
     return {
       sessionId: options.sessionId,
-      externalSessionId: options.externalSessionId,
+      externalSessionId,
     };
   }
 
   async importSession(
     options: RuntimeSessionImportOptions,
   ): Promise<RuntimeSessionImportResult> {
-    await this.initialize();
-    const importDir = resolve(this.#options.dshHome, "pi-ling-import");
-    await fs.mkdir(importDir, { recursive: true });
-    const requestId = randomUUID();
-    const requestPath = resolve(importDir, `${requestId}.json`);
-    const donePath = resolve(importDir, `${requestId}.done`);
-    const append = options.appendToExternalSessionId;
-    const mode = append ? "append" : "import";
-    await fs.writeFile(
-      requestPath,
-      JSON.stringify({
-        mode,
-        sessionId: append ?? options.sessionId,
-        cwd: options.workspaceRoot,
-        provider: options.provider ?? "deepseek",
-        model: options.model ?? "deepseek-v4-pro",
-        canonicalMessages: options.canonicalMessages,
-        ...(mode === "append" ? { startTurn: options.startTurn ?? 1 } : {}),
-        doneFile: donePath,
-      }),
-      "utf8",
-    );
-    await waitForFile(donePath, this.#options.initializeTimeoutMs ?? 30_000);
-    return { externalSessionId: append ?? options.sessionId };
+    const timeoutMs = this.#options.initializeTimeoutMs ?? 30_000;
+    try {
+      return await this.#importSessionOnce(options, timeoutMs);
+    } catch (error) {
+      if (!this.#shouldRetryImport(error)) throw error;
+      this.#resetRuntimeConnection();
+      return await this.#importSessionOnce(options, timeoutMs);
+    }
   }
 
   async send(
@@ -376,6 +431,51 @@ export class DshRuntimeAdapter implements RuntimeAdapter {
     return this.#stderr;
   }
 
+  #resolveFsExtHookHref(): string {
+    const fromEnv = process.env["PI_LING_DSH_FS_EXT_HOOK"]?.trim();
+    if (fromEnv) {
+      return pathToFileURL(fromEnv).href;
+    }
+    return new URL("./fs-ext-hook.js", import.meta.url).href;
+  }
+
+  #resolveSessionImportPluginHref(): string {
+    const fromEnv = process.env["PI_LING_DSH_SESSION_IMPORT"]?.trim();
+    if (fromEnv) {
+      return pathToFileURL(fromEnv).href;
+    }
+    return pathToFileURL(
+      resolve(
+        dirname(fileURLToPath(import.meta.url)),
+        "../../dsh-transcript/dist/dsh-session-import.js",
+      ),
+    ).href;
+  }
+
+  #resolveApprovalPolicyPluginHref(): string {
+    const fromEnv = process.env["PI_LING_DSH_APPROVAL_POLICY"]?.trim();
+    if (fromEnv) {
+      return pathToFileURL(fromEnv).href;
+    }
+    return new URL("./dsh-approval-policy.js", import.meta.url).href;
+  }
+
+  async #clearStaleImportRequests(importDir: string): Promise<void> {
+    let entries: string[];
+    try {
+      entries = await fs.readdir(importDir);
+    } catch {
+      return;
+    }
+    await Promise.all(
+      entries
+        .filter(
+          (file) => file.endsWith(".json") || file.endsWith(".json.error"),
+        )
+        .map((file) => fs.unlink(resolve(importDir, file)).catch(() => {})),
+    );
+  }
+
   async #start(): Promise<void> {
     const command = this.#options.command ?? process.execPath;
     const profilePatch = this.#options.profilePatch
@@ -388,7 +488,7 @@ export class DshRuntimeAdapter implements RuntimeAdapter {
             ...(process.platform === "win32"
               ? [
                   "--import",
-                  new URL("./fs-ext-hook.js", import.meta.url).href,
+                  this.#resolveFsExtHookHref(),
                 ]
               : []),
             this.#options.dshBin,
@@ -398,11 +498,15 @@ export class DshRuntimeAdapter implements RuntimeAdapter {
           ]
         : []);
     if (args.length === 0) throw new Error("A DSH executable is required");
-    const env = childEnvironment(this.#options);
+    const env = childEnvironment(this.#options, command);
     if (this.#options.dshBin) {
       env["PI_LING_DSH_MODULE_ROOT"] = resolve(
         dirname(this.#options.dshBin),
         "../node_modules",
+      );
+      env["PI_LING_DSH_RESOLVE_PARENT"] = resolve(
+        dirname(this.#options.dshBin),
+        "../package.json",
       );
     }
     const child = spawn(command, args, {
@@ -416,6 +520,7 @@ export class DshRuntimeAdapter implements RuntimeAdapter {
       this.#stderr = (this.#stderr + chunk.toString("utf8")).slice(-32_768);
     });
     child.once("exit", (exitCode) => {
+      this.#resetRuntimeConnection();
       if (!this.#disposed) {
         void this.#emit({
           type: "runtime_error",
@@ -592,6 +697,60 @@ export class DshRuntimeAdapter implements RuntimeAdapter {
     return this.#connection.agent;
   }
 
+  #childAlive(): boolean {
+    return this.#child !== undefined && this.#child.exitCode === null;
+  }
+
+  #resetRuntimeConnection(): void {
+    this.#initializing = undefined;
+    this.#connection?.close();
+    this.#connection = undefined;
+    const child = this.#child;
+    this.#child = undefined;
+    if (child && child.exitCode === null) {
+      child.kill("SIGTERM");
+    }
+  }
+
+  #shouldRetryImport(error: unknown): boolean {
+    return (
+      error instanceof Error &&
+      error.message.includes("timed out waiting for") &&
+      !this.#childAlive()
+    );
+  }
+
+  async #importSessionOnce(
+    options: RuntimeSessionImportOptions,
+    timeoutMs: number,
+  ): Promise<RuntimeSessionImportResult> {
+    await this.initialize();
+    const importDir = resolve(this.#options.dshHome, "pi-ling-import");
+    await fs.mkdir(importDir, { recursive: true });
+    await this.#clearStaleImportRequests(importDir);
+    const requestId = randomUUID();
+    const requestPath = resolve(importDir, `${requestId}.json`);
+    const donePath = resolve(importDir, `${requestId}.done`);
+    const append = options.appendToExternalSessionId;
+    const mode = append ? "append" : "import";
+    await fs.writeFile(
+      requestPath,
+      JSON.stringify({
+        mode,
+        sessionId: append ?? options.sessionId,
+        cwd: options.workspaceRoot,
+        provider: options.provider ?? "deepseek",
+        model: options.model ?? DSH_DEFAULT_DEEPSEEK_MODEL,
+        canonicalMessages: options.canonicalMessages,
+        ...(mode === "append" ? { startTurn: options.startTurn ?? 1 } : {}),
+        doneFile: donePath,
+      }),
+      "utf8",
+    );
+    await waitForImportDone(requestPath, donePath, timeoutMs);
+    return { externalSessionId: append ?? options.sessionId };
+  }
+
   #requireRemoteSession(sessionId: string): string {
     const remote = this.#sessions.get(sessionId);
     if (!remote) throw new Error(`DSH session not found: ${sessionId}`);
@@ -630,17 +789,9 @@ export class DshRuntimeAdapter implements RuntimeAdapter {
   async #writeProfilePatch(content: string): Promise<string> {
     await fs.mkdir(this.#options.dshHome, { recursive: true });
     const path = resolve(this.#options.dshHome, "pi-ling-acp.patch.yml");
-    const approvalPlugin = new URL(
-      "./dsh-approval-policy.js",
-      import.meta.url,
-    ).href;
-    const sessionImportPlugin = pathToFileURL(
-      resolve(
-        dirname(fileURLToPath(import.meta.url)),
-        "../../dsh-transcript/dist/dsh-session-import.js",
-      ),
-    ).href;
-    const combined = `${content.trimEnd()}
+    const approvalPlugin = this.#resolveApprovalPolicyPluginHref();
+    const sessionImportPlugin = this.#resolveSessionImportPluginHref();
+    const combined = `${stripProfileInserts(content)}
 
 - insert:
     - id: pi-ling-approval-policy

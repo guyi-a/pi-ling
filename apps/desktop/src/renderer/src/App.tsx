@@ -243,6 +243,7 @@ export function App() {
       }
       if (envelope.event.type === "run_start") {
         refreshFilesFromOutside();
+        void window.piLing.listWorkspaces(true).then(setWorkspaces);
       }
     });
     const unsubscribeFrames = window.piLing.onStreamFrame(
@@ -628,6 +629,24 @@ export function App() {
       const runtimeKind = status?.runtimeKind ?? "native";
       if (runtimeKind === "dsh") {
         await resolvePlanDecision(plan, true);
+        return;
+      }
+      if (runtimeKind === "codex") {
+        if (plan.status !== "ready" || !timeline.sessionId) return;
+        const buildRunId = crypto.randomUUID();
+        setPlanBuildPending(true);
+        try {
+          setPlanBuildRuns(
+            writePlanBuildRun(timeline.sessionId, plan.runId, buildRunId),
+          );
+          await sendPrompt(
+            buildPlanPrompt(plan.markdown),
+            undefined,
+            buildRunId,
+          );
+        } finally {
+          setPlanBuildPending(false);
+        }
         return;
       }
       if (plan.status !== "ready" || !timeline.sessionId) return;

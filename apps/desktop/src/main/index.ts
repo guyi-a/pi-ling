@@ -1,5 +1,23 @@
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { promises as fs } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+
+function bootLog(message: string): void {
+  if (process.env.NODE_ENV === "test") return;
+  try {
+    const dir = join(process.env.APPDATA ?? "", "@pi-ling", "desktop");
+    mkdirSync(dir, { recursive: true });
+    appendFileSync(
+      join(dir, "boot.log"),
+      `${new Date().toISOString()} ${message}\n`,
+      { flag: "a" },
+    );
+  } catch {
+    // ignore
+  }
+}
+
+bootLog("main module loading");
 import { fileURLToPath } from "node:url";
 
 import type {
@@ -29,6 +47,7 @@ import type {
   WorkspaceTreeResult,
   WorkspaceFileContent,
 } from "@pi-ling/contracts";
+import { CodexRuntimeAdapter } from "@pi-ling/codex-runtime";
 import { DshRuntimeAdapter } from "@pi-ling/dsh-runtime";
 
 import {
@@ -60,17 +79,26 @@ import {
   importAttachmentImageFromPath,
   saveAttachmentImage,
 } from "./attachment-store.js";
+import { resolveCodexLaunchConfig } from "./codex-launch-config.js";
 import { resolveDshLaunchConfig } from "./dsh-launch-config.js";
 import { SessionStore } from "./session-store/session-store.js";
 import { SessionSupervisor } from "./session-supervisor.js";
 import { TerminalSupervisor } from "./terminal-supervisor.js";
 import { buildWorkspaceTree, readFileContent } from "./workspace-fs.js";
 import {
+  ensureRuntimeConfig,
+  loadApplicationEnv,
+  resolveDevRepoRoot,
+} from "./app-env.js";
+import { applyLoginShellEnvFix } from "./login-shell-env.js";
+import {
   registerWorkspaceProtocolHandlers,
   registerWorkspaceProtocolSchemes,
 } from "./workspace-protocol.js";
 
+bootLog("registering workspace protocol schemes");
 registerWorkspaceProtocolSchemes();
+bootLog("workspace protocol schemes registered");
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const APP_INFO_CHANNEL = "app:get-info";
@@ -128,16 +156,13 @@ const windowThemeColors: Record<
   light: { background: "#F3F3F3", symbols: "#333333" },
 };
 
-try {
-  process.loadEnvFile(join(__dirname, "../../../../.env"));
-} catch (error) {
-  if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-    throw error;
-  }
+if (!app.isPackaged) {
+  loadApplicationEnv(__dirname);
 }
 
 let sessionStore: SessionStore | undefined;
 let dshRuntime: DshRuntimeAdapter | undefined;
+let codexRuntime: CodexRuntimeAdapter | undefined;
 const terminalSupervisor = new TerminalSupervisor();
 const supervisors = new Map<
   number,
@@ -293,7 +318,9 @@ function parseCreateSession(value: unknown): CreateSessionRequest {
       ? { title: value.title }
       : {}),
     ...("runtimeKind" in value &&
-    (value.runtimeKind === "native" || value.runtimeKind === "dsh")
+    (value.runtimeKind === "native" ||
+      value.runtimeKind === "dsh" ||
+      value.runtimeKind === "codex")
       ? { runtimeKind: value.runtimeKind }
       : {}),
   };
@@ -353,6 +380,7 @@ async function getSupervisor(
       }
     },
     dshRuntime,
+    codexRuntime,
     (event) => {
       if (!webContents.isDestroyed()) {
         webContents.send(TASK_UPDATED_CHANNEL, event);
@@ -369,7 +397,17 @@ async function getSupervisor(
   return supervisor;
 }
 
+function resolveWindowIcon(): string | undefined {
+  const packagedIcon = join(process.resourcesPath, "icon.png");
+  if (app.isPackaged && existsSync(packagedIcon)) {
+    return packagedIcon;
+  }
+  const devIcon = join(__dirname, "../../assets/icon-source.png");
+  return existsSync(devIcon) ? devIcon : undefined;
+}
+
 function createWindow(): BrowserWindow {
+  const iconPath = resolveWindowIcon();
   const window = new BrowserWindow({
     width: 1280,
     height: 820,
@@ -378,6 +416,7 @@ function createWindow(): BrowserWindow {
     show: false,
     backgroundColor: windowThemeColors.dark.background,
     title: "pi-ling",
+    ...(iconPath ? { icon: iconPath } : {}),
     ...(process.platform === "win32"
       ? {
           titleBarStyle: "hidden" as const,
@@ -527,7 +566,12 @@ ipcMain.handle(
     }
     return (await getSupervisor(event.sender)).create({
       workspaceRoot: root,
-      runtimeKind: runtimeKind === "dsh" ? "dsh" : "native",
+      runtimeKind:
+        runtimeKind === "dsh"
+          ? "dsh"
+          : runtimeKind === "codex"
+            ? "codex"
+            : "native",
     });
   },
 );
@@ -745,10 +789,40 @@ ipcMain.handle(
 ipcMain.handle(
   SESSION_RUNTIME_CHANNEL,
   async (event, runtimeKind: unknown): Promise<SessionActivation> => {
-    if (runtimeKind !== "native" && runtimeKind !== "dsh") {
+    if (
+      runtimeKind !== "native" &&
+      runtimeKind !== "dsh" &&
+      runtimeKind !== "codex"
+    ) {
       throw new Error("Invalid runtime");
     }
-    return (await getSupervisor(event.sender)).switchRuntime(runtimeKind);
+    try {
+      return (await getSupervisor(event.sender)).switchRuntime(runtimeKind);
+    } catch (error) {
+      const detail =
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+            ? error
+            : "Unknown runtime switch error";
+      const runtimeDiagnostics =
+        runtimeKind === "dsh"
+          ? dshRuntime?.diagnostics?.trim()
+          : runtimeKind === "codex"
+            ? codexRuntime?.diagnostics?.trim()
+            : undefined;
+      startupLog(
+        `switchRuntime(${runtimeKind}) failed: ${detail}${
+          runtimeDiagnostics ? `\n${runtimeDiagnostics.slice(-4000)}` : ""
+        }`,
+      );
+      if (runtimeDiagnostics && !detail.includes(runtimeDiagnostics.slice(-200))) {
+        throw new Error(`${detail}\n\n${runtimeDiagnostics.slice(-2000)}`, {
+          cause: error,
+        });
+      }
+      throw error;
+    }
   },
 );
 
@@ -775,7 +849,7 @@ ipcMain.handle(
 
 ipcMain.handle(
   TERMINAL_START_CHANNEL,
-  (event, request: unknown): TerminalStartResult =>
+  async (event, request: unknown): Promise<TerminalStartResult> =>
     terminalSupervisor.start(event.sender, parseTerminalStartRequest(request)),
 );
 
@@ -960,28 +1034,157 @@ ipcMain.handle(
     getEvalRunResults(experiment, variant),
 );
 
-void app.whenReady().then(() => {
-  registerWorkspaceProtocolHandlers();
-  Menu.setApplicationMenu(null);
-  const dshLaunch = resolveDshLaunchConfig(
-    process.env,
-    app.getPath("userData"),
-  );
-  if (dshLaunch.enabled && "options" in dshLaunch) {
-    dshRuntime = new DshRuntimeAdapter(dshLaunch.options);
-  } else if (dshLaunch.enabled) {
-    console.warn(`DSH Runtime disabled: ${dshLaunch.reason}`);
+function startupLog(message: string): void {
+  if (!app.isPackaged) return;
+  try {
+    const logDir = app.getPath("userData");
+    mkdirSync(logDir, { recursive: true });
+    appendFileSync(
+      join(logDir, "startup.log"),
+      `${new Date().toISOString()} ${message}\n`,
+      { flag: "a" },
+    );
+  } catch {
+    // ignore logging failures
   }
-  sessionStore = new SessionStore(
-    join(app.getPath("userData"), "pi-ling.db"),
-  );
-  sessionStore.reconcile();
-  createWindow();
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+}
+
+function reportStartupFailure(error: unknown): void {
+  const message = error instanceof Error ? error.stack ?? error.message : String(error);
+  console.error("pi-ling startup failed:", message);
+  startupLog(`startup failed: ${message}`);
+  if (app.isPackaged) {
+    dialog.showErrorBox("pi-ling 启动失败", message);
+  }
+}
+
+void app.whenReady().then(async () => {
+  try {
+    startupLog("app ready");
+    registerWorkspaceProtocolHandlers();
+    Menu.setApplicationMenu(null);
+
+    if (app.isPackaged) {
+      await applyLoginShellEnvFix();
+      startupLog("login shell env applied");
+      if (!(await ensureRuntimeConfig())) {
+        startupLog("runtime config missing");
+        app.quit();
+        return;
+      }
+      loadApplicationEnv(__dirname);
+      startupLog("env loaded");
     }
-  });
+
+    const userDataPath = app.getPath("userData");
+    process.env.PI_LING_EVAL_DATA_DIR = join(userDataPath, "coding-eval");
+    const fsExtHookCandidates = app.isPackaged
+      ? [
+          join(
+            process.resourcesPath,
+            "app.asar.unpacked/out/main/fs-ext-hook.js",
+          ),
+          join(__dirname, "fs-ext-hook.js"),
+        ]
+      : [
+          join(__dirname, "fs-ext-hook.js"),
+          join(
+            resolveDevRepoRoot(__dirname),
+            "packages/dsh-runtime/dist/fs-ext-hook.js",
+          ),
+        ];
+    for (const candidate of fsExtHookCandidates) {
+      if (existsSync(candidate)) {
+        process.env.PI_LING_DSH_FS_EXT_HOOK = candidate;
+        break;
+      }
+    }
+    const sessionImportCandidates = app.isPackaged
+      ? [
+          join(
+            process.resourcesPath,
+            "app.asar.unpacked/out/main/dsh-transcript/dsh-session-import.js",
+          ),
+          join(__dirname, "dsh-transcript/dsh-session-import.js"),
+        ]
+      : [
+          join(__dirname, "dsh-transcript/dsh-session-import.js"),
+          join(
+            resolveDevRepoRoot(__dirname),
+            "packages/dsh-transcript/dist/dsh-session-import.js",
+          ),
+        ];
+    for (const candidate of sessionImportCandidates) {
+      if (existsSync(candidate)) {
+        process.env.PI_LING_DSH_SESSION_IMPORT = candidate;
+        break;
+      }
+    }
+    const approvalPolicyCandidates = app.isPackaged
+      ? [
+          join(
+            process.resourcesPath,
+            "app.asar.unpacked/out/main/dsh-approval-policy.js",
+          ),
+          join(__dirname, "dsh-approval-policy.js"),
+        ]
+      : [
+          join(__dirname, "dsh-approval-policy.js"),
+          join(
+            resolveDevRepoRoot(__dirname),
+            "packages/dsh-runtime/dist/dsh-approval-policy.js",
+          ),
+        ];
+    for (const candidate of approvalPolicyCandidates) {
+      if (existsSync(candidate)) {
+        process.env.PI_LING_DSH_APPROVAL_POLICY = candidate;
+        break;
+      }
+    }
+    const repoRoot = app.isPackaged
+      ? process.env["PI_LING_REPO_ROOT"]?.trim()
+        ? resolve(process.env["PI_LING_REPO_ROOT"])
+        : undefined
+      : resolveDevRepoRoot(__dirname);
+    const dshLaunch = resolveDshLaunchConfig(
+      process.env,
+      userDataPath,
+      undefined,
+      repoRoot,
+    );
+    if (dshLaunch.enabled && "options" in dshLaunch) {
+      startupLog(
+        `DSH launch command=${dshLaunch.options.command} bin=${dshLaunch.options.dshBin}`,
+      );
+      dshRuntime = new DshRuntimeAdapter(dshLaunch.options);
+    } else if (dshLaunch.enabled) {
+      console.warn(`DSH Runtime disabled: ${dshLaunch.reason}`);
+    }
+    const codexLaunch = resolveCodexLaunchConfig(
+      process.env,
+      app.getPath("userData"),
+    );
+    if (codexLaunch.enabled && "options" in codexLaunch) {
+      codexRuntime = new CodexRuntimeAdapter(codexLaunch.options);
+    } else if (codexLaunch.enabled) {
+      console.warn(`Codex Runtime disabled: ${codexLaunch.reason}`);
+    }
+    sessionStore = new SessionStore(
+      join(app.getPath("userData"), "pi-ling.db"),
+    );
+    sessionStore.reconcile();
+    startupLog("session store ready");
+    createWindow();
+    startupLog("window created");
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+      }
+    });
+  } catch (error) {
+    reportStartupFailure(error);
+    app.quit();
+  }
 });
 
 app.on("window-all-closed", () => {
@@ -991,6 +1194,7 @@ app.on("window-all-closed", () => {
   supervisors.clear();
   terminalSupervisor.disposeAll();
   void dshRuntime?.dispose();
+  void codexRuntime?.dispose();
   if (process.platform !== "darwin") {
     app.quit();
   }

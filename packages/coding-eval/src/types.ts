@@ -153,4 +153,4 @@ export interface ComparisonSummary {
 }
 
 export type EvalDriver = "reference" | "noop" | "agent";
-export type EvalRuntime = "native" | "dsh";
+export type EvalRuntime = "native" | "dsh" | "codex";

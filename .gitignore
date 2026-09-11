@@ -12,3 +12,13 @@ release/
 .dsh-source
 .DS_Store
 Thumbs.db
+
+# Local docs and scratch (not versioned)
+docs/
+.claude/
+.pi-ling/
+a.md
+b.md
+
+# Desktop packaging outputs
+apps/desktop/release-*/

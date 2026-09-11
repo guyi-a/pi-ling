@@ -84,6 +84,7 @@ export function EvalPanel(props: { active: boolean }) {
         </nav>
         <EvalRunControls
           running={workbench.running}
+          availableRuntimes={workbench.state.availableEvalRuntimes}
           onRun={(request) => void workbench.runSuite(request)}
           onCancel={() => void workbench.cancelRun()}
           onRefresh={() => void workbench.refresh()}

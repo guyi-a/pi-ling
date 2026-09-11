@@ -142,6 +142,38 @@ describe("projectRunActivities", () => {
     });
   });
 
+  it("does not promote final assistant while tool cards are still hidden", () => {
+    const activity = projectRunActivities({
+      items: [
+        {
+          kind: "tool",
+          id: "write-1",
+          runId: "run",
+          turnId: "turn",
+          createdSeq: 1,
+          callId: "write-1",
+          tool: "write_file",
+          arguments: { path: "a.md" },
+          status: "completed",
+        },
+        {
+          kind: "assistant",
+          id: "assistant",
+          runId: "run",
+          turnId: "turn",
+          createdSeq: 2,
+          text: "done",
+          thinking: "",
+          status: "completed",
+          stopReason: "stop",
+        },
+      ],
+      runs: { run: { id: "run", status: "completed" } },
+      visibleToolIds: new Set(),
+    })[0]!;
+    expect(activity.finalAssistant).toBeUndefined();
+  });
+
   it("hides empty completed chat activity and separates final assistant", () => {
     const activity = project(
       [

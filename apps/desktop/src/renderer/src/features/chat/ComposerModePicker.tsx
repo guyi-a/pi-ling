@@ -7,7 +7,9 @@ import {
   MessageCircleQuestion,
   type LucideIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { createPortal } from "react-dom";
+
+import { useAnchoredMenu } from "./use-anchored-menu.js";
 
 const modes: Array<{
   value: ComposerMode;
@@ -39,61 +41,95 @@ export function ComposerModePicker(props: {
   value: ComposerMode;
   runtimeKind: RuntimeKind;
   disabled?: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onChange: (mode: ComposerMode) => Promise<void>;
 }) {
-  const [open, setOpen] = useState(false);
   const selected = modes.find((mode) => mode.value === props.value) ?? modes[2]!;
   const SelectedIcon = selected.icon;
   const dshHint = props.runtimeKind === "dsh";
+  const codexHint = props.runtimeKind === "codex";
+  const close = () => props.onOpenChange(false);
+  const { position, rootRef, triggerRef, menuRef } = useAnchoredMenu(
+    props.open,
+    close,
+  );
+
+  const menu =
+    props.open && position
+      ? createPortal(
+          <div
+            ref={menuRef}
+            className="composer-menu composer-menu-portal composer-mode-menu"
+            role="menu"
+            style={{
+              left: `${position.left}px`,
+              bottom: `${position.bottom}px`,
+            }}
+          >
+            {modes.map((mode) => {
+              const Icon = mode.icon;
+              return (
+                <button
+                  type="button"
+                  className={mode.value === props.value ? "selected" : ""}
+                  disabled={props.disabled}
+                  key={mode.value}
+                  onClick={() => {
+                    close();
+                    if (mode.value !== props.value) {
+                      void props.onChange(mode.value);
+                    }
+                  }}
+                >
+                  <Icon />
+                  <span>
+                    <strong>{mode.label}</strong>
+                    <small>
+                      {mode.description}
+                      {dshHint && mode.value !== "agent"
+                        ? " · DSH 为提示引导"
+                        : ""}
+                      {codexHint && mode.value === "plan"
+                        ? " · Codex Plan 模式"
+                        : ""}
+                    </small>
+                  </span>
+                  {mode.value === props.value ? <Check /> : null}
+                </button>
+              );
+            })}
+          </div>,
+          document.body,
+        )
+      : null;
 
   return (
-    <details
-      className="composer-mode"
-      open={open}
-      onToggle={(event) => setOpen(event.currentTarget.open)}
-    >
-      <summary
-        aria-label="Composer 模式"
-        aria-disabled={props.disabled}
-        onClick={(event) => {
-          if (props.disabled) event.preventDefault();
-        }}
+    <>
+      <div
+        ref={rootRef}
+        className={`composer-mode${props.open ? " is-open" : ""}`}
       >
-        <SelectedIcon />
-        {selected.label}
-        <ChevronDown className="composer-mode-chevron" />
-      </summary>
-      <div className="composer-mode-menu">
-        {modes.map((mode) => {
-          const Icon = mode.icon;
-          return (
-            <button
-              type="button"
-              className={mode.value === props.value ? "selected" : ""}
-              disabled={props.disabled}
-              key={mode.value}
-              onClick={() => {
-                setOpen(false);
-                if (mode.value !== props.value) {
-                  void props.onChange(mode.value);
-                }
-              }}
-            >
-              <Icon />
-              <span>
-                <strong>{mode.label}</strong>
-                <small>
-                  {mode.description}
-                  {dshHint && mode.value !== "agent"
-                    ? " · DSH 为提示引导"
-                    : ""}
-                </small>
-              </span>
-              {mode.value === props.value ? <Check /> : null}
-            </button>
-          );
-        })}
+        <button
+          ref={triggerRef}
+          type="button"
+          className="composer-mode-trigger"
+          aria-label="Composer 模式"
+          aria-haspopup="menu"
+          aria-expanded={props.open}
+          disabled={props.disabled}
+          onClick={() => {
+            if (!props.disabled) {
+              props.onOpenChange(!props.open);
+            }
+          }}
+        >
+          <SelectedIcon />
+          {selected.label}
+          <ChevronDown className="composer-mode-chevron" />
+        </button>
       </div>
-    </details>
+      {menu}
+    </>
   );
 }

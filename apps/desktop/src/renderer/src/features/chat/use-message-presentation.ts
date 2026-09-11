@@ -194,6 +194,7 @@ function startUnit(
 export function useMessagePresentation(input: {
   sessionId: string | null;
   items: readonly TimelineItem[];
+  runs: Readonly<Record<string, TimelineRun>>;
   liveMessageIds: ReadonlySet<string>;
   fastForwardRunIds: ReadonlySet<string>;
   onComplete: (messageId: string) => void;
@@ -254,6 +255,22 @@ export function useMessagePresentation(input: {
   const toolStateKey = [...toolById.values()]
     .map((tool) => `${tool.id}:${tool.status}`)
     .join("|");
+
+  useEffect(() => {
+    setState((current) => {
+      const visibleToolIds = new Set(current.visibleToolIds);
+      let changed = false;
+      for (const item of input.items) {
+        if (item.kind !== "tool" || item.status === "requested") continue;
+        if (input.runs[item.runId]?.status !== "completed") continue;
+        if (!visibleToolIds.has(item.id)) {
+          visibleToolIds.add(item.id);
+          changed = true;
+        }
+      }
+      return changed ? { ...current, visibleToolIds } : current;
+    });
+  }, [input.items, input.runs]);
 
   useEffect(() => {
     const blockedMessages = assistants.filter(
