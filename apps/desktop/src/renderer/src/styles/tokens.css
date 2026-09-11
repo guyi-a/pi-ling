@@ -16,11 +16,11 @@
   --border: #2b2b2b;
   --border-subtle: color-mix(in srgb, var(--border) 82%, transparent);
   --border-strong: #3c3c3c;
-  --text: #d6d6d6;
-  --text-soft: #c8c8c8;
-  --muted: #a0a0a0;
-  --muted-2: #858585;
-  --muted-3: #666666;
+  --text: #ececec;
+  --text-soft: #dedede;
+  --muted: #b8b8b8;
+  --muted-2: #9a9a9a;
+  --muted-3: #757575;
   --font-mono:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
     monospace;

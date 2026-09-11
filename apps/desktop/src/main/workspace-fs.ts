@@ -8,7 +8,7 @@ import type {
   WorkspaceTreeResult,
 } from "@pi-ling/contracts";
 
-const MAX_TREE_ENTRIES = 5000;
+const MAX_TREE_ENTRIES = 20_000;
 const MAX_FILE_BYTES = 512 * 1024;
 const BINARY_SNIFF_LEN = 512;
 

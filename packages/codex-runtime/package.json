@@ -17,7 +17,8 @@
   "dependencies": {
     "@openai/codex": "0.154.0",
     "@openai/codex-sdk": "0.154.0",
-    "@pi-ling/runtime-contracts": "workspace:*"
+    "@pi-ling/runtime-contracts": "workspace:*",
+    "@pi-ling/skills": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "24.10.1",

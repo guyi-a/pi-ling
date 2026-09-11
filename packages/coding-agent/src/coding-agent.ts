@@ -37,6 +37,7 @@ import type { AskUserAnswer } from "@pi-ling/contracts";
 import {
   type ComposerMode,
   isEffectAllowedInComposerMode,
+  systemPromptForComposerMode,
   toolsForComposerMode,
 } from "./composer-mode.js";
 import {
@@ -44,7 +45,10 @@ import {
   type QuestionRequest,
 } from "./question/question-manager.js";
 import { createAskUserTool } from "./tools/ask-user.js";
+import { SkillRegistry, appendSkillsIndex } from "@pi-ling/skills";
+
 import { createBuiltinTools } from "./tools/builtins.js";
+import { createLoadSkillTool } from "./tools/load-skill.js";
 import { maybeSpillToolOutput } from "./tools/spill-output.js";
 import { createSpawnSubagentTool } from "./subagents/tool.js";
 import type { SubagentRuntime } from "./subagents/runtime.js";
@@ -89,6 +93,7 @@ export interface CodingAgentOptions {
   approvalMode?: ApprovalMode;
   composerMode?: ComposerMode;
   subagentRuntime?: SubagentRuntime;
+  skillRegistry?: SkillRegistry;
   sessionId?: string;
   prepareContext?: (context: Context) => Context | Promise<Context>;
   recoverContextOverflow?: (
@@ -104,7 +109,8 @@ export class CodingAgent {
   readonly #questions: QuestionManager;
   readonly #emit: CodingAgentOptions["emit"];
   readonly #allTools: AgentTool[];
-  readonly #basePrompt: string;
+  readonly #corePrompt: string;
+  readonly #skillRegistry: SkillRegistry;
   readonly #sessionId: string | undefined;
   #approvalMode: ApprovalMode;
   #composerMode: ComposerMode;
@@ -138,18 +144,21 @@ export class CodingAgent {
     for (const question of options.pendingQuestions ?? []) {
       this.#questions.restore(question);
     }
+    this.#skillRegistry =
+      options.skillRegistry ?? new SkillRegistry(workspace.root);
     this.#allTools = [
       ...createBuiltinTools({
         workspace,
         changes: this.#changes,
         ...(options.sessionId ? { sessionId: options.sessionId } : {}),
       }),
+      createLoadSkillTool(this.#skillRegistry),
       createAskUserTool(this.#questions, () => this.#toolIdentity),
       ...(options.subagentRuntime
         ? [createSpawnSubagentTool(options.subagentRuntime)]
         : []),
     ];
-    this.#basePrompt = [
+    this.#corePrompt = [
       "You are pi-ling, a coding agent.",
       `The workspace root is ${workspace.root}.`,
       "Use the provided tools to inspect and modify the workspace.",
@@ -167,7 +176,7 @@ export class CodingAgent {
     ].join("\n");
     this.#agent = new Agent({
       initialState: {
-        systemPrompt: this.#basePrompt,
+        systemPrompt: this.#systemPrompt(),
         model: options.model,
         thinkingLevel: "high",
         tools: toolsForComposerMode(this.#allTools, this.#composerMode),
@@ -236,7 +245,30 @@ export class CodingAgent {
   }
 
   static async create(options: CodingAgentOptions): Promise<CodingAgent> {
-    return new CodingAgent(await Workspace.open(options.workspaceRoot), options);
+    const workspace = await Workspace.open(options.workspaceRoot);
+    const skillRegistry =
+      options.skillRegistry ?? new SkillRegistry(workspace.root);
+    await skillRegistry.load();
+    return new CodingAgent(workspace, {
+      ...options,
+      skillRegistry,
+    });
+  }
+
+  #systemPrompt(): string {
+    return systemPromptForComposerMode(
+      appendSkillsIndex(this.#corePrompt, [...this.#skillRegistry.skills]),
+      this.#composerMode,
+    );
+  }
+
+  async reloadSkills(): Promise<void> {
+    await this.#skillRegistry.load();
+    this.#agent.setSystemPrompt(this.#systemPrompt());
+  }
+
+  get skillRegistry(): SkillRegistry {
+    return this.#skillRegistry;
   }
 
   get isStreaming(): boolean {
@@ -262,6 +294,7 @@ export class CodingAgent {
   setComposerMode(mode: ComposerMode): void {
     this.#composerMode = mode;
     this.#agent.setTools(toolsForComposerMode(this.#allTools, mode));
+    this.#agent.setSystemPrompt(this.#systemPrompt());
   }
 
   baselines(): FileBaseline[] {

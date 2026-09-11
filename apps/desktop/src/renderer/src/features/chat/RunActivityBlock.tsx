@@ -10,7 +10,6 @@ import { useEffect, useState } from "react";
 import type { AssistantTimelineItem } from "../../timeline/reducer";
 import type { RunActivityModel } from "../../run-activity/types";
 import { activityPhaseLabel } from "../../run-activity/project-run-activity";
-import { classifyTool } from "../../run-activity/tool-taxonomy";
 import {
   runTodoSummary,
   todoStatusGlyph,
@@ -29,37 +28,14 @@ export function RunActivityBlock(props: {
   const active = activity.viewMode === "active";
   const failed =
     activity.lifecycle === "error" || activity.lifecycle === "crashed";
-  const hasFailedTool = activity.tools.some(
-    (tool) => tool.status === "failed" || tool.status === "denied",
-  );
-  const hasAutoExpandTools =
-    !active &&
-    activity.tools.some((tool) => {
-      const category = classifyTool(tool);
-      return (
-        category === "edit" ||
-        category === "command" ||
-        category === "verify"
-      );
-    });
-  const [open, setOpen] = useState(
-    Boolean(
-      props.forceOpen || failed || hasFailedTool || hasAutoExpandTools,
-    ),
-  );
+  const [open, setOpen] = useState(Boolean(props.forceOpen || failed));
   const [todosOpen, setTodosOpen] = useState(false);
 
   useEffect(() => {
-    if (
-      !active &&
-      !failed &&
-      !hasFailedTool &&
-      !props.forceOpen &&
-      !hasAutoExpandTools
-    ) {
+    if (!active && !failed && !props.forceOpen) {
       setOpen(false);
     }
-  }, [active, failed, hasFailedTool, hasAutoExpandTools, props.forceOpen]);
+  }, [active, failed, props.forceOpen]);
 
   if (!activity.hasActivity) return null;
 

@@ -71,3 +71,16 @@ RUN_REAL_DSH_APPROVAL_SMOKE=1 pnpm --filter @pi-ling/desktop test
 
 Provider tests that contact a real model remain separate and require
 `DEEPSEEK_API_KEY`.
+
+## Workspace skills
+
+DSH discovers project skills from `<workspace>/.agents/skills`, the same path
+used by Native and Codex. Sync LingCoWork builtins into the active workspace
+before dogfooding skill-heavy tasks:
+
+```sh
+pnpm skills:sync
+```
+
+No extra DSH profile skill-root configuration is required when the workspace
+contains that directory.

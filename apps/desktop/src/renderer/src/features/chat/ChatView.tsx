@@ -318,6 +318,12 @@ export function ChatView(props: {
               status: complete
                 ? activity.finalAssistant.status
                 : "streaming",
+              ...(activity.runUsage?.usage
+                ? { usage: activity.runUsage.usage }
+                : {}),
+              ...(activity.runUsage?.contextUsage
+                ? { contextUsage: activity.runUsage.contextUsage }
+                : {}),
             }}
             hideThinking
             key={activity.finalAssistant.id}
@@ -508,7 +514,7 @@ export function ChatView(props: {
               />
               <ApprovalModePicker
                 value={approvalMode}
-                disabled={!workspaceReady || composerBusy}
+                disabled={!workspaceReady}
                 open={openComposerMenu === "approval"}
                 onOpenChange={(open) => {
                   setOpenComposerMenu(open ? "approval" : null);

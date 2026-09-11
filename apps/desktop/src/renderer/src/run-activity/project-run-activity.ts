@@ -1,4 +1,5 @@
 import type { TimelineItem, TimelineRun, ToolTimelineItem } from "../timeline/reducer";
+import { aggregateRunUsage } from "../features/chat/format-message-usage";
 import { editToolCallIds } from "./run-changes";
 import { isExitPlanModeTool } from "../features/plans/project-session-plans";
 import {
@@ -283,6 +284,8 @@ export function projectRunActivities(input: {
             target: todos.inProgress.content,
           }
         : undefined;
+    const runUsage = aggregateRunUsage(assistants);
+
     return {
       runId,
       ...(user?.kind === "user" ? { user } : {}),
@@ -300,6 +303,7 @@ export function projectRunActivities(input: {
       workSegments,
       hasUnsettledWork,
       ...(finalAssistant ? { finalAssistant } : {}),
+      ...(runUsage.usage || runUsage.contextUsage ? { runUsage } : {}),
       hasActivity,
       hasBlockingApproval: counters.pendingApprovalCount > 0,
       ...(todos ? { todos } : {}),

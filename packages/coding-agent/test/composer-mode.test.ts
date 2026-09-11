@@ -115,5 +115,17 @@ describe("composer-mode", () => {
         operation: "question",
       }),
     ).toBe(true);
+    expect(
+      isEffectAllowedInComposerMode("ask", {
+        kind: "meta",
+        operation: "skill",
+      }),
+    ).toBe(true);
+    expect(
+      isEffectAllowedInComposerMode("plan", {
+        kind: "meta",
+        operation: "skill",
+      }),
+    ).toBe(true);
   });
 });

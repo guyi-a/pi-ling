@@ -4,6 +4,8 @@ const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
 let threadCounter = 0;
 let turnCounter = 0;
 const pending = new Map();
+const extraSkillRoots = new Set();
+const skillsRequests = [];
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -158,6 +160,39 @@ lines.on("line", (line) => {
         },
       });
       break;
+    case "skills/list": {
+      skillsRequests.push(message.params ?? {});
+      const cwds = message.params?.cwds?.length
+        ? message.params.cwds
+        : [process.cwd()];
+      const data = cwds.map((cwd) => {
+        const skills = [];
+        for (const root of extraSkillRoots) {
+          if (root.startsWith(cwd)) {
+            skills.push({
+              name: "pdf",
+              description: "PDF tasks",
+              path: `${root}/pdf/SKILL.md`,
+              scope: "project",
+              enabled: true,
+              pluginId: null,
+            });
+          }
+        }
+        return { cwd, skills, errors: [] };
+      });
+      result(message.id, { data });
+      break;
+    }
+    case "skills/extraRoots/set": {
+      extraSkillRoots.clear();
+      for (const root of message.params?.extraRoots ?? []) {
+        extraSkillRoots.add(root);
+      }
+      notify("skills/changed", {});
+      result(message.id, {});
+      break;
+    }
     default:
       if (message.id !== undefined) {
         send({

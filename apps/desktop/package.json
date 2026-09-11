@@ -7,7 +7,8 @@
   "author": "pi-ling",
   "main": "./out/main/bootstrap.cjs",
   "scripts": {
-    "build": "pnpm --filter @pi-ling/dsh-runtime build && pnpm --filter @pi-ling/dsh-transcript build && electron-vite build && node scripts/copy-bootstrap.mjs",
+    "generate-icon": "node scripts/generate-icon.mjs",
+    "build": "pnpm --filter @pi-ling/dsh-runtime build && pnpm --filter @pi-ling/dsh-transcript build && node scripts/generate-icon.mjs && electron-vite build && node scripts/copy-bootstrap.mjs",
     "dev": "electron-vite dev",
     "preview": "electron-vite preview",
     "dist": "pnpm run build && electron-builder --config electron-builder.yml",
@@ -51,6 +52,8 @@
     "electron": "44.2.0",
     "electron-builder": "^26.15.3",
     "electron-vite": "5.0.0",
+    "png-to-ico": "^3.0.2",
+    "pngjs": "^7.0.0",
     "typescript": "7.0.2",
     "vite": "7.3.1",
     "vitest": "4.1.9"

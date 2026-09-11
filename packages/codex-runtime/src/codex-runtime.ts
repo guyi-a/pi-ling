@@ -18,6 +18,10 @@ import type {
 
 import { CodexAppServerClient } from "./codex-app-server-client.js";
 import { CodexAppServerTransport } from "./codex-app-server-transport.js";
+import {
+  refreshCodexWorkspaceSkills,
+  syncCodexWorkspaceSkills,
+} from "./codex-skills.js";
 import type {
   CodexApprovalRequest,
   CodexDynamicToolCallRequest,
@@ -174,6 +178,7 @@ export class CodexRuntimeAdapter implements RuntimeAdapter {
   readonly #pendingQuestions = new Map<string, PendingQuestion>();
   readonly #pendingRuns = new Map<string, PendingRun>();
   readonly #deltaItems = new Set<string>();
+  readonly #workspaceRoots = new Set<string>();
   #transport: CodexAppServerTransport | undefined;
   #client: CodexAppServerClient | undefined;
   #initializing: Promise<void> | undefined;
@@ -265,6 +270,7 @@ export class CodexRuntimeAdapter implements RuntimeAdapter {
     );
     session.externalSessionId = externalSessionId;
     this.#attachSession(options.sessionId, session);
+    await this.#syncWorkspaceSkills(session.workspaceRoot);
     return { sessionId: options.sessionId, externalSessionId };
   }
 
@@ -280,6 +286,7 @@ export class CodexRuntimeAdapter implements RuntimeAdapter {
     );
     session.externalSessionId = externalSessionId;
     this.#attachSession(options.sessionId, session);
+    await this.#syncWorkspaceSkills(session.workspaceRoot);
     return { sessionId: options.sessionId, externalSessionId };
   }
 
@@ -343,6 +350,7 @@ export class CodexRuntimeAdapter implements RuntimeAdapter {
     session.externalSessionId = externalSessionId;
     this.#sessionByThread.delete(previousThreadId);
     this.#sessionByThread.set(externalSessionId, sessionId);
+    await this.#syncWorkspaceSkills(session.workspaceRoot);
     session.silent = true;
     try {
       await this.#runTurn(
@@ -476,6 +484,10 @@ export class CodexRuntimeAdapter implements RuntimeAdapter {
   async #handleNotification(
     notification: JsonRpcNotification,
   ): Promise<void> {
+    if (notification.method === "skills/changed") {
+      void this.#refreshWorkspaceSkills();
+      return;
+    }
     const params = record(notification.params);
     const threadId = String(params["threadId"] ?? "");
     const sessionId = this.#sessionByThread.get(threadId);
@@ -886,6 +898,19 @@ export class CodexRuntimeAdapter implements RuntimeAdapter {
     }
     this.#sessions.set(sessionId, session);
     this.#sessionByThread.set(session.externalSessionId, sessionId);
+  }
+
+  async #syncWorkspaceSkills(workspaceRoot: string): Promise<void> {
+    this.#workspaceRoots.add(workspaceRoot);
+    const client = this.#client;
+    if (!client) return;
+    await syncCodexWorkspaceSkills(client, workspaceRoot);
+  }
+
+  async #refreshWorkspaceSkills(): Promise<void> {
+    const client = this.#client;
+    if (!client) return;
+    await refreshCodexWorkspaceSkills(client, this.#workspaceRoots);
   }
 
   async #requireClient(): Promise<CodexAppServerClient> {

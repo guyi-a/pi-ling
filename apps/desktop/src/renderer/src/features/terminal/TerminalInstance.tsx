@@ -31,7 +31,7 @@ export function TerminalInstance(props: {
     shell: "",
     exitCode: null,
   });
-  const refreshFiles = useFilesStore((state) => state.refreshFiles);
+  const refreshTree = useFilesStore((state) => state.refreshTree);
   const onMetaRef = useRef(props.onMeta);
   onMetaRef.current = props.onMeta;
 
@@ -57,7 +57,7 @@ export function TerminalInstance(props: {
       }
       refreshTimerRef.current = window.setTimeout(() => {
         refreshTimerRef.current = null;
-        refreshFiles();
+        refreshTree();
       }, delay);
     };
 
@@ -193,7 +193,7 @@ export function TerminalInstance(props: {
       fitRef.current = null;
       sessionIdRef.current = null;
     };
-  }, [props.root, refreshFiles]);
+  }, [props.root, refreshTree]);
 
   useEffect(() => {
     if (!props.active || !props.visible) return;

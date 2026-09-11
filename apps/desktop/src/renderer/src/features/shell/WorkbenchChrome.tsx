@@ -11,7 +11,7 @@ import { Suspense, lazy, useEffect, useState } from "react";
 import type { ChangesSourceId } from "../details/changes-source";
 import { ChangesView } from "../details/ChangesView";
 import { FilesPanel } from "../files/FilesPanel";
-import { bindFilesTabActivator, useFilesStore } from "../files/store";
+import { bindFilesTabActivator } from "../files/store";
 import { TerminalEmptyState } from "../terminal/TerminalEmptyState";
 import { EvalPanelSkeleton } from "../eval/EvalPanel";
 
@@ -217,12 +217,6 @@ export function WorkbenchPanel(props: {
     }
     props.onRequestedTabApplied?.();
   }, [props.requestedTab, props.onRequestedTabApplied]);
-
-  useEffect(() => {
-    if (props.streaming && props.filesRoot) {
-      useFilesStore.getState().refreshFiles();
-    }
-  }, [props.filesRoot, props.streaming]);
 
   const renderChanges =
     activeTab === "changes" &&

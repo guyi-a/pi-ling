@@ -14,7 +14,7 @@ export const READ_TOOL_NAMES = new Set([
 
 export const PLAN_TOOL_NAMES = new Set(["create_plan", "update_plan"]);
 
-export const ALWAYS_ALLOWED_TOOLS = new Set(["ask_user"]);
+export const ALWAYS_ALLOWED_TOOLS = new Set(["ask_user", "load_skill"]);
 
 function allowedToolNamesForMode(mode: ComposerMode): Set<string> | null {
   if (mode === "agent") return null;
@@ -79,14 +79,21 @@ export function isEffectAllowedInComposerMode(
   }
   if (mode === "agent") return true;
   if (mode === "ask") {
-    if (effect.kind === "meta" && effect.operation === "question") {
+    if (
+      effect.kind === "meta" &&
+      (effect.operation === "question" || effect.operation === "skill")
+    ) {
       return true;
     }
     return effect.kind === "filesystem-read";
   }
   if (effect.kind === "filesystem-read") return true;
   if (effect.kind === "meta") {
-    return effect.operation === "plan" || effect.operation === "question";
+    return (
+      effect.operation === "plan" ||
+      effect.operation === "question" ||
+      effect.operation === "skill"
+    );
   }
   return false;
 }

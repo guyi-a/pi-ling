@@ -363,6 +363,9 @@ export class PiAgentSession {
         recoverRuntimeContextOverflow(context, activeCompaction()),
       emit: (event) => instance.#handleCodingEvent(event),
     });
+    agent.skillRegistry.watch(() => {
+      void agent.reloadSkills();
+    });
     instance = new PiAgentSession(
       options.store,
       options.session,
@@ -592,6 +595,7 @@ export class PiAgentSession {
   }
 
   async dispose(): Promise<void> {
+    this.#agent.skillRegistry.unwatch();
     this.#agent.cancel();
     await this.#agent.waitForIdle();
     this.#activeRunId = null;

@@ -1,3 +1,5 @@
+import type { AgentUsage } from "@pi-ling/contracts";
+
 import type {
   ApprovalTimelineItem,
   AssistantTimelineItem,
@@ -67,6 +69,10 @@ export interface RunActivityModel {
   workSegments: RunActivitySegment[];
   hasUnsettledWork: boolean;
   finalAssistant?: AssistantTimelineItem;
+  runUsage?: {
+    usage?: AgentUsage;
+    contextUsage?: { used: number; size: number };
+  };
   hasActivity: boolean;
   hasBlockingApproval: boolean;
   todos?: RunTodoSnapshot;

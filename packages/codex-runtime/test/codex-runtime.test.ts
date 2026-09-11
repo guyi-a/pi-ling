@@ -1,12 +1,27 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { RuntimeEvent } from "@pi-ling/runtime-contracts";
+import { skillRoot } from "@pi-ling/skills";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { CodexRuntimeAdapter } from "../src/codex-runtime.js";
+
+async function writeSkill(
+  root: string,
+  name: string,
+  description: string,
+): Promise<void> {
+  const dir = join(skillRoot(root), name);
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    join(dir, "SKILL.md"),
+    `---\nname: ${name}\ndescription: "${description}"\n---\nBody\n`,
+    "utf8",
+  );
+}
 
 const fakeServer = fileURLToPath(
   new URL("./fake-codex-app-server.mjs", import.meta.url),
@@ -160,6 +175,20 @@ describe("CodexRuntimeAdapter app-server", () => {
       ],
     });
     expect(imported.externalSessionId).toBeTruthy();
+    await rm(home, { recursive: true, force: true });
+  });
+
+  it("syncs .agents/skills when a Codex session starts", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-ling-codex-skills-"));
+    await writeSkill(root, "pdf", "PDF tasks");
+    const { instance, home } = await adapter();
+    await expect(
+      instance.createSession({
+        sessionId: "skills-sync",
+        workspaceRoot: root,
+      }),
+    ).resolves.toMatchObject({ sessionId: "skills-sync" });
+    await rm(root, { recursive: true, force: true });
     await rm(home, { recursive: true, force: true });
   });
 });

@@ -6,6 +6,8 @@ import type {
 import { CodexAppServerTransport } from "./codex-app-server-transport.js";
 import type {
   CodexDynamicToolSpec,
+  CodexSkillsListParams,
+  CodexSkillsListResponse,
   CodexTurn,
   JsonRpcNotification,
   JsonRpcRequest,
@@ -160,6 +162,16 @@ export class CodexAppServerClient {
 
   interruptTurn(threadId: string, turnId: string): Promise<unknown> {
     return this.#transport.request("turn/interrupt", { threadId, turnId });
+  }
+
+  listSkills(
+    params: CodexSkillsListParams = {},
+  ): Promise<CodexSkillsListResponse> {
+    return this.#transport.request("skills/list", params);
+  }
+
+  setSkillsExtraRoots(extraRoots: string[]): Promise<unknown> {
+    return this.#transport.request("skills/extraRoots/set", { extraRoots });
   }
 
   dispose(): Promise<void> {

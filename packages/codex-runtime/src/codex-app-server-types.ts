@@ -92,3 +92,27 @@ export interface CodexDynamicToolCallRequest {
   tool: string;
   arguments: unknown;
 }
+
+export interface CodexSkillsListParams {
+  cwds?: string[];
+  forceReload?: boolean;
+}
+
+export interface CodexSkillMetadata {
+  name: string;
+  description: string;
+  path: string;
+  scope: string;
+  enabled: boolean;
+  pluginId: string | null;
+}
+
+export interface CodexSkillsListEntry {
+  cwd: string;
+  skills: CodexSkillMetadata[];
+  errors: unknown[];
+}
+
+export interface CodexSkillsListResponse {
+  data: CodexSkillsListEntry[];
+}

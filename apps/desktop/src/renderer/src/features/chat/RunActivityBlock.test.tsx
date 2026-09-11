@@ -242,7 +242,7 @@ describe("RunActivityBlock", () => {
     expect(html).not.toContain("ask_user");
   });
 
-  it("expands failed read-only tool runs into nested tool details", () => {
+  it("keeps failed tool runs collapsed until the summary is expanded", () => {
     const assistant = {
       id: "assistant",
       kind: "assistant" as const,
@@ -296,11 +296,16 @@ describe("RunActivityBlock", () => {
     const html = renderToStaticMarkup(
       <RunActivityBlock activity={model} />,
     );
-    expect(html).toContain('aria-expanded="true"');
-    expect(html).toContain("run-activity-details");
-    expect(html).not.toContain("run-activity-tools-inline");
-    expect(html).toContain("CHECK constraint failed: lifecycle");
-    expect(html).toContain("Error");
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).not.toContain("run-activity-details");
+    expect(html).not.toContain("CHECK constraint failed: lifecycle");
+
+    const expanded = renderToStaticMarkup(
+      <RunActivityBlock activity={model} forceOpen />,
+    );
+    expect(expanded).toContain("run-activity-details");
+    expect(expanded).toContain("CHECK constraint failed: lifecycle");
+    expect(expanded).toContain("Error");
   });
 
   it("falls back to the phase label when planning with no active tool", () => {

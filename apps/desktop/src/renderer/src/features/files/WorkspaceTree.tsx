@@ -3,49 +3,57 @@ import { useEffect, useMemo, useState } from "react";
 
 import { buildTree, WorkspaceTreeList } from "./workspace-tree";
 import {
-  readWorkspaceTreeCache,
+  readWorkspaceTreeCacheLatest,
+  treeSnapshotSignature,
   writeWorkspaceTreeCache,
 } from "./workspace-tree-cache";
 import { useFilesStore } from "./store";
 
-function initialTreeState(
-  root: string,
-  filesVersion: number,
-): {
+type TreeState = {
   entries: WorkspaceTreeEntry[] | null;
   rootName: string;
   truncated: boolean;
   error: string | null;
-} {
-  const cached = readWorkspaceTreeCache(root, filesVersion);
+  signature: string;
+};
+
+function initialTreeState(
+  root: string,
+  cacheEpoch: number,
+): TreeState {
+  const cached = readWorkspaceTreeCacheLatest(root, cacheEpoch);
   if (!cached) {
-    return { entries: null, rootName: "", truncated: false, error: null };
+    return {
+      entries: null,
+      rootName: "",
+      truncated: false,
+      error: null,
+      signature: "",
+    };
   }
   return {
     entries: cached.entries,
     rootName: cached.rootName,
     truncated: cached.truncated,
     error: null,
+    signature: treeSnapshotSignature(cached),
   };
 }
 
 export function useWorkspaceTree(root: string) {
   const filesVersion = useFilesStore((state) => state.filesVersion);
+  const treeEpoch = useFilesStore((state) => state.treeEpoch);
+  const cacheEpoch = filesVersion * 1_000_000 + treeEpoch;
   const [state, setState] = useState(() =>
-    initialTreeState(root, filesVersion),
+    initialTreeState(root, cacheEpoch),
   );
 
   useEffect(() => {
+    setState(initialTreeState(root, cacheEpoch));
+  }, [root, filesVersion]);
+
+  useEffect(() => {
     let cancelled = false;
-    const cached = readWorkspaceTreeCache(root, filesVersion);
-    if (cached) {
-      setState({
-        entries: cached.entries,
-        rootName: cached.rootName,
-        truncated: cached.truncated,
-        error: null,
-      });
-    }
 
     void window.piLing
       .workspaceTree(root)
@@ -56,8 +64,12 @@ export function useWorkspaceTree(root: string) {
           rootName: result.workspaceRootName,
           truncated: Boolean(result.truncated),
         };
-        writeWorkspaceTreeCache(root, filesVersion, snapshot);
-        setState({ ...snapshot, error: null });
+        const signature = treeSnapshotSignature(snapshot);
+        writeWorkspaceTreeCache(root, cacheEpoch, snapshot);
+        setState((current) => {
+          if (current.signature === signature) return current;
+          return { ...snapshot, error: null, signature };
+        });
       })
       .catch((err) => {
         if (!cancelled) {
@@ -70,7 +82,7 @@ export function useWorkspaceTree(root: string) {
     return () => {
       cancelled = true;
     };
-  }, [root, filesVersion]);
+  }, [root, cacheEpoch]);
 
   const roots = useMemo(
     () => (state.entries ? buildTree(state.entries) : []),

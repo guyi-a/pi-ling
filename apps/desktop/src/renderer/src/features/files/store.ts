@@ -5,7 +5,10 @@ interface FilesState {
   previewPath: string | null;
   previewLine: number | null;
   switcherOpen: boolean;
+  /** Bumps only when the workspace root changes (hard reset). */
   filesVersion: number;
+  /** Bumps when the tree should refresh in the background. */
+  treeEpoch: number;
   expandedDirectories: Record<string, true>;
   openFile: (path: string, line?: number) => void;
   closePreview: () => void;
@@ -13,7 +16,7 @@ interface FilesState {
   toggleDirectory: (key: string) => void;
   toggleSwitcher: () => void;
   closeSwitcher: () => void;
-  refreshFiles: () => void;
+  refreshTree: () => void;
 }
 
 const REFRESH_THROTTLE_MS = 600;
@@ -31,6 +34,7 @@ export const useFilesStore = create<FilesState>()(
       previewLine: null,
       switcherOpen: false,
       filesVersion: 0,
+      treeEpoch: 0,
       expandedDirectories: {},
       openFile: (path, line) => {
         activateFilesTab?.();
@@ -48,6 +52,7 @@ export const useFilesStore = create<FilesState>()(
           previewLine: null,
           switcherOpen: false,
           filesVersion: state.filesVersion + 1,
+          treeEpoch: state.treeEpoch + 1,
         })),
       toggleDirectory: (key) =>
         set((state) => {
@@ -62,11 +67,11 @@ export const useFilesStore = create<FilesState>()(
       toggleSwitcher: () =>
         set((state) => ({ switcherOpen: !state.switcherOpen })),
       closeSwitcher: () => set({ switcherOpen: false }),
-      refreshFiles: () => {
+      refreshTree: () => {
         const now = Date.now();
         if (now - lastRefreshAt < REFRESH_THROTTLE_MS) return;
         lastRefreshAt = now;
-        set((state) => ({ filesVersion: state.filesVersion + 1 }));
+        set((state) => ({ treeEpoch: state.treeEpoch + 1 }));
       },
     }),
     {
@@ -79,5 +84,5 @@ export const useFilesStore = create<FilesState>()(
 );
 
 export function refreshFilesFromOutside(): void {
-  useFilesStore.getState().refreshFiles();
+  useFilesStore.getState().refreshTree();
 }

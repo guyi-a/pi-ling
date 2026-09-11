@@ -238,12 +238,15 @@ export function App() {
           isFileAffectingTool(envelope.event.tool))
       ) {
         void window.piLing.listWorkspaces(true).then(setWorkspaces);
-        refreshFilesFromOutside();
         debouncedRefreshChangesRef.current?.();
       }
-      if (envelope.event.type === "run_start") {
+      if (
+        envelope.event.type === "run_end" ||
+        envelope.event.type === "changes" ||
+        (envelope.event.type === "tool_end" &&
+          isFileAffectingTool(envelope.event.tool))
+      ) {
         refreshFilesFromOutside();
-        void window.piLing.listWorkspaces(true).then(setWorkspaces);
       }
     });
     const unsubscribeFrames = window.piLing.onStreamFrame(

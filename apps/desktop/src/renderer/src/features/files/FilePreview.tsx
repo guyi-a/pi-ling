@@ -63,10 +63,10 @@ function CloseIcon() {
 export function FilePreview(props: { root: string; path: string }) {
   const closePreview = useFilesStore((state) => state.closePreview);
   const previewLine = useFilesStore((state) => state.previewLine);
-  const filesVersion = useFilesStore((state) => state.filesVersion);
   const switcherOpen = useFilesStore((state) => state.switcherOpen);
   const toggleSwitcher = useFilesStore((state) => state.toggleSwitcher);
   const pathButtonRef = useRef<HTMLButtonElement>(null);
+  const loadedPathRef = useRef<string | null>(null);
   const inlineKind = detectInlineKind(props.path);
   const [file, setFile] = useState<WorkspaceFileContent | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -74,15 +74,20 @@ export function FilePreview(props: { root: string; path: string }) {
 
   useEffect(() => {
     if (inlineKind) {
+      loadedPathRef.current = null;
       setFile(null);
       setError(null);
       setLoading(false);
       return;
     }
+    const pathChanged = loadedPathRef.current !== props.path;
+    if (pathChanged) {
+      loadedPathRef.current = props.path;
+      setFile(null);
+      setLoading(true);
+    }
     const ac = new AbortController();
-    setLoading(true);
     setError(null);
-    setFile(null);
     void window.piLing
       .readFile(props.root, props.path)
       .then((result) => {
@@ -101,13 +106,7 @@ export function FilePreview(props: { root: string; path: string }) {
         if (!ac.signal.aborted) setLoading(false);
       });
     return () => ac.abort();
-  }, [
-    closePreview,
-    filesVersion,
-    inlineKind,
-    props.path,
-    props.root,
-  ]);
+  }, [closePreview, inlineKind, props.path, props.root]);
 
   const name = basename(props.path);
 
@@ -150,27 +149,13 @@ export function FilePreview(props: { root: string; path: string }) {
 
       <div className="files-preview">
         {inlineKind === "pdf" ? (
-          <PdfPreview
-            root={props.root}
-            path={props.path}
-            version={filesVersion}
-          />
+          <PdfPreview root={props.root} path={props.path} />
         ) : null}
         {inlineKind === "docx" ? (
-          <DocxPreview
-            root={props.root}
-            path={props.path}
-            name={name}
-            version={filesVersion}
-          />
+          <DocxPreview root={props.root} path={props.path} name={name} />
         ) : null}
         {inlineKind === "pptx" ? (
-          <PptxPreview
-            root={props.root}
-            path={props.path}
-            name={name}
-            version={filesVersion}
-          />
+          <PptxPreview root={props.root} path={props.path} name={name} />
         ) : null}
         {inlineKind === "video" ? (
           <MediaPreview
@@ -178,7 +163,6 @@ export function FilePreview(props: { root: string; path: string }) {
             path={props.path}
             name={name}
             kind="video"
-            version={filesVersion}
           />
         ) : null}
         {inlineKind === "audio" ? (
@@ -187,7 +171,6 @@ export function FilePreview(props: { root: string; path: string }) {
             path={props.path}
             name={name}
             kind="audio"
-            version={filesVersion}
           />
         ) : null}
 

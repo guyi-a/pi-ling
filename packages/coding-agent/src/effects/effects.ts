@@ -23,7 +23,7 @@ export type Effect =
       cwd: string;
       classification: "harmless" | "normal" | "destructive";
     }
-  | { kind: "meta"; operation: "plan" | "todo" | "question" }
+  | { kind: "meta"; operation: "plan" | "todo" | "question" | "skill" }
   | { kind: "subagent-spawn"; readonly: true }
   | { kind: "unknown"; note: string };
 
@@ -147,6 +147,9 @@ export async function deriveEffect(
   }
   if (call.name === "spawn_subagent") {
     return { kind: "subagent-spawn", readonly: true };
+  }
+  if (call.name === "load_skill") {
+    return { kind: "meta", operation: "skill" };
   }
   return {
     kind: "unknown",

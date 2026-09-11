@@ -30,7 +30,7 @@ extraResources:
   - from: assets/icon-source.png
     to: icon.png
 win:
-  icon: assets/icon.png
+  icon: assets/icon.ico
   # Embed icon/metadata without code signing (signAndEditExecutable skips both).
   signExecutable: false
   target:

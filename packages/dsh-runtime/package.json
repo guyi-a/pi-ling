@@ -19,6 +19,7 @@
     "@pi-ling/runtime-contracts": "workspace:*"
   },
   "devDependencies": {
+    "@pi-ling/skills": "workspace:*",
     "@types/node": "24.10.1",
     "typescript": "7.0.2",
     "vitest": "4.1.9"

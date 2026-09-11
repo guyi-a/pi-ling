@@ -75,7 +75,7 @@
 
 .message {
   margin: 0 0 22px;
-  color: var(--text-soft);
+  color: var(--text);
 }
 
 .turn-block {
@@ -675,7 +675,7 @@
   min-width: 0;
   overflow-wrap: anywhere;
   word-break: break-word;
-  color: var(--text-soft);
+  color: var(--text);
   font-size: 15px;
   line-height: 1.72;
 }
