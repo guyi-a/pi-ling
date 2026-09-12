@@ -1,5 +1,6 @@
 export const IPC_CHANNELS = {
   appInfo: "app:get-info",
+  appOpenExternal: "app:open-external",
   agentStatus: "agent:get-status",
   agentSend: "agent:send",
   agentCancel: "agent:cancel",
@@ -34,7 +35,11 @@ export const IPC_CHANNELS = {
   terminalExit: "terminal:exit",
   attachmentSaveImage: "attachment:save-image",
   attachmentPickImages: "attachment:pick-images",
+  workspaceUploadFiles: "workspace:upload-files",
   taskUpdated: "task:updated",
+  llmConfigGet: "llm-config:get",
+  llmConfigSave: "llm-config:save",
+  llmConfigListModels: "llm-config:list-models",
 } as const;
 
 export interface AppInfo {
@@ -68,6 +73,12 @@ export interface SavedAttachmentImage {
   name: string;
   relativePath: string;
   mediaType: string;
+}
+
+export interface WorkspaceUploadedFile {
+  name: string;
+  relativePath: string;
+  size: number;
 }
 
 export interface AgentPromptRequest {
@@ -848,8 +859,52 @@ export interface EvalValidateCatalogResult {
   stats?: EvalCatalogStats;
 }
 
+export interface LlmProviderOption {
+  id: string;
+  label: string;
+  defaultModel: string;
+  defaultBaseUrl?: string;
+  supportedRuntimes: RuntimeKind[];
+  apiKeyEnv: string;
+}
+
+export interface LlmModelOption {
+  id: string;
+  name: string;
+}
+
+export interface LlmConfigSnapshot {
+  provider: string;
+  providerLabel: string;
+  model: string;
+  baseUrl?: string;
+  apiKeyConfigured: boolean;
+  apiKeyPreview?: string;
+  providers: LlmProviderOption[];
+  models: LlmModelOption[];
+}
+
+export interface LlmConfigSaveRequest {
+  provider: string;
+  model: string;
+  /** Empty string keeps the existing key. */
+  apiKey?: string;
+  baseUrl?: string;
+}
+
+export interface LlmConfigSaveResult {
+  snapshot: LlmConfigSnapshot;
+  /** New sessions pick this up; active sessions may need a restart. */
+  requiresSessionRestart: boolean;
+}
+
 export interface DesktopApi {
   getAppInfo(): Promise<AppInfo>;
+  /** 用系统默认浏览器打开一个 http/https 链接。其他协议会被拒绝。 */
+  openExternal(url: string): Promise<boolean>;
+  getLlmConfig(): Promise<LlmConfigSnapshot>;
+  saveLlmConfig(request: LlmConfigSaveRequest): Promise<LlmConfigSaveResult>;
+  listLlmModels(provider: string): Promise<LlmModelOption[]>;
   getAgentStatus(): Promise<AgentStatus>;
   sendPrompt(request: AgentPromptRequest): Promise<AgentPromptAccepted>;
   cancelPrompt(requestId: string): Promise<boolean>;
@@ -888,6 +943,9 @@ export interface DesktopApi {
     suggestedName?: string,
   ): Promise<SavedAttachmentImage>;
   pickAttachmentImages(workspaceRoot: string): Promise<SavedAttachmentImage[]>;
+  pickAndUploadWorkspaceFiles(
+    workspaceRoot: string,
+  ): Promise<WorkspaceUploadedFile[]>;
   onTerminalOutput(listener: (event: TerminalOutputEvent) => void): () => void;
   onTerminalExit(listener: (event: TerminalExitEvent) => void): () => void;
   onTimelineEvent(listener: (event: TimelineEnvelope) => void): () => void;

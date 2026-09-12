@@ -84,7 +84,7 @@ function realDshOptions(
       acpSdk,
       node: process.versions.node,
       provider: "deepseek",
-      model: "deepseek-v4-pro",
+      model: "deepseek-flash",
       backend: model.baseURL ? "local-mock" : "configured-provider",
     }),
   );

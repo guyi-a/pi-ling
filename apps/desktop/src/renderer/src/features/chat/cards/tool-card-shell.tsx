@@ -8,6 +8,7 @@ import {
 import { useState, type ReactNode } from "react";
 
 import {
+  resolveToolCategory,
   resolveToolLabel,
   resolveToolTarget,
 } from "../../../run-activity/tool-registry";
@@ -52,6 +53,8 @@ export function ToolCardShell(props: {
             : null;
   const label = props.label ?? resolveToolLabel(item);
   const target = props.target ?? resolveToolTarget(item);
+  const category = resolveToolCategory(item);
+  const ext = target.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() ?? "";
   const statusText = props.statusText ?? statusLabel[item.status];
   const expandable =
     !props.disableExpand &&
@@ -61,9 +64,10 @@ export function ToolCardShell(props: {
 
   return (
     <div
-      className={`tool-entry tool-rich-card ${item.status} ${
+      className={`tool-entry tool-rich-card tool-cat-${category} ${item.status} ${
         open ? "expanded" : ""
       }`}
+      data-ext={ext || undefined}
     >
       <button
         className="tool-entry-row"

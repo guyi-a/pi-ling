@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 
 
 
+import { isLlmConfigured } from "@pi-ling/llm-config";
 import type { RuntimeAdapter } from "@pi-ling/runtime-contracts";
+
+import { getResolvedLlmConfig } from "./llm-config-store.js";
 
 import type {
 
@@ -511,11 +514,11 @@ export class SessionSupervisor {
 
         availableRuntimes: this.availableRuntimes,
 
-        provider: "deepseek",
+        provider: getResolvedLlmConfig().provider,
 
-        model: "deepseek-v4-flash",
+        model: getResolvedLlmConfig().model,
 
-        configured: Boolean(process.env["DEEPSEEK_API_KEY"]?.trim()),
+        configured: isLlmConfigured(getResolvedLlmConfig()),
 
         approvalMode: "manual",
 

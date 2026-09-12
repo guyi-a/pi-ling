@@ -129,6 +129,52 @@ describe("effects and approval", () => {
     expect(approvalReason(del, "accept-write")).toBeUndefined();
   });
 
+  it("treats web tools as read-only but flags private-network fetches", async () => {
+    const fetchCall = await deriveEffect(
+      {
+        type: "toolCall",
+        id: "web",
+        name: "web_fetch",
+        arguments: { url: "https://docs.example.com/guide" },
+      },
+      workspace,
+    );
+    expect(fetchCall).toMatchObject({
+      kind: "network",
+      privateHost: false,
+      target: "https://docs.example.com/guide",
+    });
+    expect(approvalReason(fetchCall)).toBeUndefined();
+
+    const localCall = await deriveEffect(
+      {
+        type: "toolCall",
+        id: "local",
+        name: "web_fetch",
+        arguments: { url: "http://127.0.0.1:8080/status" },
+      },
+      workspace,
+    );
+    expect(localCall).toMatchObject({ kind: "network", privateHost: true });
+    expect(approvalReason(localCall)).toContain("private network");
+
+    const searchCall = await deriveEffect(
+      {
+        type: "toolCall",
+        id: "search",
+        name: "web_search",
+        arguments: { query: "electron vite" },
+      },
+      workspace,
+    );
+    expect(searchCall).toMatchObject({
+      kind: "network",
+      target: "electron vite",
+      privateHost: false,
+    });
+    expect(approvalReason(searchCall)).toBeUndefined();
+  });
+
   it("locks the product approval matrix across all modes", () => {
     const modes: ApprovalMode[] = ["manual", "accept-write", "auto"];
     const cases: Array<{

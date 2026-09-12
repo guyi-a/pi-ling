@@ -2,22 +2,25 @@
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   padding: 0 6px;
   overflow: hidden;
   border-right: 1px solid var(--border);
   background: var(--sidebar-bg);
 }
 
-.sidebar-top {
-  height: var(--pane-toolbar-height);
+.sidebar-command-row {
   display: flex;
   align-items: center;
-  margin: 0 -6px;
-  padding: 0 9px;
+  gap: 2px;
 }
 
-.sidebar-top button,
+.sidebar-command-row .sidebar-command {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sidebar-collapse,
 .sidebar-section-header button,
 .repository-filter > summary,
 .session-actions button {
@@ -34,7 +37,7 @@
   list-style: none;
 }
 
-.sidebar-top button:hover,
+.sidebar-collapse:hover,
 .sidebar-section-header button:hover,
 .repository-filter > summary:hover,
 .session-actions button:hover,
@@ -43,7 +46,7 @@
   background: var(--surface-hover);
 }
 
-.sidebar-top svg,
+.sidebar-collapse svg,
 .sidebar-section-header svg,
 .repository-filter svg {
   width: 15px;
@@ -75,6 +78,10 @@
 .sidebar-command:hover:not(:disabled) {
   color: var(--text);
   background: var(--surface-hover);
+}
+
+.sidebar-command:hover:not(:disabled) svg {
+  color: var(--accent);
 }
 
 .sidebar-command:disabled {
@@ -253,7 +260,8 @@
 
 .session-item.active {
   color: var(--text);
-  background: var(--surface-selected);
+  background: color-mix(in srgb, var(--accent-soft) 55%, var(--surface-selected));
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .session-item.unavailable {

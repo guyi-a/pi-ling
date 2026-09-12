@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { SettingsView } from "./SettingsView";
 
 describe("SettingsView", () => {
-  it("renders theme settings only", () => {
+  it("renders theme and llm settings sections", () => {
     const html = renderToStaticMarkup(
       <SettingsView
         theme="dark"
@@ -15,9 +15,7 @@ describe("SettingsView", () => {
 
     expect(html).toContain("设置");
     expect(html).toContain("主题");
-    expect(html).toContain("深色");
-    expect(html).toContain("浅色");
-    expect(html).not.toContain("Search Settings");
-    expect(html).not.toContain("Models");
+    expect(html).toContain("模型与 API");
+    expect(html).toContain("正在加载配置");
   });
 });

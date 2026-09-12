@@ -3,6 +3,9 @@ import {
   wrapPromptForComposerMode,
   Workspace,
 } from "@pi-ling/coding-agent";
+import { isLlmConfigured } from "@pi-ling/llm-config";
+
+import { getResolvedLlmConfig } from "./llm-config-store.js";
 import type {
   RuntimeAdapter,
   RuntimeEvent,
@@ -28,7 +31,10 @@ import {
   TimelineProjector,
 } from "@pi-ling/session-events";
 
+import { isDshStaleSessionImportError } from "@pi-ling/dsh-runtime";
+
 import { evaluateDshApproval } from "./dsh-approval-policy.js";
+import { resolveDshAcpModel } from "./dsh-pi-ai-profile.js";
 import {
   isFileAffectingDshTool,
   resolveToolWorkspacePath,
@@ -130,15 +136,15 @@ export class DshAgentSession {
     const watermark =
       options.store.getRuntimeSession(options.session.id, "dsh")
         ?.lastSyncedCanonicalSeq ?? 0;
+    const llmConfig = getResolvedLlmConfig();
     const importOptions = {
       workspaceRoot: options.session.workspace.root,
-      provider: "deepseek",
-      model: "deepseek-v4-pro",
+      provider: llmConfig.provider,
+      model: resolveDshAcpModel(llmConfig.provider, llmConfig.model),
     };
 
-    const { reimportDshSessionIfNeeded } = await import(
-      "./dsh-session-import.js"
-    );
+    const { reimportDshSessionIfNeeded, reimportDshCanonicalHistory } =
+      await import("./dsh-session-import.js");
     if (
       await reimportDshSessionIfNeeded({
         store: options.store,
@@ -149,6 +155,45 @@ export class DshAgentSession {
     ) {
       return instance;
     }
+
+    const reimportFullHistory = async () => {
+      await reimportDshCanonicalHistory({
+        store: options.store,
+        sessionId: options.session.id,
+        workspaceRoot: options.session.workspace.root,
+        runtime: options.runtime,
+        canonicalMessages: messages,
+        latestSeq: events.at(-1)?.seq ?? 0,
+      });
+    };
+
+    const resumeDshSession = async (externalId: string) => {
+      const handle = await options.runtime.resumeSession({
+        sessionId: options.session.id,
+        workspaceRoot: options.session.workspace.root,
+        externalSessionId: externalId,
+      });
+      const resolvedId = handle.externalSessionId;
+      if (resolvedId === externalId) return;
+
+      // createSession fallback leaves an active DSH write handle; append import
+      // conflicts with SessionAlreadyOwnedError — close then offline reimport.
+      await options.runtime.closeSession(options.session.id);
+
+      if (messages.length > 0) {
+        await reimportFullHistory();
+        return;
+      }
+
+      const fresh = await options.runtime.createSession({
+        sessionId: options.session.id,
+        workspaceRoot: options.session.workspace.root,
+      });
+      options.store.setRuntimeSessionId(
+        options.session.id,
+        fresh.externalSessionId,
+      );
+    };
 
     if (!externalSessionId) {
       const handle = await options.runtime.createSession({
@@ -172,32 +217,29 @@ export class DshAgentSession {
         const startTurn =
           syncedMessages.filter((message) => message.role === "user").length +
           1;
-        await options.runtime.importSession({
-          sessionId: externalSessionId,
-          appendToExternalSessionId: externalSessionId,
-          startTurn,
-          ...importOptions,
-          canonicalMessages: delta,
-        });
-        options.store.setRuntimeImport(
-          options.session.id,
-          externalSessionId,
-          events.at(-1)?.seq ?? 0,
-        );
-        await options.runtime.resumeSession({
-          sessionId: options.session.id,
-          workspaceRoot: options.session.workspace.root,
-          externalSessionId,
-        });
+        try {
+          const imported = await options.runtime.importSession({
+            sessionId: externalSessionId,
+            appendToExternalSessionId: externalSessionId,
+            startTurn,
+            ...importOptions,
+            canonicalMessages: delta,
+          });
+          options.store.setRuntimeImport(
+            options.session.id,
+            imported.externalSessionId,
+            events.at(-1)?.seq ?? 0,
+          );
+          await resumeDshSession(imported.externalSessionId);
+        } catch (error) {
+          if (!isDshStaleSessionImportError(error)) throw error;
+          await reimportFullHistory();
+        }
         return instance;
       }
     }
 
-    await options.runtime.resumeSession({
-      sessionId: options.session.id,
-      workspaceRoot: options.session.workspace.root,
-      externalSessionId,
-    });
+    await resumeDshSession(externalSessionId);
     return instance;
   }
 
@@ -210,9 +252,9 @@ export class DshAgentSession {
       sessionId: this.#session.id,
       runtimeKind: "dsh",
       availableRuntimes: this.#availableRuntimes,
-      provider: "deepseek",
-      model: "deepseek-v4-pro",
-      configured: Boolean(process.env["DEEPSEEK_API_KEY"]?.trim()),
+      provider: getResolvedLlmConfig().provider,
+      model: getResolvedLlmConfig().model,
+      configured: isLlmConfigured(getResolvedLlmConfig()),
       approvalMode: this.#approvalMode,
       composerMode: this.#composerMode,
       workspace: this.#session.workspace,

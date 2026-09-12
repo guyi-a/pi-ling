@@ -38,7 +38,11 @@ function availableEvalRuntimes(): Array<"native" | "dsh" | "codex"> {
   if (dshLaunch.enabled && "options" in dshLaunch) {
     runtimes.push("dsh");
   }
-  const codexLaunch = resolveCodexLaunchConfig(process.env, userDataPath);
+  const codexLaunch = resolveCodexLaunchConfig(
+    process.env,
+    userDataPath,
+    repoRoot,
+  );
   if (codexLaunch.enabled && "options" in codexLaunch) {
     runtimes.push("codex");
   }

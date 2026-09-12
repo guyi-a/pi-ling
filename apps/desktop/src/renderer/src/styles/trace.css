@@ -41,7 +41,7 @@
 }
 
 .trace-status-dot.is-running {
-  background: #34d399;
+  background: var(--accent);
 }
 
 .trace-filter {
@@ -157,7 +157,7 @@
 }
 
 .trace-event-summary:hover {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--surface-hover);
 }
 
 .trace-event-chevron {
@@ -188,23 +188,23 @@
 }
 
 .trace-event-row.tone-tool .trace-event-label {
-  color: #93c5fd;
+  color: var(--info);
 }
 
 .trace-event-row.tone-model .trace-event-label {
-  color: #c4b5fd;
+  color: var(--tool-command);
 }
 
 .trace-event-row.tone-approval .trace-event-label {
-  color: #fcd34d;
+  color: var(--warning);
 }
 
 .trace-event-row.tone-error .trace-event-label {
-  color: #fca5a5;
+  color: var(--danger);
 }
 
 .trace-event-row.tone-run .trace-event-label {
-  color: #86efac;
+  color: var(--success);
 }
 
 .trace-event-detail {

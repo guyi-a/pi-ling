@@ -9,8 +9,8 @@ import type { SessionStore } from "./session-store/session-store.js";
 
 const COMPACTION_APPLIED = ["compaction", "applied"].join(".");
 
-const DSH_IMPORT_PROVIDER = "deepseek";
-const DSH_IMPORT_MODEL = "deepseek-v4-pro";
+import { getResolvedLlmConfig } from "./llm-config-store.js";
+import { resolveDshAcpModel } from "./dsh-pi-ai-profile.js";
 
 export async function reimportDshCanonicalHistory(options: {
   store: SessionStore;
@@ -23,12 +23,13 @@ export async function reimportDshCanonicalHistory(options: {
   if (!options.runtime.importSession) {
     throw new Error("DSH runtime does not support session import");
   }
+  const llmConfig = getResolvedLlmConfig();
   const newExternalId = randomUUID();
   await options.runtime.importSession({
     sessionId: newExternalId,
     workspaceRoot: options.workspaceRoot,
-    provider: DSH_IMPORT_PROVIDER,
-    model: DSH_IMPORT_MODEL,
+    provider: llmConfig.provider,
+    model: resolveDshAcpModel(llmConfig.provider, llmConfig.model),
     canonicalMessages: options.canonicalMessages,
   });
   options.store.setRuntimeImport(

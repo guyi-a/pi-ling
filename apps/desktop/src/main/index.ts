@@ -26,6 +26,9 @@ import type {
   AgentStatus,
   AppInfo,
   AppTheme,
+  LlmConfigSaveRequest,
+  LlmConfigSnapshot,
+  LlmModelOption,
   ApprovalMode,
   ComposerMode,
   ApprovalDecisionRequest,
@@ -81,10 +84,18 @@ import {
 } from "./attachment-store.js";
 import { resolveCodexLaunchConfig } from "./codex-launch-config.js";
 import { resolveDshLaunchConfig } from "./dsh-launch-config.js";
+import {
+  getLlmConfigSnapshot,
+  hydrateLlmConfigFromDisk,
+  initLlmConfigStore,
+  saveLlmConfig,
+} from "./llm-config-store.js";
+import { listPiAiModels } from "./llm-model-registry.js";
 import { SessionStore } from "./session-store/session-store.js";
 import { SessionSupervisor } from "./session-supervisor.js";
 import { TerminalSupervisor } from "./terminal-supervisor.js";
 import { buildWorkspaceTree, readFileContent } from "./workspace-fs.js";
+import { importFilesToWorkspaceRoot } from "./workspace-upload.js";
 import {
   ensureRuntimeConfig,
   loadApplicationEnv,
@@ -102,6 +113,10 @@ bootLog("workspace protocol schemes registered");
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const APP_INFO_CHANNEL = "app:get-info";
+const APP_OPEN_EXTERNAL_CHANNEL = "app:open-external";
+const LLM_CONFIG_GET_CHANNEL = "llm-config:get";
+const LLM_CONFIG_SAVE_CHANNEL = "llm-config:save";
+const LLM_CONFIG_LIST_MODELS_CHANNEL = "llm-config:list-models";
 const AGENT_STATUS_CHANNEL = "agent:get-status";
 const AGENT_SEND_CHANNEL = "agent:send";
 const AGENT_CANCEL_CHANNEL = "agent:cancel";
@@ -147,6 +162,7 @@ const EVAL_OPEN_CATALOG_CHANNEL = "eval:open-catalog";
 const EVAL_VALIDATE_CATALOG_CHANNEL = "eval:validate-catalog";
 const EVAL_RUN_RESULTS_CHANNEL = "eval:get-run-results";
 const ATTACHMENT_PICK_IMAGES_CHANNEL = "attachment:pick-images";
+const WORKSPACE_UPLOAD_FILES_CHANNEL = "workspace:upload-files";
 
 const windowThemeColors: Record<
   AppTheme,
@@ -163,6 +179,50 @@ if (!app.isPackaged) {
 let sessionStore: SessionStore | undefined;
 let dshRuntime: DshRuntimeAdapter | undefined;
 let codexRuntime: CodexRuntimeAdapter | undefined;
+
+function resolveRepoRootForRuntimes(): string | undefined {
+  return app.isPackaged
+    ? process.env["PI_LING_REPO_ROOT"]?.trim()
+      ? resolve(process.env["PI_LING_REPO_ROOT"])
+      : undefined
+    : resolveDevRepoRoot(__dirname);
+}
+
+async function initializeSidecarRuntimes(userDataPath: string): Promise<void> {
+  const repoRoot = resolveRepoRootForRuntimes();
+  const dshLaunch = resolveDshLaunchConfig(
+    process.env,
+    userDataPath,
+    undefined,
+    repoRoot,
+  );
+  if (dshLaunch.enabled && "options" in dshLaunch) {
+    startupLog(
+      `DSH launch command=${dshLaunch.options.command} bin=${dshLaunch.options.dshBin}`,
+    );
+    dshRuntime = new DshRuntimeAdapter(dshLaunch.options);
+  } else if (dshLaunch.enabled) {
+    console.warn(`DSH Runtime disabled: ${dshLaunch.reason}`);
+  }
+  const codexLaunch = resolveCodexLaunchConfig(
+    process.env,
+    userDataPath,
+    repoRoot,
+  );
+  if (codexLaunch.enabled && "options" in codexLaunch) {
+    codexRuntime = new CodexRuntimeAdapter(codexLaunch.options);
+  } else if (codexLaunch.enabled) {
+    console.warn(`Codex Runtime disabled: ${codexLaunch.reason}`);
+  }
+}
+
+async function reloadSidecarRuntimes(): Promise<void> {
+  await dshRuntime?.dispose();
+  await codexRuntime?.dispose();
+  dshRuntime = undefined;
+  codexRuntime = undefined;
+  await initializeSidecarRuntimes(app.getPath("userData"));
+}
 const terminalSupervisor = new TerminalSupervisor();
 const supervisors = new Map<
   number,
@@ -436,6 +496,7 @@ function createWindow(): BrowserWindow {
   });
 
   window.once("ready-to-show", () => {
+    window.maximize();
     window.show();
     const capturePath = process.env["PI_LING_CAPTURE_PATH"];
     if (capturePath) {
@@ -509,6 +570,46 @@ ipcMain.handle(APP_INFO_CHANNEL, (): AppInfo => ({
   version: app.getVersion(),
   platform: process.platform,
 }));
+
+/** 只放行 http/https；其他协议（file:、javascript: 等）一律拒绝。 */
+ipcMain.handle(
+  APP_OPEN_EXTERNAL_CHANNEL,
+  async (_event, url: unknown): Promise<boolean> => {
+    if (typeof url !== "string") return false;
+    let parsed: URL;
+    try {
+      parsed = new URL(url.trim());
+    } catch {
+      return false;
+    }
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return false;
+    }
+    await shell.openExternal(parsed.toString());
+    return true;
+  },
+);
+
+ipcMain.handle(
+  LLM_CONFIG_GET_CHANNEL,
+  async (): Promise<LlmConfigSnapshot> => getLlmConfigSnapshot(),
+);
+
+ipcMain.handle(
+  LLM_CONFIG_LIST_MODELS_CHANNEL,
+  async (_event, provider: unknown): Promise<LlmModelOption[]> =>
+    typeof provider === "string" ? listPiAiModels(provider) : [],
+);
+
+ipcMain.handle(
+  LLM_CONFIG_SAVE_CHANNEL,
+  async (_event, input: unknown) => {
+    const request = input as LlmConfigSaveRequest;
+    const result = await saveLlmConfig(request);
+    await reloadSidecarRuntimes();
+    return result;
+  },
+);
 
 ipcMain.handle(
   AGENT_STATUS_CHANNEL,
@@ -961,6 +1062,30 @@ ipcMain.handle(
 );
 
 ipcMain.handle(
+  WORKSPACE_UPLOAD_FILES_CHANNEL,
+  async (event, workspaceRoot: unknown) => {
+    if (typeof workspaceRoot !== "string" || workspaceRoot.length === 0) {
+      throw new Error("Workspace root is required");
+    }
+    const parent = BrowserWindow.fromWebContents(event.sender);
+    const options: Electron.OpenDialogOptions = {
+      title: "Upload files to workspace",
+      properties: ["openFile", "multiSelections"],
+    };
+    const result = parent
+      ? await dialog.showOpenDialog(parent, options)
+      : await dialog.showOpenDialog(options);
+    if (result.canceled || result.filePaths.length === 0) {
+      return [];
+    }
+    return importFilesToWorkspaceRoot({
+      workspaceRoot,
+      sourcePaths: result.filePaths,
+    });
+  },
+);
+
+ipcMain.handle(
   EVAL_SNAPSHOT_CHANNEL,
   async (): Promise<Awaited<ReturnType<typeof getEvalSnapshot>>> =>
     getEvalSnapshot(),
@@ -1077,6 +1202,9 @@ void app.whenReady().then(async () => {
     }
 
     const userDataPath = app.getPath("userData");
+    initLlmConfigStore(userDataPath);
+    await hydrateLlmConfigFromDisk();
+    startupLog("llm config loaded");
     process.env.PI_LING_EVAL_DATA_DIR = join(userDataPath, "coding-eval");
     const fsExtHookCandidates = app.isPackaged
       ? [
@@ -1141,34 +1269,7 @@ void app.whenReady().then(async () => {
         break;
       }
     }
-    const repoRoot = app.isPackaged
-      ? process.env["PI_LING_REPO_ROOT"]?.trim()
-        ? resolve(process.env["PI_LING_REPO_ROOT"])
-        : undefined
-      : resolveDevRepoRoot(__dirname);
-    const dshLaunch = resolveDshLaunchConfig(
-      process.env,
-      userDataPath,
-      undefined,
-      repoRoot,
-    );
-    if (dshLaunch.enabled && "options" in dshLaunch) {
-      startupLog(
-        `DSH launch command=${dshLaunch.options.command} bin=${dshLaunch.options.dshBin}`,
-      );
-      dshRuntime = new DshRuntimeAdapter(dshLaunch.options);
-    } else if (dshLaunch.enabled) {
-      console.warn(`DSH Runtime disabled: ${dshLaunch.reason}`);
-    }
-    const codexLaunch = resolveCodexLaunchConfig(
-      process.env,
-      app.getPath("userData"),
-    );
-    if (codexLaunch.enabled && "options" in codexLaunch) {
-      codexRuntime = new CodexRuntimeAdapter(codexLaunch.options);
-    } else if (codexLaunch.enabled) {
-      console.warn(`Codex Runtime disabled: ${codexLaunch.reason}`);
-    }
+    await initializeSidecarRuntimes(userDataPath);
     sessionStore = new SessionStore(
       join(app.getPath("userData"), "pi-ling.db"),
     );

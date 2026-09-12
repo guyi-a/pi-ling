@@ -40,6 +40,22 @@ export function lastAgentTurnChanges(
   );
 }
 
+/**
+ * 用会话级净改动（ChangeTracker / getChanges agent）校正 Last Agent Turn。
+ * 同一轮里「先 create 再 delete」时 timeline 仍保留 added 快照，但磁盘/net 已无改动。
+ */
+export function reconcileLastAgentTurnChanges(
+  turnFiles: readonly ChangedFile[],
+  netFiles: readonly ChangedFile[],
+): ChangedFile[] {
+  if (turnFiles.length === 0) return [];
+  const netByPath = new Map(netFiles.map((file) => [file.path, file]));
+  return turnFiles
+    .map((file) => netByPath.get(file.path))
+    .filter((file): file is ChangedFile => file !== undefined)
+    .sort((left, right) => left.path.localeCompare(right.path));
+}
+
 export function editToolCallIds(
   items: readonly TimelineItem[],
   runId: string,

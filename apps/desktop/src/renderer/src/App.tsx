@@ -27,7 +27,9 @@ import {
   AppTitleBar,
   WorkbenchPanel,
 } from "./features/shell/WorkbenchChrome";
+import { SessionActivationOverlay } from "./features/shell/SessionActivationOverlay";
 import {
+  bindFilesTabActivator,
   refreshFilesFromOutside,
   useFilesStore,
 } from "./features/files/store";
@@ -37,7 +39,11 @@ import {
   DEFAULT_CHANGES_SOURCE,
   type ChangesSourceId,
 } from "./features/details/changes-source";
-import { lastAgentTurnChanges, changesFilesByRunId } from "./run-activity/run-changes";
+import {
+  changesFilesByRunId,
+  lastAgentTurnChanges,
+  reconcileLastAgentTurnChanges,
+} from "./run-activity/run-changes";
 import { bindChangesNavigation } from "./features/details/changes-navigation";
 import { bindPlansNavigation } from "./features/plans/plans-navigation";
 import {
@@ -86,8 +92,7 @@ const initialSidebarCollapsed =
 const initialSidebarArchived =
   new URLSearchParams(window.location.search).get("sidebar-view") ===
   "archived";
-const initialRightPanelOpen =
-  !fixture && localStorage.getItem("pi-ling.workbench.open") === "true";
+const initialRightPanelOpen = false;
 
 function areChangedFilesEqual(
   left: readonly ChangedFile[],
@@ -147,10 +152,17 @@ export function App() {
   const [runtimeSwitching, setRuntimeSwitching] = useState(false);
   const [runtimeSwitchTarget, setRuntimeSwitchTarget] =
     useState<RuntimeKind | null>(null);
+  const [sessionInitializing, setSessionInitializing] = useState(
+    () => !fixture,
+  );
+  const [sessionInitializingMessage, setSessionInitializingMessage] =
+    useState("正在初始化…");
   const [changesSource, setChangesSource] = useState<ChangesSourceId>(
     DEFAULT_CHANGES_SOURCE,
   );
   const [changesFiles, setChangesFiles] = useState<ChangedFile[]>([]);
+  const [reconciledLastTurnChanges, setReconciledLastTurnChanges] =
+    useState<ChangedFile[]>([]);
   const [changesLoading, setChangesLoading] = useState(true);
   const [reviewRunId, setReviewRunId] = useState<string | null>(null);
   const [requestedWorkbenchTab, setRequestedWorkbenchTab] = useState<
@@ -185,14 +197,6 @@ export function App() {
     applyTheme(theme, !hasFixtureTheme);
     void window.piLing.setTheme(theme);
   }, [theme]);
-
-  useEffect(() => {
-    if (fixture) return;
-    localStorage.setItem(
-      "pi-ling.workbench.open",
-      rightPanelOpen ? "true" : "false",
-    );
-  }, [rightPanelOpen]);
 
   useEffect(() => {
     if (fixture) return;
@@ -271,12 +275,16 @@ export function App() {
 
     void window.piLing.listWorkspaces(true).then(setWorkspaces);
     void window.piLing.getAgentStatus().then(async (initialStatus) => {
-      if (initialStatus.sessionId) {
-        applyActivation(
-          await window.piLing.switchSession(initialStatus.sessionId),
-        );
-      } else {
-        setStatus(initialStatus);
+      try {
+        if (initialStatus.sessionId) {
+          applyActivation(
+            await window.piLing.switchSession(initialStatus.sessionId),
+          );
+        } else {
+          setStatus(initialStatus);
+        }
+      } finally {
+        setSessionInitializing(false);
       }
     });
 
@@ -331,14 +339,36 @@ export function App() {
   const changesSourceRef = useRef(changesSource);
   changesSourceRef.current = changesSource;
 
+  const syncLastAgentTurnChanges = useCallback((turnFiles: ChangedFile[]) => {
+      if (turnFiles.length === 0) {
+        setChangesLoading(false);
+        setReconciledLastTurnChanges((current) =>
+          current.length === 0 ? current : [],
+        );
+        return;
+      }
+      setChangesLoading(true);
+      void window.piLing
+        .getChanges("last-agent-turn")
+        .then((netFiles) => {
+          const next = reconcileLastAgentTurnChanges(turnFiles, netFiles);
+          setReconciledLastTurnChanges((current) =>
+            areChangedFilesEqual(current, next) ? current : next,
+          );
+        })
+        .finally(() => {
+          setChangesLoading(false);
+        });
+  }, []);
+
   const refreshChanges = useCallback((source?: ChangesSourceId) => {
     const resolved = source ?? changesSourceRef.current;
     if (resolved === "last-agent-turn") {
-      setChangesLoading(false);
-      setChangesFiles((current) => {
-        const next = lastTurnChangesRef.current;
-        return areChangedFilesEqual(current, next) ? current : next;
-      });
+      syncLastAgentTurnChanges(
+        reviewRunId
+          ? changesFilesByRunId(timeline.items, reviewRunId)
+          : lastTurnChangesRef.current,
+      );
       return;
     }
     setChangesLoading(true);
@@ -349,7 +379,7 @@ export function App() {
       .finally(() => {
         setChangesLoading(false);
       });
-  }, []);
+  }, [reviewRunId, syncLastAgentTurnChanges, timeline.items]);
 
   const debouncedRefreshChangesRef = useRef<(() => void) | null>(null);
   if (!debouncedRefreshChangesRef.current) {
@@ -366,10 +396,9 @@ export function App() {
 
   useEffect(() => {
     if (changesSource === "last-agent-turn") {
-      setChangesLoading(false);
-      setChangesFiles((current) =>
-        areChangedFilesEqual(current, lastTurnChanges)
-          ? current
+      syncLastAgentTurnChanges(
+        reviewRunId
+          ? changesFilesByRunId(timeline.items, reviewRunId)
           : lastTurnChanges,
       );
       return;
@@ -391,31 +420,12 @@ export function App() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [changesSource]);
-
-  useEffect(() => {
-    if (changesSource !== "last-agent-turn") return;
-    setChangesLoading(false);
-    setChangesFiles((current) =>
-      areChangedFilesEqual(current, lastTurnChanges)
-        ? current
-        : lastTurnChanges,
-    );
-  }, [changesSource, lastTurnChanges]);
+  }, [changesSource, lastTurnChanges, reviewRunId, syncLastAgentTurnChanges, timeline.items]);
 
   const displayedChangesFiles = useMemo(() => {
     if (changesSource !== "last-agent-turn") return changesFiles;
-    if (reviewRunId) {
-      return changesFilesByRunId(timeline.items, reviewRunId);
-    }
-    return lastTurnChanges;
-  }, [
-    changesSource,
-    changesFiles,
-    lastTurnChanges,
-    reviewRunId,
-    timeline.items,
-  ]);
+    return reconciledLastTurnChanges;
+  }, [changesSource, changesFiles, reconciledLastTurnChanges]);
 
   const openAgentTurnReview = useCallback((runId: string) => {
     setReviewRunId(runId);
@@ -460,6 +470,14 @@ export function App() {
         activatePlansTab: () => {},
       });
     };
+  }, []);
+
+  useEffect(() => {
+    bindFilesTabActivator(() => {
+      setRightPanelOpen(true);
+      setRequestedWorkbenchTab("files");
+    });
+    return () => bindFilesTabActivator(() => {});
   }, []);
 
   useEffect(() => {
@@ -529,6 +547,19 @@ export function App() {
     return new Map(tasks.map((task) => [task.parentToolCallId, task]));
   }
 
+  async function withSessionInitialization<T>(
+    message: string,
+    action: () => Promise<T>,
+  ): Promise<T> {
+    setSessionInitializingMessage(message);
+    setSessionInitializing(true);
+    try {
+      return await action();
+    } finally {
+      setSessionInitializing(false);
+    }
+  }
+
   function applyActivation(activation: SessionActivation): boolean {
     if (activation.activationRevision < activationRevisionRef.current) {
       return false;
@@ -557,12 +588,14 @@ export function App() {
   async function chooseWorkspace(
     runtimeKind: RuntimeKind = status?.runtimeKind ?? "native",
   ) {
-    const activation = await window.piLing.selectWorkspace(runtimeKind);
-    if (!activation) {
-      return;
-    }
-    dispatch({ type: "clear" });
-    applyActivation(activation);
+    await withSessionInitialization("正在打开工作区…", async () => {
+      const activation = await window.piLing.selectWorkspace(runtimeKind);
+      if (!activation) {
+        return;
+      }
+      dispatch({ type: "clear" });
+      applyActivation(activation);
+    });
   }
 
   async function sendPrompt(
@@ -686,12 +719,14 @@ export function App() {
       await chooseWorkspace();
       return;
     }
-    applyActivation(
-      await window.piLing.createSession({
-        workspaceId: targetWorkspaceId,
-        runtimeKind: status?.runtimeKind ?? "native",
-      }),
-    );
+    await withSessionInitialization("正在创建会话…", async () => {
+      applyActivation(
+        await window.piLing.createSession({
+          workspaceId: targetWorkspaceId,
+          runtimeKind: status?.runtimeKind ?? "native",
+        }),
+      );
+    });
   }
 
   async function switchSession(sessionId: string) {
@@ -699,14 +734,16 @@ export function App() {
     if (sessionId === status?.sessionId) {
       return;
     }
-    if (timeline.sessionId) {
-      timelineCacheRef.current.set(timeline.sessionId, timeline);
-    }
-    selectedSessionRef.current = sessionId;
-    setLiveMessageIds(new Set());
-    const cached = timelineCacheRef.current.get(sessionId);
-    if (cached) dispatch({ type: "replace", state: cached });
-    applyActivation(await window.piLing.switchSession(sessionId));
+    await withSessionInitialization("正在加载会话…", async () => {
+      if (timeline.sessionId) {
+        timelineCacheRef.current.set(timeline.sessionId, timeline);
+      }
+      selectedSessionRef.current = sessionId;
+      setLiveMessageIds(new Set());
+      const cached = timelineCacheRef.current.get(sessionId);
+      if (cached) dispatch({ type: "replace", state: cached });
+      applyActivation(await window.piLing.switchSession(sessionId));
+    });
   }
 
   async function changeApprovalMode(mode: ApprovalMode) {
@@ -747,7 +784,9 @@ export function App() {
   async function archiveSession(sessionId: string) {
     const result = await window.piLing.archiveSession(sessionId);
     if (result.activation) {
-      applyActivation(result.activation);
+      await withSessionInitialization("正在切换会话…", async () => {
+        applyActivation(result.activation!);
+      });
       return;
     }
     setWorkspaces(await window.piLing.listWorkspaces(true));
@@ -800,6 +839,9 @@ export function App() {
 
   return (
     <main className="shell">
+      {sessionInitializing ? (
+        <SessionActivationOverlay message={sessionInitializingMessage} />
+      ) : null}
       <AppTitleBar />
       <section
         style={
@@ -858,9 +900,14 @@ export function App() {
                   localStorage.setItem("pi-ling.sidebar.collapsed", "0");
                   setSidebarCollapsed(false);
                 }}
-                onToggleRightPanel={() =>
-                  setRightPanelOpen((current) => !current)
-                }
+                onToggleRightPanel={() => {
+                  setRightPanelOpen((current) => {
+                    if (!current) {
+                      setRequestedWorkbenchTab("trace");
+                    }
+                    return !current;
+                  });
+                }}
               />
               <BackgroundTasksContext.Provider value={backgroundTasksByCallId}>
                 <ChatView

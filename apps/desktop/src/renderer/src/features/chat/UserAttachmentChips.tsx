@@ -20,6 +20,7 @@ export function UserAttachmentChips(props: {
             key={attachment.relativePath}
             type="button"
             className="user-attachment-chip"
+            aria-label={`预览 ${attachment.name}`}
             title={attachment.name}
             onClick={() => openFile(attachment.relativePath)}
           >
@@ -27,10 +28,9 @@ export function UserAttachmentChips(props: {
               <img
                 className="user-attachment-chip-thumb"
                 src={src}
-                alt={attachment.name}
+                alt=""
               />
             ) : null}
-            <span className="user-attachment-chip-name">{attachment.name}</span>
           </button>
         );
       })}

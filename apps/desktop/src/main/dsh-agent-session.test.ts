@@ -36,6 +36,8 @@ class FakeDshRuntime implements RuntimeAdapter {
   readonly capabilities = {} as RuntimeCapabilities;
   readonly listeners = new Set<RuntimeEventListener>();
   readonly imports: RecordedImport[] = [];
+  readonly replacementByExternalId = new Map<string, string>();
+  readonly failAppendForExternalId = new Set<string>();
   permission?: RuntimePermissionDecision;
   permissionEvent?: Omit<
     Extract<RuntimeEvent, { type: "permission" }>,
@@ -49,9 +51,26 @@ class FakeDshRuntime implements RuntimeAdapter {
     return { sessionId: options.sessionId, externalSessionId: "remote-1" };
   }
   resumeSession(options: RuntimeSessionOptions) {
+    const replacement = options.externalSessionId
+      ? this.replacementByExternalId.get(options.externalSessionId)
+      : undefined;
+    if (replacement) {
+      return Promise.resolve({
+        sessionId: options.sessionId,
+        externalSessionId: replacement,
+      });
+    }
     return this.createSession(options);
   }
   async importSession(options: RuntimeSessionImportOptions) {
+    if (
+      options.appendToExternalSessionId &&
+      this.failAppendForExternalId.has(options.appendToExternalSessionId)
+    ) {
+      throw new Error(
+        `SessionPersistenceNotFoundError: session "${options.appendToExternalSessionId}" not found`,
+      );
+    }
     this.imports.push({
       mode: options.appendToExternalSessionId ? "append" : "import",
       sessionId: options.sessionId,
@@ -602,6 +621,61 @@ describe("DshAgentSession", () => {
     });
     expect(runtime.imports[0]?.appendToExternalSessionId).toBeUndefined();
     expect(store.getRuntimeSessionId(summary.id)).not.toBe("remote-old");
+  });
+
+  it("reimports full history when delta append targets a missing DSH session", async () => {
+    const summary = store.createSession({
+      workspaceRoot: directory,
+      runtimeKind: "dsh",
+      runtimeVersion: "0.1.3-alpha.1",
+    });
+    const firstSeq = seedUserRun(summary.id, "run-a", "hello");
+    store.setRuntimeImport(summary.id, "missing-remote", firstSeq);
+    seedUserRun(summary.id, "run-b", "follow up");
+
+    const runtime = new FakeDshRuntime();
+    runtime.failAppendForExternalId.add("missing-remote");
+    await DshAgentSession.open({
+      store,
+      session: summary,
+      runtime,
+      emit: () => {},
+      buffer: new RunMessageBuffer(() => {}),
+      availableRuntimes: ["native", "dsh"],
+    });
+
+    expect(runtime.imports.length).toBeGreaterThanOrEqual(1);
+    expect(runtime.imports.some((entry) => entry.mode === "import")).toBe(true);
+    expect(store.getRuntimeSessionId(summary.id)).not.toBe("missing-remote");
+  });
+
+  it("appends history when a stale DSH session is replaced during resume", async () => {
+    const summary = store.createSession({
+      workspaceRoot: directory,
+      runtimeKind: "dsh",
+      runtimeVersion: "0.1.3-alpha.1",
+    });
+    seedUserRun(summary.id, "run-a", "hello");
+    store.setRuntimeImport(summary.id, "stale-remote", 1);
+
+    const runtime = new FakeDshRuntime();
+    runtime.replacementByExternalId.set("stale-remote", "recovered-remote");
+    await DshAgentSession.open({
+      store,
+      session: summary,
+      runtime,
+      emit: () => {},
+      buffer: new RunMessageBuffer(() => {}),
+      availableRuntimes: ["native", "dsh"],
+    });
+
+    expect(runtime.imports).toHaveLength(1);
+    expect(runtime.imports[0]).toMatchObject({
+      mode: "import",
+      messageCount: 1,
+    });
+    expect(runtime.imports[0]?.appendToExternalSessionId).toBeUndefined();
+    expect(store.getRuntimeSessionId(summary.id)).not.toBe("stale-remote");
   });
 
   it("re-imports compacted history before startPrompt sends", async () => {

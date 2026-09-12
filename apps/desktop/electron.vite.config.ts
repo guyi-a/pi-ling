@@ -33,8 +33,10 @@ const bundledMainDeps = [
   "@pi-ling/compaction",
   "@pi-ling/contracts",
   "@pi-ling/dsh-runtime",
+  "@pi-ling/llm-config",
   "@pi-ling/runtime-contracts",
   "@pi-ling/session-events",
+  "@pi-ling/web-tools",
   "zod",
 ];
 

@@ -28,6 +28,8 @@ import type {
   RuntimeToolStatus,
 } from "@pi-ling/runtime-contracts";
 
+import { isDshSessionNotResumableError } from "./dsh-session-errors.js";
+
 export interface DshRuntimeOptions {
   dshBin?: string;
   dshHome: string;
@@ -51,8 +53,9 @@ interface ToolDetails {
   input?: unknown;
 }
 
-/** pi-ai catalog model for DSH; Native uses `deepseek-flash` via runtime registration. */
-export const DSH_DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-pro" as const;
+import { DSH_ACP_DEEPSEEK_MODEL } from "./dsh-pi-ai-profile.js";
+
+export { DSH_ACP_DEEPSEEK_MODEL as DSH_DEFAULT_DEEPSEEK_MODEL };
 
 const ALLOWED_ENV = [
   "PATH",
@@ -278,7 +281,11 @@ export class DshRuntimeAdapter implements RuntimeAdapter {
         mcpServers: [],
       });
     } catch (error) {
-      if (!isSessionAlreadyActiveError(error, externalSessionId)) {
+      if (isSessionAlreadyActiveError(error, externalSessionId)) {
+        // Session is already attached in this DSH process.
+      } else if (isDshSessionNotResumableError(error)) {
+        return this.createSession(options);
+      } else {
         throw error;
       }
     }
@@ -740,7 +747,7 @@ export class DshRuntimeAdapter implements RuntimeAdapter {
         sessionId: append ?? options.sessionId,
         cwd: options.workspaceRoot,
         provider: options.provider ?? "deepseek",
-        model: options.model ?? DSH_DEFAULT_DEEPSEEK_MODEL,
+        model: options.model ?? DSH_ACP_DEEPSEEK_MODEL,
         canonicalMessages: options.canonicalMessages,
         ...(mode === "append" ? { startTurn: options.startTurn ?? 1 } : {}),
         doneFile: donePath,

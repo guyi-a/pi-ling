@@ -131,6 +131,16 @@ lines.on("line", (line) => {
       break;
     }
     case "thread/resume":
+      if (message.params.threadId === "stale-thread") {
+        send({
+          id: message.id,
+          error: {
+            code: -32603,
+            message: "no rollout found for thread id stale-thread",
+          },
+        });
+        break;
+      }
       result(message.id, {
         thread: { id: message.params.threadId, turns: [] },
       });

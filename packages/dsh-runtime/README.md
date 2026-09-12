@@ -57,7 +57,7 @@ missing configured path or version mismatch leaves DSH disabled.
 The desktop writes a deterministic profile overlay into the versioned
 `DSH_HOME`. It activates the pinned DSH `@deepseek-ai/dsh-llm-pi-ai` adapter
 with only `deepseek` and `anthropic` routes; ACP defaults to
-`deepseek/deepseek-v4-flash`. Optional `DEEPSEEK_BASE_URL` and
+`deepseek/deepseek-flash`. Optional `DEEPSEEK_BASE_URL` and
 `ANTHROPIC_BASE_URL` override their endpoints.
 
 Real DSH process tests remain opt-in. They use the pinned DSH test-support LLM

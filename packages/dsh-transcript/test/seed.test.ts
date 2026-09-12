@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { toDshSeed } from "../src/index.js";
 
-const projection = { provider: "pi-ling-deepseek", model: "deepseek-v4-flash" };
+const projection = { provider: "pi-ling-deepseek", model: "deepseek-flash" };
 
 const textOnlyHistory: CanonicalMessage[] = [
   {

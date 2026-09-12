@@ -8,7 +8,9 @@ import {
 
 export { resolveDshNodeExecutable };
 
-import { DSH_PI_AI_PROFILE_PATCH } from "./dsh-pi-ai-profile.js";
+import { isProviderSupportedByRuntime } from "@pi-ling/llm-config";
+
+import { buildDshPiAiProfilePatch } from "./dsh-pi-ai-profile.js";
 
 export const PINNED_DSH_VERSION = "0.1.3-alpha.1";
 export const PINNED_DSH_COMMIT = "d347e703";
@@ -46,6 +48,15 @@ export function resolveDshLaunchConfig(
 ): DshLaunchResolution {
   if (env["PI_LING_DSH_ENABLED"] !== "true") {
     return { enabled: false };
+  }
+
+  const provider = env["PI_LING_PROVIDER"]?.trim() || "deepseek";
+  const model = env["PI_LING_MODEL"]?.trim() || "deepseek-flash";
+  if (!isProviderSupportedByRuntime(provider, "dsh")) {
+    return {
+      enabled: true,
+      reason: `DSH does not support provider "${provider}". Use DeepSeek or Anthropic in settings.`,
+    };
   }
 
   const effectiveRepoRoot =
@@ -109,8 +120,10 @@ export function resolveDshLaunchConfig(
         `${PINNED_DSH_VERSION}-${PINNED_DSH_COMMIT}`,
       ),
       cwd: sourceRoot,
-      profilePatch: DSH_PI_AI_PROFILE_PATCH,
+      profilePatch: buildDshPiAiProfilePatch({ provider, model }),
       env: {
+        PI_LING_PROVIDER: provider,
+        PI_LING_MODEL: model,
         ...(env["DEEPSEEK_API_KEY"]?.trim()
           ? { DEEPSEEK_API_KEY: env["DEEPSEEK_API_KEY"] }
           : {}),

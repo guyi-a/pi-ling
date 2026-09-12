@@ -27,14 +27,10 @@
   background: var(--surface-hover);
 }
 
-.run-activity-chevron,
-.run-activity-status {
+.run-activity-chevron {
   width: 13px;
   height: 13px;
   flex: 0 0 auto;
-}
-
-.run-activity-chevron {
   transition: transform 140ms ease;
 }
 
@@ -42,18 +38,10 @@
   transform: rotate(90deg);
 }
 
-.run-activity.active .run-activity-status {
-  color: var(--accent);
-  animation: spin 0.9s linear infinite;
-}
-
-.run-activity.completed .run-activity-status {
-  color: var(--success);
-}
-
-.run-activity.error .run-activity-status,
-.run-activity.crashed .run-activity-status {
-  color: var(--danger);
+.run-activity-status {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
 }
 
 .run-activity-summary-text {
@@ -384,6 +372,35 @@
   color: var(--text-soft);
 }
 
+.tool-cat-explore .tool-entry-label {
+  color: var(--tool-explore);
+}
+
+.tool-cat-edit .tool-entry-label {
+  color: var(--tool-edit);
+}
+
+.tool-cat-command .tool-entry-label {
+  color: var(--tool-command);
+}
+
+.tool-cat-network .tool-entry-label {
+  color: var(--tool-network);
+}
+
+.tool-cat-verify .tool-entry-label {
+  color: var(--tool-verify);
+}
+
+.tool-cat-meta .tool-entry-label {
+  color: var(--tool-meta);
+}
+
+.tool-cat-subagent .tool-entry-label,
+.tool-cat-agent .tool-entry-label {
+  color: var(--tool-subagent);
+}
+
 .tool-entry-target {
   min-width: 0;
   overflow: hidden;
@@ -392,9 +409,72 @@
   white-space: nowrap;
 }
 
+.tool-entry[data-ext="html"] .tool-entry-target,
+.tool-entry[data-ext="htm"] .tool-entry-target {
+  color: var(--file-html);
+}
+
+.tool-entry[data-ext="js"] .tool-entry-target,
+.tool-entry[data-ext="mjs"] .tool-entry-target,
+.tool-entry[data-ext="cjs"] .tool-entry-target {
+  color: var(--file-js);
+}
+
+.tool-entry[data-ext="css"] .tool-entry-target,
+.tool-entry[data-ext="scss"] .tool-entry-target,
+.tool-entry[data-ext="less"] .tool-entry-target {
+  color: var(--file-css);
+}
+
+.tool-entry[data-ext="ts"] .tool-entry-target {
+  color: var(--file-ts);
+}
+
+.tool-entry[data-ext="tsx"] .tool-entry-target {
+  color: var(--file-tsx);
+}
+
+.tool-entry[data-ext="json"] .tool-entry-target,
+.tool-entry[data-ext="jsonc"] .tool-entry-target {
+  color: var(--file-json);
+}
+
+.tool-entry[data-ext="py"] .tool-entry-target {
+  color: var(--file-py);
+}
+
+.tool-entry[data-ext="md"] .tool-entry-target,
+.tool-entry[data-ext="mdx"] .tool-entry-target {
+  color: var(--file-md);
+}
+
+.tool-entry[data-ext="sh"] .tool-entry-target,
+.tool-entry[data-ext="bash"] .tool-entry-target,
+.tool-entry[data-ext="zsh"] .tool-entry-target,
+.tool-entry[data-ext="ps1"] .tool-entry-target {
+  color: var(--file-sh);
+}
+
 .tool-entry-state {
   color: var(--muted-2);
   font-size: 11px;
+}
+
+.tool-entry.running .tool-entry-state {
+  color: var(--accent);
+}
+
+.tool-entry.completed .tool-entry-state {
+  color: var(--success);
+}
+
+.tool-entry.failed .tool-entry-state,
+.tool-entry.denied .tool-entry-state {
+  color: var(--danger);
+}
+
+.tool-entry.awaiting-approval .tool-entry-state {
+  color: var(--warning);
 }
 
 .tool-entry-details {

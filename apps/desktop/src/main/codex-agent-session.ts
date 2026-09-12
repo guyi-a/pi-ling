@@ -30,10 +30,9 @@ import {
   TimelineProjector,
 } from "@pi-ling/session-events";
 
-import {
-  CodexRuntimeAdapter,
-  CODEX_DEFAULT_DEEPSEEK_MODEL,
-} from "@pi-ling/codex-runtime";
+import { CodexRuntimeAdapter } from "@pi-ling/codex-runtime";
+import { isLlmConfigured } from "@pi-ling/llm-config";
+import { getResolvedLlmConfig } from "./llm-config-store.js";
 import {
   buildCodexThreadOptions,
   evaluateCodexApproval,
@@ -156,11 +155,37 @@ export class CodexAgentSession {
       options.session.approvalMode,
       options.session.composerMode ?? "agent",
     );
+    const llmConfig = getResolvedLlmConfig();
     const importOptions = {
       workspaceRoot: options.session.workspace.root,
-      provider: "deepseek",
-      model: CODEX_DEFAULT_DEEPSEEK_MODEL,
+      provider: llmConfig.provider,
+      model: llmConfig.model,
       ...threadOptions,
+    };
+    const resumeCodexSession = async (externalId: string) => {
+      const handle = await options.runtime.resumeSession({
+        sessionId: options.session.id,
+        workspaceRoot: options.session.workspace.root,
+        externalSessionId: externalId,
+        ...threadOptions,
+      });
+      const resolvedId = handle.externalSessionId;
+      if (resolvedId === externalId) return;
+
+      if (messages.length > 0 && options.runtime.importSession) {
+        await options.runtime.importSession({
+          sessionId: options.session.id,
+          appendToExternalSessionId: resolvedId,
+          ...importOptions,
+          canonicalMessages: messages,
+        });
+      }
+      options.store.setRuntimeImport(
+        options.session.id,
+        resolvedId,
+        events.at(-1)?.seq ?? 0,
+        CODEX_PROJECTION_VERSION,
+      );
     };
 
     const crossesCompactionBoundary = events.some(
@@ -187,12 +212,7 @@ export class CodexAgentSession {
         events.at(-1)?.seq ?? 0,
         CODEX_PROJECTION_VERSION,
       );
-      await options.runtime.resumeSession({
-        sessionId: options.session.id,
-        workspaceRoot: options.session.workspace.root,
-        externalSessionId: imported.externalSessionId,
-        ...threadOptions,
-      });
+      await resumeCodexSession(imported.externalSessionId);
       instance.#applyRuntimeOptions();
       return instance;
     }
@@ -224,35 +244,25 @@ export class CodexAgentSession {
         events.filter((envelope) => envelope.seq > watermark),
       );
       if (delta.length > 0) {
-        await options.runtime.importSession({
-          sessionId: `delta:${randomUUID()}`,
+        const imported = await options.runtime.importSession({
+          sessionId: options.session.id,
           appendToExternalSessionId: externalSessionId,
           ...importOptions,
           canonicalMessages: delta,
         });
         options.store.setRuntimeImport(
           options.session.id,
-          externalSessionId,
+          imported.externalSessionId,
           events.at(-1)?.seq ?? 0,
           CODEX_PROJECTION_VERSION,
         );
-        await options.runtime.resumeSession({
-          sessionId: options.session.id,
-          workspaceRoot: options.session.workspace.root,
-          externalSessionId,
-          ...threadOptions,
-        });
+        await resumeCodexSession(imported.externalSessionId);
         instance.#applyRuntimeOptions();
         return instance;
       }
     }
 
-    await options.runtime.resumeSession({
-      sessionId: options.session.id,
-      workspaceRoot: options.session.workspace.root,
-      externalSessionId,
-      ...threadOptions,
-    });
+    await resumeCodexSession(externalSessionId);
     instance.#applyRuntimeOptions();
     return instance;
   }
@@ -266,9 +276,9 @@ export class CodexAgentSession {
       sessionId: this.#session.id,
       runtimeKind: "codex",
       availableRuntimes: this.#availableRuntimes,
-      provider: "deepseek",
-      model: CODEX_DEFAULT_DEEPSEEK_MODEL,
-      configured: Boolean(process.env["DEEPSEEK_API_KEY"]?.trim()),
+      provider: getResolvedLlmConfig().provider,
+      model: getResolvedLlmConfig().model,
+      configured: isLlmConfigured(getResolvedLlmConfig()),
       approvalMode: this.#approvalMode,
       composerMode: this.#composerMode,
       workspace: this.#session.workspace,

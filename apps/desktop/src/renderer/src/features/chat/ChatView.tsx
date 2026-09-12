@@ -2,7 +2,7 @@ import {
   ArrowDown,
   ArrowUp,
   ChevronsDown,
-  ImagePlus,
+  Paperclip,
   Square,
 } from "lucide-react";
 import type {
@@ -48,8 +48,12 @@ import { MessageItem } from "./MessageItem";
 import { RunActivityBlock } from "./RunActivityBlock";
 import { TurnBlock } from "./TurnBlock";
 import { TurnChangesCard } from "./TurnChangesCard";
+import { ComposerFileMentionMenu } from "./ComposerFileMentionMenu";
 import { ComposerModePicker } from "./ComposerModePicker";
 import { RuntimePicker } from "./RuntimePicker";
+import { useComposerFileMention } from "./use-composer-file-mention";
+import { refreshFilesFromOutside } from "../files/store";
+import { useWorkspaceTree } from "../files/WorkspaceTree";
 import {
   immediatePresentationRunIds,
   useMessagePresentation,
@@ -129,6 +133,7 @@ export function ChatView(props: {
   } = props;
   const [prompt, setPrompt] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
+  const [uploadHint, setUploadHint] = useState<string | null>(null);
   const [openComposerMenu, setOpenComposerMenu] = useState<ComposerMenu | null>(
     null,
   );
@@ -140,8 +145,17 @@ export function ChatView(props: {
   const clearAttachments = useAttachmentsStore((state) => state.clear);
   const hasAttachments = attachments.length > 0;
   const canAttachImages = attachmentsEnabled && Boolean(workspaceRoot);
+  const canUploadFiles = Boolean(workspaceRoot);
+  const { entries: workspaceEntries } = useWorkspaceTree(workspaceRoot ?? "");
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const mention = useComposerFileMention({
+    enabled: Boolean(workspaceRoot),
+    prompt,
+    setPrompt,
+    textareaRef,
+    files: workspaceEntries,
+  });
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [skippedPresentationRunIds, setSkippedPresentationRunIds] =
     useState<ReadonlySet<string>>(() => new Set());
@@ -274,11 +288,22 @@ export function ChatView(props: {
     handleImageFiles(images);
   };
 
-  async function pickImages() {
-    if (!canAttachImages || !workspaceRoot) return;
-    const picked = await window.piLing.pickAttachmentImages(workspaceRoot);
-    if (picked.length > 0) {
-      useAttachmentsStore.getState().add(attachmentSessionId, picked);
+  async function pickUpload() {
+    if (!canUploadFiles || !workspaceRoot) return;
+    try {
+      const uploaded = await window.piLing.pickAndUploadWorkspaceFiles(
+        workspaceRoot,
+      );
+      if (uploaded.length === 0) return;
+      refreshFilesFromOutside();
+      setUploadHint(
+        uploaded.length === 1
+          ? `已上传 ${uploaded[0]?.name ?? "文件"}`
+          : `已上传 ${uploaded.length} 个文件`,
+      );
+      window.setTimeout(() => setUploadHint(null), 3000);
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -447,9 +472,18 @@ export function ChatView(props: {
           <textarea
             ref={textareaRef}
             value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
+            onChange={(event) => {
+              mention.handlePromptChange(
+                event.target.value,
+                event.target.selectionStart ?? event.target.value.length,
+              );
+            }}
+            onSelect={mention.handleTextareaSelect}
             onPaste={onPaste}
             onKeyDown={(event) => {
+              if (mention.handleTextareaKeyDown(event)) {
+                return;
+              }
               if (shouldSubmitComposer({
                 key: event.key,
                 shiftKey: event.shiftKey,
@@ -463,12 +497,15 @@ export function ChatView(props: {
               !workspaceReady
                 ? "请先选择一个工作区"
                 : !configured
-                  ? "缺少 DEEPSEEK_API_KEY"
+                  ? "缺少 API Key，请在设置中配置模型与密钥"
                   : "描述你想完成的任务"
             }
             rows={1}
             disabled={!workspaceReady || composerBusy}
           />
+          {uploadHint ? (
+            <div className="composer-upload-hint">{uploadHint}</div>
+          ) : null}
           {sendError ? <div className="message-error">{sendError}</div> : null}
           {runtimeError ? (
             <div className="message-error">
@@ -487,17 +524,18 @@ export function ChatView(props: {
           ) : null}
           <div className="composer-footer">
             <div className="composer-controls">
-              {canAttachImages ? (
+              {canUploadFiles ? (
                 <button
                   type="button"
                   className="composer-attach-button"
-                  aria-label="上传图片"
+                  aria-label="上传文件"
+                  title="上传文件到工作区（图片请粘贴以附加到消息）"
                   disabled={composerBusy}
                   onClick={() => {
-                    void pickImages();
+                    void pickUpload();
                   }}
                 >
-                  <ImagePlus size={16} />
+                  <Paperclip size={16} />
                 </button>
               ) : null}
               <RuntimePicker
@@ -572,6 +610,15 @@ export function ChatView(props: {
             )}
           </div>
         </form>
+        <ComposerFileMentionMenu
+          open={mention.mentionOpen}
+          anchorRef={textareaRef}
+          files={mention.filteredFiles}
+          activeIndex={mention.activeIndex}
+          query={mention.mentionQuery}
+          onSelect={mention.applyMention}
+          onClose={mention.closeMention}
+        />
         </div>
       </div>
       </div>

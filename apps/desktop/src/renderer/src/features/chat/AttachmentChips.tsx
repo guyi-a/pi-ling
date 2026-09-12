@@ -1,6 +1,7 @@
 import { X } from "lucide-react";
 
 import { workspaceInlineURL } from "../../lib/workspace-url";
+import { useFilesStore } from "../files/store";
 import {
   useAttachmentsStore,
   type AttachedImage,
@@ -11,23 +12,33 @@ function AttachmentChip(props: {
   workspaceRoot: string;
   onRemove: () => void;
 }) {
+  const openFile = useFilesStore((state) => state.openFile);
   const src = workspaceInlineURL(props.workspaceRoot, props.file.relativePath);
   return (
     <div className="attachment-chip">
-      <img
-        className="attachment-chip-thumb"
-        src={src}
-        alt={props.file.name}
+      <button
+        type="button"
+        className="attachment-chip-preview"
+        aria-label={`预览 ${props.file.name}`}
         title={props.file.name}
-      />
-      <span className="attachment-chip-name">{props.file.name}</span>
+        onClick={() => openFile(props.file.relativePath)}
+      >
+        <img
+          className="attachment-chip-thumb"
+          src={src}
+          alt=""
+        />
+      </button>
       <button
         type="button"
         className="attachment-chip-remove"
         aria-label={`移除 ${props.file.name}`}
-        onClick={props.onRemove}
+        onClick={(event) => {
+          event.stopPropagation();
+          props.onRemove();
+        }}
       >
-        <X size={14} />
+        <X size={12} />
       </button>
     </div>
   );

@@ -31,6 +31,7 @@ import type {
   JsonRpcRequest,
 } from "./codex-app-server-types.js";
 import { CODEX_DEFAULT_DEEPSEEK_MODEL } from "./codex-deepseek-config.js";
+import { isMissingCodexRolloutError } from "./codex-rollout-errors.js";
 import { PI_LING_CODEX_DYNAMIC_TOOLS } from "./codex-dynamic-tools.js";
 import {
   codexToolInput,
@@ -278,16 +279,21 @@ export class CodexRuntimeAdapter implements RuntimeAdapter {
     options: RuntimeSessionOptions,
   ): Promise<RuntimeSessionHandle> {
     if (!options.externalSessionId) return this.createSession(options);
-    const client = await this.#requireClient();
-    const session = this.#localSession(options, options.externalSessionId);
-    const externalSessionId = await client.resumeThread(
-      options.externalSessionId,
-      this.#configuration(session),
-    );
-    session.externalSessionId = externalSessionId;
-    this.#attachSession(options.sessionId, session);
-    await this.#syncWorkspaceSkills(session.workspaceRoot);
-    return { sessionId: options.sessionId, externalSessionId };
+    try {
+      const client = await this.#requireClient();
+      const session = this.#localSession(options, options.externalSessionId);
+      const externalSessionId = await client.resumeThread(
+        options.externalSessionId,
+        this.#configuration(session),
+      );
+      session.externalSessionId = externalSessionId;
+      this.#attachSession(options.sessionId, session);
+      await this.#syncWorkspaceSkills(session.workspaceRoot);
+      return { sessionId: options.sessionId, externalSessionId };
+    } catch (error) {
+      if (!isMissingCodexRolloutError(error)) throw error;
+      return this.createSession(options);
+    }
   }
 
   async importSession(

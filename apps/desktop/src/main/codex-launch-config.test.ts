@@ -47,7 +47,7 @@ describe("resolveCodexLaunchConfig", () => {
         path.join(resolution.options.codexHome, "config.toml"),
         "utf8",
       ),
-    ).toContain('model = "deepseek-v4-flash"');
+    ).toContain('model = "deepseek-flash"');
     expect(
       JSON.parse(
         readFileSync(
@@ -56,7 +56,7 @@ describe("resolveCodexLaunchConfig", () => {
         ),
       ),
     ).toMatchObject({
-      models: [expect.objectContaining({ slug: "deepseek-v4-flash" })],
+      models: [expect.objectContaining({ slug: "deepseek-flash" })],
     });
   });
 });

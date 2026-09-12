@@ -7,7 +7,7 @@ import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completio
 import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 
 export const PI_LING_DEEPSEEK_PROVIDER = "deepseek" as const;
-/** DeepSeek V4.1 Flash — not yet in pi-ai 0.85.0 catalog; registered at runtime. */
+/** Official DeepSeek V4.1 Flash; registered at runtime until pi-ai catalog ships it. */
 export const PI_LING_DEEPSEEK_MODEL = "deepseek-flash" as const;
 
 function deepseekFlashModel(

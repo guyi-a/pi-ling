@@ -447,7 +447,7 @@ export class SessionStore {
          ORDER BY
            CASE WHEN s.pinned_at IS NULL THEN 1 ELSE 0 END,
            s.pinned_at DESC,
-           s.updated_at DESC,
+           s.created_at DESC,
            s.rowid DESC`,
       )
       .all() as unknown as SessionRow[];
@@ -499,7 +499,7 @@ export class SessionStore {
     const rows = this.#db
       .prepare(
         `SELECT * FROM workspaces
-         ORDER BY COALESCE(last_opened_at, updated_at) DESC, name ASC`,
+         ORDER BY name ASC, created_at ASC, workspace_id ASC`,
       )
       .all() as unknown as WorkspaceRow[];
     return rows.map((row) => ({
@@ -1736,7 +1736,7 @@ export class SessionStore {
          ORDER BY
            CASE WHEN s.pinned_at IS NULL THEN 1 ELSE 0 END,
            s.pinned_at DESC,
-           s.updated_at DESC,
+           s.created_at DESC,
            s.rowid DESC`,
       )
       .all(workspaceId) as unknown as SessionRow[];

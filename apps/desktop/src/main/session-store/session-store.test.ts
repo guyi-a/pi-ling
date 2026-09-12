@@ -181,6 +181,55 @@ describe("SessionStore", () => {
     expect(store.listSessions()).toHaveLength(2);
   });
 
+  it("keeps sidebar order stable when session activity timestamps change", () => {
+    const first = store.createSession({
+      id: "first",
+      workspaceRoot: directory,
+      title: "First",
+    });
+    const second = store.createSession({
+      id: "second",
+      workspaceId: first.workspaceId,
+      title: "Second",
+    });
+
+    expect(store.listSessions().map((session) => session.id)).toEqual([
+      second.id,
+      first.id,
+    ]);
+
+    store.setLifecycle(first.id, "idle");
+    store.setRuntimeSessionId(first.id, "remote-session");
+
+    expect(store.listSessions().map((session) => session.id)).toEqual([
+      second.id,
+      first.id,
+    ]);
+  });
+
+  it("keeps workspace order stable when last_opened_at changes", () => {
+    const alpha = store.createWorkspace({
+      root: path.join(directory, "alpha"),
+      name: "alpha",
+    });
+    const beta = store.createWorkspace({
+      root: path.join(directory, "beta"),
+      name: "beta",
+    });
+
+    expect(store.listWorkspaces().map((workspace) => workspace.id)).toEqual([
+      alpha.id,
+      beta.id,
+    ]);
+
+    store.touchWorkspace(beta.id);
+
+    expect(store.listWorkspaces().map((workspace) => workspace.id)).toEqual([
+      alpha.id,
+      beta.id,
+    ]);
+  });
+
   it("migrates legacy workspace roots idempotently", () => {
     store.close();
     const filename = path.join(directory, "legacy.db");

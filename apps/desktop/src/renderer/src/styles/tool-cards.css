@@ -102,9 +102,12 @@
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   background: var(--code-bg);
-  font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.5;
+  font-family: "Cascadia Code", Consolas, var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  font-variant-ligatures: none;
+  -webkit-font-smoothing: auto;
+  text-rendering: geometricPrecision;
   white-space: pre-wrap;
 }
 

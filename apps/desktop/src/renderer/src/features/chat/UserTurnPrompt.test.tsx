@@ -24,6 +24,7 @@ describe("UserTurnPrompt", () => {
       <UserTurnPrompt item={userItem()} />,
     );
     expect(html).toContain("user-turn-prompt");
+    expect(html).toContain("message-copy-action");
     expect(html).toContain("帮我写一个 README");
   });
 

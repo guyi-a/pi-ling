@@ -1,6 +1,7 @@
 import type { WorkspaceTreeNode as WorkspaceTreeEntry } from "@pi-ling/contracts";
 import { useEffect, useMemo, useState } from "react";
 
+import { useGitDecorations } from "./use-git-decorations";
 import { buildTree, WorkspaceTreeList } from "./workspace-tree";
 import {
   readWorkspaceTreeCacheLatest,
@@ -17,10 +18,21 @@ type TreeState = {
   signature: string;
 };
 
+function emptyTreeState(): TreeState {
+  return {
+    entries: [],
+    rootName: "",
+    truncated: false,
+    error: null,
+    signature: "",
+  };
+}
+
 function initialTreeState(
   root: string,
   cacheEpoch: number,
 ): TreeState {
+  if (!root.trim()) return emptyTreeState();
   const cached = readWorkspaceTreeCacheLatest(root, cacheEpoch);
   if (!cached) {
     return {
@@ -53,6 +65,11 @@ export function useWorkspaceTree(root: string) {
   }, [root, filesVersion]);
 
   useEffect(() => {
+    if (!root.trim()) {
+      setState(emptyTreeState());
+      return;
+    }
+
     let cancelled = false;
 
     void window.piLing
@@ -91,6 +108,7 @@ export function useWorkspaceTree(root: string) {
 
   return {
     roots,
+    entries: state.entries ?? [],
     loading: state.entries === null && !state.error,
     rootName: state.rootName,
     truncated: state.truncated,
@@ -102,6 +120,7 @@ export function WorkspaceTree(props: { root: string }) {
   const { roots, loading, rootName, truncated, error } = useWorkspaceTree(
     props.root,
   );
+  const decorations = useGitDecorations(props.root);
 
   if (loading) {
     return <div className="files-tree-message">正在加载…</div>;
@@ -120,7 +139,11 @@ export function WorkspaceTree(props: { root: string }) {
       {roots.length === 0 ? (
         <div className="files-tree-message">空目录。</div>
       ) : (
-        <WorkspaceTreeList root={props.root} nodes={roots} />
+        <WorkspaceTreeList
+          root={props.root}
+          nodes={roots}
+          decorations={decorations}
+        />
       )}
       {truncated ? (
         <div className="files-tree-message">目录项过多，已截断显示。</div>

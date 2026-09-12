@@ -28,7 +28,7 @@
 }
 
 .window-mark {
-  color: var(--accent);
+  color: var(--accent-strong);
   font-family: Georgia, "Times New Roman", serif;
   font-size: 16px;
 }
@@ -262,14 +262,19 @@
   color: var(--text);
 }
 
+.workbench-tab.active {
+  color: color-mix(in srgb, var(--text) 85%, var(--accent-strong));
+}
+
 .workbench-tab.active::after {
   position: absolute;
   right: 7px;
   bottom: 0;
   left: 7px;
-  height: 1px;
+  height: 2px;
   content: "";
   background: var(--accent);
+  border-radius: 2px 2px 0 0;
 }
 
 .close-workbench {
@@ -347,6 +352,48 @@
   color: var(--text);
   font-size: 18px;
   font-weight: 620;
+}
+
+.session-activation-overlay {
+  position: fixed;
+  z-index: 120;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--editor-bg);
+}
+
+.session-activation-card {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  max-width: 320px;
+  text-align: center;
+}
+
+.session-activation-spinner {
+  color: var(--accent);
+  animation: session-activation-spin 0.9s linear infinite;
+}
+
+@keyframes session-activation-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.session-activation-title {
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.session-activation-subtitle {
+  margin: 0;
+  color: var(--muted-2);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .safety-dialog p {

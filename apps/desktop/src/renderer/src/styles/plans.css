@@ -1,257 +1,517 @@
-.workbench-body:has(.plans-panel) {
-  display: block;
-  padding: 0;
-}
-
-.plans-panel {
-  min-width: 0;
-  min-height: 0;
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--workbench-bg);
-}
-
-.plans-panel.is-hidden {
-  display: none;
-}
-
-.plans-preview-shell {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-  height: 100%;
-}
-
-.plans-header-wrap {
-  position: relative;
-  z-index: 2;
-  flex: 0 0 auto;
-}
-
-.plans-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 36px;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.plans-picker {
-  min-width: 0;
-  flex: 1 1 auto;
-  overflow: hidden;
-  padding: 4px 8px;
-  color: var(--text-soft);
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  cursor: pointer;
-  text-align: left;
-  font-size: 13px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.plans-picker:hover {
-  color: var(--text);
-  background: var(--surface-hover);
-}
-
-.plans-switcher {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 8px;
-  left: 8px;
-  z-index: 30;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface-1);
-  box-shadow: 0 14px 40px var(--shadow);
-}
-
-.plans-switcher-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--border);
-}
-
-.plans-switcher-label {
-  color: var(--muted-2);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-    "Liberation Mono", monospace;
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-.plans-switcher-count {
-  color: var(--muted-2);
-  font-size: 11px;
-}
-
-.plans-switcher-list {
-  display: grid;
-  gap: 2px;
-  max-height: 58vh;
-  overflow: auto;
-  padding: 4px;
-}
-
-.plans-switcher-item {
-  display: grid;
-  gap: 4px;
-  width: 100%;
-  padding: 8px 10px;
-  color: inherit;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  cursor: pointer;
-  text-align: left;
-}
-
-.plans-switcher-item:hover,
-.plans-switcher-item.is-selected {
-  background: var(--surface-hover);
-}
-
-.plans-switcher-item-title {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text);
-  font-size: 13px;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.plans-switcher-item-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.plans-switcher-badge {
-  font-size: 10px;
-  padding: 1px 6px;
-}
-
-.plans-switcher-run {
-  color: var(--muted-2);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-    "Liberation Mono", monospace;
-  font-size: 10px;
-}
-
-.plans-badge {
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  white-space: nowrap;
-  flex: 0 0 auto;
-}
-
-.plans-badge-draft {
-  background: color-mix(in srgb, var(--muted-2) 16%, transparent);
-  color: var(--muted-2);
-}
-
-.plans-badge-ready {
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  color: var(--accent);
-}
-
-.plans-badge-building {
-  background: color-mix(in srgb, var(--accent) 24%, transparent);
-  color: var(--accent);
-}
-
-.plans-badge-built {
-  background: color-mix(in srgb, #22c55e 18%, transparent);
-  color: #22c55e;
-}
-
-.plans-badge-rejected {
-  background: color-mix(in srgb, var(--muted-3) 20%, transparent);
-  color: var(--muted-2);
-}
-
-.plans-action-buttons {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 0 0 auto;
-  margin-left: auto;
-}
-
-.plans-build-button,
-.plans-cancel-button {
-  border-radius: 6px;
-  font-size: 12px;
-  line-height: 1;
-  padding: 7px 12px;
-  cursor: pointer;
-}
-
-.plans-build-button {
-  border: none;
-  background: var(--text);
-  color: var(--surface-1);
-  font-weight: 600;
-}
-
-.plans-build-button:disabled,
-.plans-cancel-button:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.plans-cancel-button {
-  border: 1px solid var(--border-subtle);
-  background: transparent;
-  color: var(--muted-2);
-}
-
-.plans-markdown {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: auto;
-  padding: 12px 14px 16px;
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.plans-empty {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 24px;
-  text-align: center;
-  color: var(--muted-2);
-}
-
-.plans-empty strong {
-  color: var(--text);
-  font-size: 14px;
-}
-
-.plans-empty p {
-  margin: 0;
-  max-width: 260px;
-  font-size: 13px;
-  line-height: 1.5;
-}
-
+.workbench-body:has(.plans-panel) {
+
+  display: block;
+
+  padding: 0;
+
+}
+
+
+
+.plans-panel {
+
+  min-width: 0;
+
+  min-height: 0;
+
+  width: 100%;
+
+  height: 100%;
+
+  display: flex;
+
+  flex-direction: column;
+
+  overflow: hidden;
+
+  background: var(--workbench-bg);
+
+}
+
+
+
+.plans-panel.is-hidden {
+
+  display: none;
+
+}
+
+
+
+.plans-preview-shell {
+
+  display: flex;
+
+  flex-direction: column;
+
+  min-width: 0;
+
+  min-height: 0;
+
+  height: 100%;
+
+}
+
+
+
+.plans-header-wrap {
+
+  position: relative;
+
+  z-index: 2;
+
+  flex: 0 0 auto;
+
+}
+
+
+
+.plans-header {
+
+  display: flex;
+
+  align-items: center;
+
+  gap: 8px;
+
+  min-height: 36px;
+
+  padding: 6px 10px;
+
+  border-bottom: 1px solid var(--border-subtle);
+
+}
+
+
+
+.plans-picker {
+
+  min-width: 0;
+
+  flex: 1 1 auto;
+
+  overflow: hidden;
+
+  padding: 4px 8px;
+
+  color: var(--text-soft);
+
+  border: 0;
+
+  border-radius: var(--radius-sm);
+
+  background: transparent;
+
+  cursor: pointer;
+
+  text-align: left;
+
+  font-size: 13px;
+
+  font-weight: 600;
+
+  text-overflow: ellipsis;
+
+  white-space: nowrap;
+
+}
+
+
+
+.plans-picker:hover {
+
+  color: var(--text);
+
+  background: var(--surface-hover);
+
+}
+
+
+
+.plans-switcher {
+
+  position: absolute;
+
+  top: calc(100% + 4px);
+
+  right: 8px;
+
+  left: 8px;
+
+  z-index: 30;
+
+  overflow: hidden;
+
+  border: 1px solid var(--border);
+
+  border-radius: var(--radius-md);
+
+  background: var(--surface-1);
+
+  box-shadow: 0 14px 40px var(--shadow);
+
+}
+
+
+
+.plans-switcher-head {
+
+  display: flex;
+
+  align-items: center;
+
+  justify-content: space-between;
+
+  gap: 8px;
+
+  padding: 6px 12px;
+
+  border-bottom: 1px solid var(--border);
+
+}
+
+
+
+.plans-switcher-label {
+
+  color: var(--muted-2);
+
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+
+    "Liberation Mono", monospace;
+
+  font-size: 10px;
+
+  letter-spacing: 0.14em;
+
+  text-transform: uppercase;
+
+}
+
+
+
+.plans-switcher-count {
+
+  color: var(--muted-2);
+
+  font-size: 11px;
+
+}
+
+
+
+.plans-switcher-list {
+
+  display: grid;
+
+  gap: 2px;
+
+  max-height: 58vh;
+
+  overflow: auto;
+
+  padding: 4px;
+
+}
+
+
+
+.plans-switcher-item {
+
+  display: grid;
+
+  gap: 4px;
+
+  width: 100%;
+
+  padding: 8px 10px;
+
+  color: inherit;
+
+  border: 0;
+
+  border-radius: var(--radius-sm);
+
+  background: transparent;
+
+  cursor: pointer;
+
+  text-align: left;
+
+}
+
+
+
+.plans-switcher-item:hover,
+
+.plans-switcher-item.is-selected {
+
+  background: var(--surface-hover);
+
+}
+
+
+
+.plans-switcher-item-title {
+
+  min-width: 0;
+
+  overflow: hidden;
+
+  color: var(--text);
+
+  font-size: 13px;
+
+  font-weight: 500;
+
+  text-overflow: ellipsis;
+
+  white-space: nowrap;
+
+}
+
+
+
+.plans-switcher-item-meta {
+
+  display: flex;
+
+  align-items: center;
+
+  gap: 8px;
+
+}
+
+
+
+.plans-switcher-badge {
+
+  font-size: 10px;
+
+  padding: 1px 6px;
+
+}
+
+
+
+.plans-switcher-run {
+
+  color: var(--muted-2);
+
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+
+    "Liberation Mono", monospace;
+
+  font-size: 10px;
+
+}
+
+
+
+.plans-badge {
+
+  padding: 2px 8px;
+
+  border-radius: 999px;
+
+  font-size: 11px;
+
+  white-space: nowrap;
+
+  flex: 0 0 auto;
+
+}
+
+
+
+.plans-badge-draft {
+
+  background: color-mix(in srgb, var(--muted-2) 16%, transparent);
+
+  color: var(--muted-2);
+
+}
+
+
+
+.plans-badge-ready {
+
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+
+  color: var(--accent);
+
+}
+
+
+
+.plans-badge-building {
+
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+
+  color: var(--accent);
+
+}
+
+
+
+.plans-badge-built {
+
+  background: color-mix(in srgb, var(--success) 18%, transparent);
+
+  color: var(--success);
+
+}
+
+
+
+.plans-badge-rejected {
+
+  background: color-mix(in srgb, var(--muted-3) 20%, transparent);
+
+  color: var(--muted-2);
+
+}
+
+
+
+.plans-action-buttons {
+
+  display: flex;
+
+  align-items: center;
+
+  gap: 8px;
+
+  flex: 0 0 auto;
+
+  margin-left: auto;
+
+}
+
+
+
+.plans-build-button,
+
+.plans-cancel-button {
+
+  border-radius: 6px;
+
+  font-size: 12px;
+
+  line-height: 1;
+
+  padding: 7px 12px;
+
+  cursor: pointer;
+
+}
+
+
+
+.plans-build-button {
+
+  border: none;
+
+  background: linear-gradient(
+    180deg,
+    var(--accent-strong) 0%,
+    var(--accent) 100%
+  );
+
+  color: var(--accent-contrast);
+
+  font-weight: 600;
+
+}
+
+
+
+.plans-build-button:disabled,
+
+.plans-cancel-button:disabled {
+
+  opacity: 0.55;
+
+  cursor: not-allowed;
+
+}
+
+
+
+.plans-cancel-button {
+
+  border: 1px solid var(--border-subtle);
+
+  background: transparent;
+
+  color: var(--muted-2);
+
+}
+
+
+
+.plans-markdown {
+
+  flex: 1 1 auto;
+
+  min-height: 0;
+
+  overflow: auto;
+
+  padding: 12px 14px 16px;
+
+  font-size: 13px;
+
+  line-height: 1.55;
+
+}
+
+
+
+.plans-empty {
+
+  display: flex;
+
+  flex: 1 1 auto;
+
+  flex-direction: column;
+
+  align-items: center;
+
+  justify-content: center;
+
+  gap: 8px;
+
+  padding: 24px;
+
+  text-align: center;
+
+  color: var(--muted-2);
+
+}
+
+
+
+.plans-empty strong {
+
+  color: var(--text);
+
+  font-size: 14px;
+
+}
+
+
+
+.plans-empty p {
+
+  margin: 0;
+
+  max-width: 260px;
+
+  font-size: 13px;
+
+  line-height: 1.5;
+
+}
+
+

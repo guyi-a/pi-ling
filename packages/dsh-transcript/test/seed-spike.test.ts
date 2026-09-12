@@ -36,7 +36,7 @@ function profilePatch(): string {
   name: '@deepseek-ai/dsh-acp'
   config:
     provider: deepseek
-    model: deepseek-v4-flash
+    model: deepseek-flash
 `.trimStart();
 }
 
@@ -119,7 +119,7 @@ describe.sequential("real DSH Canonical Seed spike", () => {
           sessionId: externalSessionId,
           workspaceRoot: directory,
           provider: "deepseek",
-          model: "deepseek-v4-flash",
+          model: "deepseek-flash",
           canonicalMessages: canonicalHistory,
         });
         expect(imported.externalSessionId).toBe(externalSessionId);
@@ -172,7 +172,7 @@ describe.sequential("real DSH Canonical Seed spike", () => {
           sessionId: externalSessionId,
           workspaceRoot: directory,
           provider: "deepseek",
-          model: "deepseek-v4-flash",
+          model: "deepseek-flash",
           canonicalMessages: canonicalHistory,
         });
         await adapter.resumeSession({
@@ -194,7 +194,7 @@ describe.sequential("real DSH Canonical Seed spike", () => {
           startTurn: 2,
           workspaceRoot: directory,
           provider: "deepseek",
-          model: "deepseek-v4-flash",
+          model: "deepseek-flash",
           canonicalMessages: [
             {
               id: "canonical-user-2",

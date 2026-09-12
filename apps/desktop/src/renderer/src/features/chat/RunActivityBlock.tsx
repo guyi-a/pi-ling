@@ -1,10 +1,4 @@
-import {
-  Check,
-  ChevronRight,
-  CircleSlash,
-  LoaderCircle,
-  X,
-} from "lucide-react";
+import { ChevronRight, LoaderCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import type { AssistantTimelineItem } from "../../timeline/reducer";
@@ -28,24 +22,17 @@ export function RunActivityBlock(props: {
   const active = activity.viewMode === "active";
   const failed =
     activity.lifecycle === "error" || activity.lifecycle === "crashed";
-  const [open, setOpen] = useState(Boolean(props.forceOpen || failed));
+  const [open, setOpen] = useState(Boolean(props.forceOpen));
   const [todosOpen, setTodosOpen] = useState(false);
 
   useEffect(() => {
-    if (!active && !failed && !props.forceOpen) {
+    if (!active && !props.forceOpen) {
       setOpen(false);
     }
-  }, [active, failed, props.forceOpen]);
+  }, [active, props.forceOpen]);
 
   if (!activity.hasActivity) return null;
 
-  const StatusIcon = active
-    ? LoaderCircle
-    : failed
-      ? X
-      : activity.lifecycle === "cancelled"
-        ? CircleSlash
-        : Check;
   const displayText =
     props.displayText ?? ((item: AssistantTimelineItem) => item.text);
   const isMessageComplete =
@@ -81,7 +68,6 @@ export function RunActivityBlock(props: {
           onClick={() => setOpen((current) => !current)}
         >
           <ChevronRight className="run-activity-chevron" />
-          <StatusIcon className="run-activity-status" />
           <span className="run-activity-summary-text">{activity.summary}</span>
           {additions !== undefined || deletions !== undefined ? (
             <span

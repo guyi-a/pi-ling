@@ -10,6 +10,8 @@ export const READ_TOOL_NAMES = new Set([
   "grep",
   "glob",
   "read_image",
+  "web_fetch",
+  "web_search",
 ]);
 
 export const PLAN_TOOL_NAMES = new Set(["create_plan", "update_plan"]);
@@ -78,6 +80,10 @@ export function isEffectAllowedInComposerMode(
     return mode === "agent";
   }
   if (mode === "agent") return true;
+  if (effect.kind === "network") {
+    // 联网只读，ask / plan 都允许；私网目标由执行层硬拒
+    return true;
+  }
   if (mode === "ask") {
     if (
       effect.kind === "meta" &&

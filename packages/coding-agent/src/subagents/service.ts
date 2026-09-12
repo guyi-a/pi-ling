@@ -54,6 +54,8 @@ export class SubagentService {
     const exploreTools = createBuiltinTools({
       workspace,
       changes: { capture: async () => {} },
+      // 子 Agent 只做工作区调研，不给联网工具
+      webFetch: false,
     }).filter((tool) => exploreToolNames.has(tool.name));
 
     let summary = "";

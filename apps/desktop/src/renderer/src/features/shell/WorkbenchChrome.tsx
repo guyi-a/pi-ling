@@ -11,7 +11,6 @@ import { Suspense, lazy, useEffect, useState } from "react";
 import type { ChangesSourceId } from "../details/changes-source";
 import { ChangesView } from "../details/ChangesView";
 import { FilesPanel } from "../files/FilesPanel";
-import { bindFilesTabActivator } from "../files/store";
 import { TerminalEmptyState } from "../terminal/TerminalEmptyState";
 import { EvalPanelSkeleton } from "../eval/EvalPanel";
 
@@ -135,12 +134,12 @@ const workbenchTabs = [
 type WorkbenchTab = (typeof workbenchTabs)[number]["id"];
 
 function readInitialWorkbenchTab(): WorkbenchTab {
-  if (typeof localStorage === "undefined") return "files";
+  if (typeof localStorage === "undefined") return "trace";
   const stored = localStorage.getItem(WORKBENCH_TAB_STORAGE_KEY);
   if (stored && workbenchTabs.some((tab) => tab.id === stored)) {
     return stored as WorkbenchTab;
   }
-  return "files";
+  return "trace";
 }
 
 export function WorkbenchPanel(props: {
@@ -203,11 +202,6 @@ export function WorkbenchPanel(props: {
   useEffect(() => {
     if (activeTab === "eval") setEvalMounted(true);
   }, [activeTab]);
-
-  useEffect(() => {
-    bindFilesTabActivator(() => setActiveTab("files"));
-    return () => bindFilesTabActivator(() => {});
-  }, []);
 
   useEffect(() => {
     if (!props.requestedTab) return;

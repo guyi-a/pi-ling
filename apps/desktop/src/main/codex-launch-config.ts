@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 
 
 import type { CodexRuntimeOptions } from "@pi-ling/codex-runtime";
+import { isProviderSupportedByRuntime } from "@pi-ling/llm-config";
 
 import {
 
@@ -43,6 +44,8 @@ export function resolveCodexLaunchConfig(
 
   userDataPath: string,
 
+  repoRoot?: string,
+
 ): CodexLaunchResolution {
 
   if (env["PI_LING_CODEX_ENABLED"] !== "true") {
@@ -53,27 +56,27 @@ export function resolveCodexLaunchConfig(
 
 
 
-  if (!env["DEEPSEEK_API_KEY"]?.trim()) {
-
+  const provider = env["PI_LING_PROVIDER"]?.trim() || "deepseek";
+  const model = env["PI_LING_MODEL"]?.trim() || CODEX_DEFAULT_DEEPSEEK_MODEL;
+  if (!isProviderSupportedByRuntime(provider, "codex")) {
     return {
-
       enabled: true,
-
-      reason: "PI_LING_CODEX_ENABLED=true requires DEEPSEEK_API_KEY in .env",
-
+      reason: `Codex does not support provider "${provider}". Use DeepSeek in settings.`,
     };
-
   }
 
-
+  if (!env["DEEPSEEK_API_KEY"]?.trim()) {
+    return {
+      enabled: true,
+      reason:
+        "PI_LING_CODEX_ENABLED=true requires a DeepSeek API key in settings or .env",
+    };
+  }
 
   const codexHome = resolve(
-
     env["PI_LING_CODEX_HOME"]?.trim() || join(userDataPath, "codex"),
-
   );
-
-  writeDeepSeekCodexHome(codexHome);
+  writeDeepSeekCodexHome(codexHome, model);
 
 
 
@@ -83,7 +86,11 @@ export function resolveCodexLaunchConfig(
 
     ? resolve(configuredBin)
 
-    : resolveBundledCodexBin();
+    : resolveBundledCodexBin(
+
+        repoRoot ? { searchRoots: [repoRoot] } : {},
+
+      );
 
 
 
@@ -115,7 +122,7 @@ export function resolveCodexLaunchConfig(
 
       codexBin,
 
-      model: CODEX_DEFAULT_DEEPSEEK_MODEL,
+      model,
 
       env: {
 

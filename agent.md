@@ -1,294 +1,136 @@
 # pi-ling 开发指南
 
+最后更新：2026-09-11
+
 ## 项目目标
 
 在本仓库独立开发 Electron Coding Agent 产品，统一提供聊天、代码修改、终端、Diff、审批、会话恢复和评测体验。
 
-- 不修改或复制 LingCoWork 主工程。
-- LingCoWork 仅作为需求、设计和评测参考。
-- 产品统一支持 Native、DeepSeek Harness 和 DeepSeek Codex Runtime；
-  Native 模型层限定为 DeepSeek 和 Anthropic Claude。
+- 不修改或复制 LingCoWork 主工程；LingCoWork 仅作需求与评测参考。
+- 产品统一支持 **Native**、**DSH（DeepSeek Harness）**、**Codex** 三套 Runtime，可在同一会话内切换。
+- Native 模型层通过 pi-ai 接入多家 Provider；设置页提供常用 Provider 清单，Codex/DSH 有各自支持范围。
 
-## 技术栈与架构
+## 技术栈
 
-- Electron + React + TypeScript。
-- 采用 monorepo，分离 Renderer、Main、Preload、共享协议和 Runtime 实现。
-- Renderer 只负责 UI，不持有密钥，不直接访问文件系统或执行命令。
-- Renderer 通过类型安全的 Preload IPC 调用 Electron Main。
-- Main Supervisor 负责 Runtime 注册、会话路由、凭据存储、effect 审批策略和 Worker 生命周期。
-- Runtime 必须运行在独立 Worker、子进程或 sidecar 中，不能嵌入 Renderer，也不能用长任务阻塞 Main。
-
-推荐依赖方向：
+- **Electron + React + TypeScript** monorepo
+- Renderer 只负责 UI，不持有密钥，不直接访问文件系统
+- Renderer 通过 Preload IPC 调用 Main
+- Main `SessionSupervisor` 负责会话路由、持久化、审批策略、Runtime 生命周期
+- Runtime 运行在 Main 进程适配层或 sidecar 子进程中，不阻塞 Renderer
 
 ```text
-Electron Renderer
-  └─ React UI: Chat / Diff / Files / Terminal / Approval
+Electron Renderer (Chat / Files / Changes / Terminal / Settings)
         ↓ typed preload IPC
-Electron Main Supervisor
-  ├─ Runtime registry
-  ├─ Session routing
-  ├─ Canonical Session Event Log
-  ├─ RunMessageBuffer
-  ├─ Credential storage
-  ├─ Effect approval policy
-  └─ Worker lifecycle
-        ↓ RuntimeAdapter
-        ├─ NativeRuntime
-        │     └─ @pi-ling/coding-agent
-        │           ├─ @pi-ling/agent-core
-        │           └─ @earendil-works/pi-ai
-        ├─ DshRuntime
-        │     └─ ACP stdio → custom DSH Profile sidecar
-        └─ ClaudeRuntime
-              └─ Claude Agent SDK → Claude Code subprocess
+Electron Main
+  ├─ SessionSupervisor + SQLite session store
+  ├─ llm-config（设置 / .env / userData/llm-config.json）
+  └─ RuntimeAdapter
+        ├─ Native  → @pi-ling/coding-agent → @pi-ling/agent-core → pi-ai
+        ├─ DSH     → ACP stdio → pinned DSH sidecar (dsh-v0.1.3-alpha.1)
+        └─ Codex   → @openai/codex-sdk → bundled codex binary
 ```
 
-## Runtime 规划
+## 目录结构
 
-### Native Runtime
+| 路径 | 说明 |
+|------|------|
+| `apps/desktop/` | Electron 主进程、Preload、Renderer |
+| `packages/agent-core/` | ReAct 循环、工具接口 |
+| `packages/coding-agent/` | Native Harness（tools、approval、skills、workspace） |
+| `packages/native-runtime/` | Native RuntimeAdapter |
+| `packages/dsh-runtime/` | DSH ACP 适配 |
+| `packages/codex-runtime/` | Codex SDK 适配 |
+| `packages/llm-config/` | Provider 目录、配置解析（设置 + env） |
+| `packages/skills/` | 统一 Skill 加载（`.agents/skills`） |
+| `packages/session-events/` | Canonical 投影与 Timeline |
+| `packages/coding-eval/` | 评测工具链 |
+| `.agents/skills/` | 内置 Skill（`pnpm skills:sync` 同步） |
 
-- `@earendil-works/pi-ai` 负责模型协议；产品只注册 DeepSeek 与 Anthropic
-  Provider，不加载全量 Provider 集合。
-- `@pi-ling/agent-core` 负责状态、事件、上下文、取消和 ReAct 工具循环。
-- `@pi-ling/coding-agent` 负责 Coding Harness 和全部产品内置 Agent 能力。
-- `vendor/pi-ai` 与 `vendor/pi-agent-core` 保留为 MIT 源码参考，不作为运行依赖。
-- 产品层负责统一 Session Event、Canonical Messages、effect 审批、权限边界、
-  持久化、恢复和 Eval。
+## 三套 Runtime
 
-### DSH Runtime
+### Native
 
-- 固定 `dsh-v0.1.3-alpha.1` / `d347e703908d0406b7a7ef80e3a0e594d86b2215`，不跟随 latest。
-- Electron Main 使用 `@agentclientprotocol/sdk` 驱动 `dsh --profile acp`，不嵌入 Cordis。
-- DSH_HOME 按版本隔离，DSH 原生 session id 与产品 session id 分开持久化。
-- DSH 使用固定版本自带的 `@deepseek-ai/dsh-llm-pi-ai` 调用模型，只配置
-  DeepSeek 与 Anthropic 路由；pi-ling Bridge 仅承担 Canonical Transcript
-  Seed、Runtime projection 和 ACP live stream 扩展。
-- DSH 通过内置 `tools/pre-execute` 适配模块触发官方
-  `dsh-user-approval`，再由 ACP one-shot permission 映射产品三档审批；
-  Native 与 DSH 共用 Effect 决策规则，但保留各自门控实现。
-- DSH developer preview 未经安全审计，只能在 feature flag 和首次安全确认后启用。
+- 默认 Provider/模型：`deepseek` / `deepseek-flash`（DeepSeek V4.1 Flash）
+- 通过 `registerPiLingDeepseekProvider` 注册 pi-ai 尚未收录的 `deepseek-flash` ID
+- 设置页可选 Provider：DeepSeek、Anthropic、MiniMax、Moonshot/Kimi、Kimi For Coding、Z.AI/GLM 等（Native only）
+- Skills：`.agents/skills` + `load_skill` 工具；workspace 切换时 reload
 
-### Codex Runtime
+### DSH
 
-- Electron Main 使用 `@openai/codex-sdk` 驱动 Codex Agent 引擎（`codex exec --experimental-json`），
-  不是嵌入 Codex CLI TUI 产品。
-- 桌面启用：`PI_LING_CODEX_ENABLED=true` 且配置 `DEEPSEEK_API_KEY`；`PI_LING_CODEX_HOME`
-  隔离 Codex 配置（DeepSeek Responses API + `deepseek-flash`）。
-- Codex thread id 与产品 session id 分开持久化；支持 Native ↔ DSH ↔ Codex 同会话切换
-  （canonical import + watermark）。
-- Plan 模式映射 Codex `update_plan` → Plans 面板；Composer `plan/ask/agent` 映射 sandbox。
-- 审批：thread 级 `approvalPolicy` + 产品 ApprovalMode（`codex-approval-policy.ts`）。
+- 固定版本：`dsh-v0.1.3-alpha.1` / commit `d347e703…`
+- 启用：`PI_LING_DSH_ENABLED=true`，首次运行 `pnpm dsh:setup`
+- 模型：跟随全局 LLM 配置；**仅支持 DeepSeek 与 Anthropic**
+- ACP profile 由 `buildDshPiAiProfilePatch()` 按当前 provider/model 生成
+- Windows：`fs-ext-hook` 隔离 DSH 未使用的 POSIX 依赖
 
-## Coding Harness
+### Codex
 
-- Native Harness 能力直接实现于 `packages/coding-agent`，不建立产品级扩展系统。
-- 内部按 `tools`、`workspace`、`effects`、`approval`、`sessions`、`mcp`、`skills`、`hooks`、`validation` 分模块组织。
-- Native 模块不提供 extension API、插件注册器、第三方动态加载或插件市场；
-  DSH 自身 Cordis 插件只在隔离 sidecar 和受控 Profile 中运行。
-- Workspace 校验、effect 审批和凭据边界属于强制安全机制，任何内部模块均不得绕过。
-- `agent-core` 只保留领域无关的工具接口及 `beforeToolCall`、`afterToolCall` 等必要调用点，具体策略由 `coding-agent` 实现。
+- 启用：`PI_LING_CODEX_ENABLED=true` + DeepSeek API Key
+- 模型：跟随全局配置；**仅支持 DeepSeek**（Responses API）
+- `PI_LING_CODEX_HOME` 隔离 config.toml / models.json
+- 支持 Native ↔ DSH ↔ Codex 同会话切换（canonical import + watermark）
 
-## RuntimeAdapter
+## LLM 配置
 
-所有 Runtime 通过统一接口接入，至少支持：
+优先级：**设置页 `llm-config.json` > `.env` > 内置默认**。
 
-```ts
-interface RuntimeAdapter {
-  createSession(...args: unknown[]): Promise<unknown>;
-  send(...args: unknown[]): Promise<void>;
-  events(...args: unknown[]): AsyncIterable<unknown>;
-  approve(...args: unknown[]): Promise<void>;
-  cancel(...args: unknown[]): Promise<void>;
-  resume(...args: unknown[]): Promise<unknown>;
-  fork(...args: unknown[]): Promise<unknown>;
-  dispose(...args: unknown[]): Promise<void>;
-  getCapabilities(): RuntimeCapabilities;
-}
-```
+| 环境 | `.env` 位置 |
+|------|-------------|
+| 开发 `pnpm dev` | 仓库根目录 `.env` |
+| 打包安装版 | `%APPDATA%/@pi-ling/desktop/.env`（首次启动可导入） |
 
-实际开发时应用明确的领域类型替换 `unknown`，并保持接口位于共享协议包中。
+设置页保存到 `userData/llm-config.json`。未在设置中保存时，API Key 与可选 `PI_LING_PROVIDER` / `PI_LING_MODEL` 从 `.env` 读取。
 
-每个 Runtime 必须显式声明能力，不得假定能力一致：
+可选 env 见 `.env.example`：`PI_LING_DSH_*`、`PI_LING_CODEX_*`、`DEEPSEEK_BASE_URL` 等。
 
-- model switching
-- partial streaming
-- tool approval
-- MCP
-- hooks
-- sandbox
-- subagents
-- resume/fork
-- file checkpoint
+## Skills
 
-## 会话与事件模型
+- 统一目录：`<workspace>/.agents/skills/<skill-name>/SKILL.md`
+- Native：`load_skill` + system prompt 索引
+- Codex：`skills/list`、extraRoots、changed 通知
+- DSH：同路径发现；smoke 见 `packages/dsh-runtime`
+- 同步内置 Skill：`pnpm skills:sync`
 
-- 产品只维护一套 versioned Session Event Log 作为权威事实源。
-- Canonical Messages、Chat Timeline、Cursor Run Activity 和 Eval 都从
-  Session Event Log 投影，不维护互相独立的消息与 Timeline 事实。
-- Runtime 原生 Transcript 只作为可重建的 Resume projection；通过
-  `runtime_sessions` 保存 external id、同步水位和 capability。
-- Durable Event 只在完整语义边界写 SQLite；text/reasoning delta 不写库。
-- 用户可见的 Assistant 文本不消费 text/reasoning delta。完整 Assistant
-  message 先提交 SQLite，再由 Renderer presentation queue 按短语、标点和
-  Markdown 边界自适应释放。详见
-  [`docs/agent-streaming-and-run-rendering.md`](docs/agent-streaming-and-run-rendering.md)。
-- `RunMessageBuffer` 及 `timeline:frame` 通道仍在 Main 中运行，但当前没有
-  任何 frame kind 同时有生产者和消费者，属于设计变更后未清理的悬空管道；
-  新 Runtime 不应依赖它传递用户可见文本。
-- 事件统一使用 `sessionId`、`runId`、`turnId`、`messageId`、
-  `toolCallId` 和会话内单调递增 `seq`。
-- “当前选中 Session”与“正在运行的 Session”分离；切换页面不得
-  cancel/dispose 后台 Run。
-- snapshot 与实时事件按 Session 隔离并幂等合并；过期 activation/snapshot
-  不得覆盖当前页面。
-- Renderer 按整个 Run 聚合执行活动，完成后压缩摘要，展开后显示原始
-  Tool、Approval、Output 和 Error。
-- 页面采用紧凑暗色工作台布局，不使用宣传式 Hero；用户消息气泡与 assistant 平铺内容保持清晰区分。
-- Workspace 作为 Project 在侧栏分组，Session 隶属于 Workspace；添加目录和新建会话都从侧栏进入，不使用顶部全局选择器。
-- 每个 Session 持久化 `manual`、`accept-write`、`auto` 三档审批模式，切换入口位于 Composer。
-- 标准投影必须可版本化，不能破坏原始事件。
-- Runtime 只能在完整消息/Turn 边界切换；目标 Runtime 从同一 Canonical
-  Message projection 获取缺失历史。
-- DSH 使用真实 SessionEvent Seed；Claude 使用 opaque Transcript Resume
-  与 Canonical Context Handoff。
-- 私有 checkpoint、thinking signature、surface/replay state 和执行中状态
-  进入 Runtime raw projection，不强行混用。
-- 持久化应支持应用崩溃后的会话恢复，并明确区分可恢复、已取消、失败和已完成状态。
-- Electron Main 使用 `node:sqlite` 保存 Workspace、Session Event、
-  Runtime projection、run checkpoint、pending approval 和 file baseline。
-- 消息以稳定 event key 幂等写入；approval resolve 必须先持久化再解除工具门控。
-- 已有 `tool_end` 的 callId 不得重复执行；只有 `tool_start` 而无 durable result 的工具标记 crashed，不自动重试。
+## 会话与事件
+
+- **Session Event Log**（SQLite）为唯一权威事实源
+- Canonical Messages、Timeline、Run Activity 均为投影
+- 用户可见 Assistant 文本：完整 message 落库后，Renderer presentation queue 分块展示（非 token 级）
+- 详见 [`docs/agent-streaming-and-run-rendering.md`](docs/agent-streaming-and-run-rendering.md)、[`docs/canonical-transcript-design.md`](docs/canonical-transcript-design.md)
+- 审批三档：`manual` / `accept-write` / `auto`；未知 effect 始终询问
+- Agent 默认 max turns：**50**；流错误 `terminated` 等可自动重试（最多 3 次）
 
 ## 安全边界
 
-- API Key 和其他凭据只能由 Main 安全存储和使用。
-- 文件写入、命令执行、网络访问等副作用由产品层统一建模并审批。
-- `manual` 询问写入和普通命令；`accept-write` 自动允许工作区写入；`auto` 自动允许普通操作。未知 effect、破坏性命令和敏感写入在任何模式下都必须询问。
-- Native Runtime 不执行第三方插件代码；DSH 插件仅在隔离 sidecar 中通过
-  明确安装、版本固定和用户确认后执行。
-- 默认禁止多个活跃会话同时修改同一工作区。
-- IPC 必须使用白名单通道、结构化参数和运行时校验，禁止暴露通用 Node/Electron 能力。
+- API Key 仅 Main 读写；Renderer 只见 `apiKeyConfigured` / 脱敏 preview
+- 文件写入、命令执行等副作用统一建模并审批
+- IPC 白名单通道 + 结构化参数；Renderer 不暴露通用 Node API
 
-## 实施顺序
+## 常用命令
 
-### Phase 1：自研 Runtime
-
-1. 建立 Electron + React + TypeScript monorepo。
-2. 接入 `@earendil-works/pi-ai`，仅注册 DeepSeek、Anthropic Provider。
-3. 实现 `@pi-ling/agent-core` 状态、事件和 ReAct 循环。
-4. 实现 `@pi-ling/coding-agent` 及内置 Harness 模块。
-5. 打通 Main / Preload / Renderer 的类型安全 IPC。
-6. 实现 Chat/Event Stream。
-7. 实现 Workspace、Diff、Terminal。
-8. 实现 Effect Approval。
-9. 实现 Session 持久化、取消和崩溃恢复。
-
-第一条端到端流程必须覆盖：
-
-```text
-Renderer 输入 Prompt
-  → Preload IPC
-  → Main Supervisor 路由会话
-  → Agent Core 执行
-  → DeepSeek 或 Anthropic Provider
-  → 原始事件持久化
-  → 标准事件投影
-  → IPC 流式推送
-  → Renderer 更新消息和状态
+```bash
+pnpm install
+pnpm skills:sync          # 同步内置 skills 到 .agents/skills
+pnpm dev                    # 构建 packages 后启动 Electron
+pnpm test                   # 全仓测试
+pnpm dsh:setup              # 准备 pinned DSH worktree
+pnpm dsh:verify
 ```
 
-同时覆盖错误、取消、审批请求和进程异常退出。
-
-### Phase 2：统一 Runtime 与会话架构
-
-1. 定义 versioned Session Event 与 Canonical Message projection。
-2. 将 SQLite 迁移为 `session_events + runtime_sessions`，保留旧表兼容。
-3. 实现 Session reconnect；用户可见文本改由 committed message 驱动
-   presentation queue，不再依赖 delta frame。
-4. 解耦 selected Session 与 active Runs。
-5. 让 Native 使用统一 Event Log。
-6. 将 DSH Transcript PoC 演进为可分发 Cordis bridge bundle，并补 ACP
-   token stream；模型层使用固定 DSH 官方 `dsh-llm-pi-ai`。
-7. 实现 Claude Agent SDK Runtime、opaque SessionStore projection 与
-   Approval mapping。
-8. 实现 Cursor 风格 Run Activity projector。
-9. 完成跨 Runtime、跨 Session、崩溃恢复和 Eval 测试。
-
-## 工程原则
-
-- 优先建立稳定的领域协议，Runtime 专属类型留在各自适配层。
-- 不设计 extension API 或动态插件机制；产品能力直接作为 `coding-agent` 内部模块实现。
-- 所有跨进程消息必须可序列化、可版本化并可关联会话与事件 ID。
-- 副作用审批应基于 effect，而不是仅基于工具名称。
-- 会话路由、事件持久化和 UI 投影需支持幂等处理。
-- 对依赖 Runtime 私有行为的代码添加适配层，避免泄漏到 UI。
-- 新增功能应包含与风险相称的类型检查、单元测试或端到端验证。
-- Coding Eval 应作为当前 Runtime 的黑盒 Harness，并借鉴 LingCoWork `internal/codingeval` 的确定性评测思路。
-
-## 当前本地参考
-
-- `E:\LingCoWork`：Go + Eino + Electron 工作站，仅供参考。
-- `E:\pi`：Pi 0.85.0，MIT。
-- `@anthropic-ai/claude-agent-sdk`：Claude Runtime 的 TypeScript SDK，
-  当前 PoC 固定 `0.3.263`。
-- `.dsh-source`：指向 DSH 0.1.3-alpha.1 固定 worktree 的本地链接；
-  使用 `pnpm dsh:setup` 创建和校验。
-- `dsh-for-humans`：DSH 教程，不是源码。
-
-## 当前交接状态（2026-09-07）
-
-- DSH 继续采用 ACP，不采用固定版本能力不足的官方 SDK。
-- 三套 Runtime 可以独立实现工具、审批和上下文压缩，但对用户暴露的能力、
-  安全规则、事件和 UI 语义应通过统一契约及 Conformance Tests 保持一致；
-  不要求强制共用 MCP、工具服务或同一份内部代码。
-- LLM Adapter 与历史导入是两个独立问题：
-  - LLM Adapter 决定 DSH 如何调用模型；
-  - Canonical Session Bridge 负责历史 Seed、增量同步和 Resume projection。
-- DSH 固定基线已在 commit `6f38265` 建立：独立 worktree 精确锁定
-  `dsh-v0.1.3-alpha.1 / d347e703`，真实 DSH 进程已验证 ACP Prompt、
-  Cancel、Close、跨进程 Resume 和 Canonical Event 落库。
-- DSH 完整执行计划见
-  [`docs/dsh-acp-integration-plan.md`](docs/dsh-acp-integration-plan.md)。
-- Native 已在分支 `refactor/native-pi-ai` 迁移到
-  `@earendil-works/pi-ai@0.85.0`，类型检查、测试和生产构建通过，并在 commit
-  `0974fba` 提交。
-- DSH 模型层采用固定版本自带的 `@deepseek-ai/dsh-llm-pi-ai`；原
-  `@pi-ling/dsh-llm` 和 `@pi-ling/ai` 已退出产品架构。
-- `@earendil-works/pi-agent-core` 不能直接替换当前 `@pi-ling/agent-core`：
-  当前 Core 含有 `runId/turnId`、前置审批、`resumePendingTools` 和恢复事件等
-  产品定制。长期方向是将审批策略迁到 `coding-agent`，将事件标识、checkpoint
-  和恢复编排迁到 Runtime/Main Session 层，再以薄 Adapter 评估接入上游
-  `pi-agent-core`。
-- DSH PR2A 已对齐 Native/DSH 的三档审批行为，并通过真实 DSH 写工具 ACP
-  审批 Smoke；PR2B 已修正 contextUsage、ACP messageId、执行分组和
-  capabilities 声明。
-- DSH PR4 Spike 已选定方案 B（预物化后 resume）；PR5 已落地 Canonical
-  Session Bridge MVP：`toDshSeed` 支持 text/reasoning/tool-call/tool-result，
-  首次切 DSH 完整导入历史并记录幂等水位，含真实 DSH recall Smoke。
-- DSH PR6 已落地跨 Runtime handoff 增量同步：`toDshSeed` 支持 delta 偏移，
-  sidecar 插件支持 append 模式（open write + append + flush），切回 DSH 时
-  按 `lastSyncedCanonicalSeq` 水位追平新增历史；Attachment/Compaction 待有
-  真实数据流后再做。
-
-## 流式展示现状（2026-09-08 复核）
-
-- 用户可见的流式效果由 Renderer presentation queue 产生，不是模型 token 流：
-  完整 Assistant message 先落 `session_events`，`assistant_end` 到达后
-  `useMessagePresentation` 才对完整文本分块逐块 reveal。
-- `RunMessageBuffer`、`timeline:frame`、`applyStreamFrame`、
-  `SessionActivation.bufferFrames` 和 `projectTimelineSnapshot` 的 `frames`
-  参数均为悬空管道：Main 只发 `assistant.text.delta` /
-  `assistant.reasoning.delta`，Renderer 只处理 `tool.status`，两者不相交。
-- `#publish` 每个 durable 事件都全量重投影整条 timeline，开销随历史线性、
-  随单 Run 事件数平方增长；`timeline_events` 的写入在该路径上不被读回。
-- 结论：Claude Runtime 若要提供原生 partial streaming，必须先在 Renderer
-  补真实 delta 渲染路径，不能假定现有 frame 通道可用。
+打包：仅用户明确要求时执行 `pnpm dist:win`（不要 CI/Agent 自动打包）。
 
 ## 开发约束
 
-- 开发前先检查现有结构和依赖，不盲目复制参考项目。
-- Phase 1 范围内优先完成可运行的纵向闭环，再扩展 UI 和工具能力。
-- 修改公共协议时同步检查 Main、Preload、Renderer 和 Runtime Worker。
-- 提交前运行项目已有的格式化、类型检查和测试命令。
-- DSH 依赖必须固定版本并通过 ACP/Bridge 契约测试；Claude Agent SDK
-  必须固定版本，模型路由仅支持 DeepSeek Anthropic 兼容 API 或官方 Anthropic。
+- 修改 IPC 契约时同步 contracts、Preload、Main、Renderer
+- 不引入产品级插件/extension API；能力放在 `coding-agent` 内部模块
+- DSH 依赖固定版本 + ACP 契约测试；Codex 固定 `@openai/codex-sdk` 0.154.0
+- 参考项目：`E:\LingCoWork`（UI/行为）、`vendor/pi-ai`（MIT 参考，非运行依赖）
+
+## 参考文档
+
+| 文档 | 说明 |
+|------|------|
+| [`docs/agent-streaming-and-run-rendering.md`](docs/agent-streaming-and-run-rendering.md) | 流式、持久化、UI 投影分层 |
+| [`docs/canonical-transcript-design.md`](docs/canonical-transcript-design.md) | Canonical Transcript 与跨 Runtime handoff |
+| [`docs/interview/`](docs/interview/) | 面试材料（勿删） |
+| 各 `packages/*/README.md` | Runtime 与模块细节 |

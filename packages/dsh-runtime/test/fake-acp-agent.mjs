@@ -34,6 +34,12 @@ createAgent({ name: "pi-ling-fake-dsh" })
     return Promise.resolve({ sessionId });
   })
   .onRequest(methods.agent.session.resume, ({ params }) => {
+    if (params.sessionId === "stale-dsh-session") {
+      throw RequestError.invalidParams(
+        undefined,
+        `session is not resumable: ${params.sessionId}`,
+      );
+    }
     if (activeSessions.has(params.sessionId)) {
       throw RequestError.invalidParams(
         undefined,

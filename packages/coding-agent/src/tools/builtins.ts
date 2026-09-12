@@ -5,6 +5,9 @@ import type { Workspace } from "../workspace/workspace.js";
 import { CommandRunner } from "./command-runner.js";
 import { createPlanTools } from "./meta-tools.js";
 import { maybeSpillToolOutput } from "./spill-output.js";
+import { createWebFetchTool, type WebFetchToolOptions } from "./web-fetch.js";
+import { createWebSearchTool } from "./web-search.js";
+import type { SearchService } from "@pi-ling/web-tools";
 
 export interface ChangeCapture {
   capture(path: string): Promise<void>;
@@ -33,6 +36,10 @@ export function createBuiltinTools(options: {
   changes: ChangeCapture;
   commands?: CommandRunner;
   sessionId?: string;
+  /** 传 false 可关闭联网工具（子 Agent / 测试用）。 */
+  webFetch?: WebFetchToolOptions | false;
+  /** 未配置搜索 key 时不要传；传了才会注册 web_search。 */
+  searchService?: SearchService;
 }): AgentTool[] {
   const commands = options.commands ?? new CommandRunner(options.workspace.root);
 
@@ -263,6 +270,12 @@ export function createBuiltinTools(options: {
     editFile,
     deleteTool,
     runCommand,
+    ...(options.webFetch === false
+      ? []
+      : [createWebFetchTool(options.webFetch ?? {})]),
+    ...(options.webFetch === false || !options.searchService
+      ? []
+      : [createWebSearchTool({ service: options.searchService })]),
     ...createPlanTools(),
   ];
 }

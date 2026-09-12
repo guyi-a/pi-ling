@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 
 import type { ToolCall } from "@earendil-works/pi-ai";
 
+import { isPrivateUrl } from "@pi-ling/web-tools";
+
 import type { Workspace } from "../workspace/workspace.js";
 
 export type Effect =
@@ -24,6 +26,14 @@ export type Effect =
       classification: "harmless" | "normal" | "destructive";
     }
   | { kind: "meta"; operation: "plan" | "todo" | "question" | "skill" }
+  | {
+      kind: "network";
+      operation: "fetch";
+      /** 目标 URL / 查询串。 */
+      target: string;
+      /** 目标是否为本机 / 内网（fetch 专用；search 恒为 false）。 */
+      privateHost: boolean;
+    }
   | { kind: "subagent-spawn"; readonly: true }
   | { kind: "unknown"; note: string };
 
@@ -151,6 +161,17 @@ export async function deriveEffect(
   if (call.name === "load_skill") {
     return { kind: "meta", operation: "skill" };
   }
+  if (call.name === "web_fetch" || call.name === "web_search") {
+    const isFetch = call.name === "web_fetch";
+    const raw = isFetch ? arguments_["url"] : arguments_["query"];
+    const target = typeof raw === "string" ? raw.trim() : "";
+    return {
+      kind: "network",
+      operation: "fetch",
+      target,
+      privateHost: isFetch && isPrivateUrl(target),
+    };
+  }
   return {
     kind: "unknown",
     note: `No effect derivation for tool ${call.name}`,
@@ -188,6 +209,10 @@ export function approvalReason(
   }
   if (effect.kind === "unknown") {
     return effect.note;
+  }
+  if (effect.kind === "network") {
+    if (effect.privateHost) return "private network URL is blocked";
+    return undefined; // 只读出网，不打扰用户
   }
   if (
     effect.kind === "process-exec" &&

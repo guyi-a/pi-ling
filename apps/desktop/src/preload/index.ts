@@ -7,6 +7,9 @@ import type {
   ChangesSource,
   CreateSessionRequest,
   DesktopApi,
+  LlmConfigSaveRequest,
+  LlmConfigSnapshot,
+  LlmModelOption,
   EvalCompareRequest,
   EvalPanelSnapshot,
   EvalRunSuiteRequest,
@@ -28,6 +31,10 @@ import type {
 import { contextBridge, ipcRenderer } from "electron";
 
 const APP_INFO_CHANNEL = "app:get-info";
+const APP_OPEN_EXTERNAL_CHANNEL = "app:open-external";
+const LLM_CONFIG_GET_CHANNEL = "llm-config:get";
+const LLM_CONFIG_SAVE_CHANNEL = "llm-config:save";
+const LLM_CONFIG_LIST_MODELS_CHANNEL = "llm-config:list-models";
 const AGENT_STATUS_CHANNEL = "agent:get-status";
 const AGENT_SEND_CHANNEL = "agent:send";
 const AGENT_CANCEL_CHANNEL = "agent:cancel";
@@ -63,6 +70,7 @@ const TERMINAL_OUTPUT_CHANNEL = "terminal:output";
 const TERMINAL_EXIT_CHANNEL = "terminal:exit";
 const ATTACHMENT_SAVE_IMAGE_CHANNEL = "attachment:save-image";
 const ATTACHMENT_PICK_IMAGES_CHANNEL = "attachment:pick-images";
+const WORKSPACE_UPLOAD_FILES_CHANNEL = "workspace:upload-files";
 const EVAL_SNAPSHOT_CHANNEL = "eval:snapshot";
 const EVAL_GET_STATE_CHANNEL = "eval:get-state";
 const EVAL_RUN_SUITE_CHANNEL = "eval:run-suite";
@@ -89,6 +97,14 @@ function toUint8Array(data: unknown): Uint8Array {
 
 const desktopApi: DesktopApi = {
   getAppInfo: () => ipcRenderer.invoke(APP_INFO_CHANNEL),
+  openExternal: (url: string): Promise<boolean> =>
+    ipcRenderer.invoke(APP_OPEN_EXTERNAL_CHANNEL, url),
+  getLlmConfig: (): Promise<LlmConfigSnapshot> =>
+    ipcRenderer.invoke(LLM_CONFIG_GET_CHANNEL),
+  saveLlmConfig: (request: LlmConfigSaveRequest) =>
+    ipcRenderer.invoke(LLM_CONFIG_SAVE_CHANNEL, request),
+  listLlmModels: (provider: string): Promise<LlmModelOption[]> =>
+    ipcRenderer.invoke(LLM_CONFIG_LIST_MODELS_CHANNEL, provider),
   getAgentStatus: () => ipcRenderer.invoke(AGENT_STATUS_CHANNEL),
   sendPrompt: (request: AgentPromptRequest) =>
     ipcRenderer.invoke(AGENT_SEND_CHANNEL, request),
@@ -156,6 +172,8 @@ const desktopApi: DesktopApi = {
     ),
   pickAttachmentImages: (workspaceRoot: string) =>
     ipcRenderer.invoke(ATTACHMENT_PICK_IMAGES_CHANNEL, workspaceRoot),
+  pickAndUploadWorkspaceFiles: (workspaceRoot: string) =>
+    ipcRenderer.invoke(WORKSPACE_UPLOAD_FILES_CHANNEL, workspaceRoot),
   onTerminalOutput: (listener: (event: TerminalOutputEvent) => void) => {
     const handler = (
       _event: Electron.IpcRendererEvent,

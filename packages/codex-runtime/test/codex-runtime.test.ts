@@ -178,6 +178,18 @@ describe("CodexRuntimeAdapter app-server", () => {
     await rm(home, { recursive: true, force: true });
   });
 
+  it("starts a fresh thread when resume hits a missing rollout", async () => {
+    const { instance, home } = await adapter();
+    const handle = await instance.resumeSession({
+      sessionId: "stale-resume",
+      workspaceRoot: process.cwd(),
+      externalSessionId: "stale-thread",
+    });
+    expect(handle.externalSessionId).not.toBe("stale-thread");
+    expect(handle.externalSessionId).toMatch(/^thread-/);
+    await rm(home, { recursive: true, force: true });
+  });
+
   it("syncs .agents/skills when a Codex session starts", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-ling-codex-skills-"));
     await writeSkill(root, "pdf", "PDF tasks");

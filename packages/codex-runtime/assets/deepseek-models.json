@@ -1,7 +1,7 @@
 {
   "models": [
     {
-      "slug": "deepseek-v4-flash",
+      "slug": "deepseek-flash",
       "prefer_websockets": false,
       "support_verbosity": true,
       "default_verbosity": "low",
@@ -23,7 +23,7 @@
       "comp_hash": "3000",
       "reasoning_summary_format": "experimental",
       "default_reasoning_summary": "none",
-      "display_name": "DeepSeek-V4-Flash",
+      "display_name": "DeepSeek-V4.1-Flash",
       "description": "Latest frontier agentic coding model.",
       "default_reasoning_level": "high",
       "supported_reasoning_levels": [

@@ -39,6 +39,16 @@ export {
 } from "./tools/spill-output.js";
 export { createBuiltinTools } from "./tools/builtins.js";
 export {
+  createWebFetchTool,
+  resetSharedWebFetchCache,
+  sharedWebFetchCache,
+  type WebFetchToolOptions,
+} from "./tools/web-fetch.js";
+export {
+  createWebSearchTool,
+  type WebSearchToolOptions,
+} from "./tools/web-search.js";
+export {
   type ComposerMode,
   ALWAYS_ALLOWED_TOOLS,
   isEffectAllowedInComposerMode,

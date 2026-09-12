@@ -24,17 +24,39 @@
   --font-mono:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
     monospace;
-  --accent: #9aaad1;
-  --accent-soft: #303545;
-  --accent-contrast: #17181c;
-  --success: #73c991;
-  --warning: #cca700;
-  --danger: #f48771;
-  --danger-tint: rgb(244 135 113 / 8%);
-  --warning-tint: rgb(204 167 0 / 7%);
-  --focus: rgb(154 170 209 / 42%);
+  --accent: #5ec4bc;
+  --accent-strong: #7aded3;
+  --accent-soft: #1a3330;
+  --accent-contrast: #0f1716;
+  --info: #7eb6ff;
+  --info-tint: rgb(126 182 255 / 10%);
+  --success: #7fd99a;
+  --success-tint: rgb(127 217 154 / 10%);
+  --warning: #e0c04a;
+  --warning-tint: rgb(224 192 74 / 10%);
+  --danger: #f5927e;
+  --danger-tint: rgb(245 146 126 / 10%);
+  --focus: rgb(94 196 188 / 38%);
   --shadow: rgb(0 0 0 / 36%);
   --scrollbar: #424242;
+  --file-html: #e3945c;
+  --file-js: #dccb66;
+  --file-css: #b48cff;
+  --file-ts: #6cb6ff;
+  --file-tsx: #6cb6ff;
+  --file-json: #7bd88f;
+  --file-py: #56b6c2;
+  --file-md: #9aa6b8;
+  --file-sh: #c792ea;
+  --tool-explore: var(--info);
+  --tool-edit: #e5b567;
+  --tool-command: #c792ea;
+  --tool-network: #56c2d4;
+  --tool-verify: var(--success);
+  --tool-meta: var(--muted);
+  --tool-subagent: #82aaff;
+  --tool-agent: #82aaff;
+  --tool-other: var(--muted-2);
   --sidebar-width: 218px;
   --workbench-width: clamp(380px, 46vw, 860px);
   --content-width: 760px;
@@ -76,17 +98,39 @@ html[data-theme="light"] {
   --font-mono:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
     monospace;
-  --accent: #526a9e;
-  --accent-soft: #dfe6f5;
+  --accent: #2a9d94;
+  --accent-strong: #1f7f78;
+  --accent-soft: #d9f0ee;
   --accent-contrast: #ffffff;
-  --success: #2f7d4f;
-  --warning: #8a6900;
-  --danger: #c53b30;
-  --danger-tint: rgb(197 59 48 / 7%);
-  --warning-tint: rgb(138 105 0 / 7%);
-  --focus: rgb(82 106 158 / 35%);
+  --info: #3b7fd4;
+  --info-tint: rgb(59 127 212 / 10%);
+  --success: #2f8f57;
+  --success-tint: rgb(47 143 87 / 10%);
+  --warning: #9a7600;
+  --warning-tint: rgb(154 118 0 / 10%);
+  --danger: #c44a3a;
+  --danger-tint: rgb(196 74 58 / 10%);
+  --focus: rgb(42 157 148 / 32%);
   --shadow: rgb(0 0 0 / 16%);
   --scrollbar: #b8b8b8;
+  --file-html: #b45309;
+  --file-js: #a67c00;
+  --file-css: #7c3aed;
+  --file-ts: #2563eb;
+  --file-tsx: #2563eb;
+  --file-json: #15803d;
+  --file-py: #0e7490;
+  --file-md: #64748b;
+  --file-sh: #7c3aed;
+  --tool-explore: var(--info);
+  --tool-edit: #b45309;
+  --tool-command: #7c3aed;
+  --tool-network: #0e7490;
+  --tool-verify: var(--success);
+  --tool-meta: var(--muted);
+  --tool-subagent: #3b7fd4;
+  --tool-agent: #3b7fd4;
+  --tool-other: var(--muted-2);
 }
 
 * {

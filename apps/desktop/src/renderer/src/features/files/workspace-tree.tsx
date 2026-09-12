@@ -1,6 +1,11 @@
 import type { WorkspaceTreeNode } from "@pi-ling/contracts";
 import { ChevronRight, File as FileIcon, Folder } from "lucide-react";
 
+import {
+  GIT_DECORATION_LABEL,
+  GIT_DECORATION_LETTER,
+  type GitDecorations,
+} from "./git-decorations";
 import { useFilesStore } from "./store";
 
 export type WorkspaceTreeNodeT = {
@@ -39,11 +44,40 @@ function parentDirPath(path: string): string {
   return `${trimmed.slice(0, slash)}/`;
 }
 
+/** 文件行尾部的单字母 git 徽标。 */
+function FileStatus(props: { state: keyof typeof GIT_DECORATION_LETTER }) {
+  const label = GIT_DECORATION_LABEL[props.state];
+  return (
+    <span
+      className="ptree-status"
+      data-state={props.state}
+      title={label}
+      aria-label={label}
+    >
+      {GIT_DECORATION_LETTER[props.state]}
+    </span>
+  );
+}
+
+/** 目录行尾部的聚合圆点：子树内存在改动时显示。 */
+function DirectoryStatus(props: { state: keyof typeof GIT_DECORATION_LETTER }) {
+  const label = GIT_DECORATION_LABEL[props.state];
+  return (
+    <span
+      className="ptree-dot"
+      data-state={props.state}
+      title={label}
+      aria-label={label}
+    />
+  );
+}
+
 export function WorkspaceTreeList(props: {
   root: string;
   nodes: WorkspaceTreeNodeT[];
   selectedPath?: string | null;
   compact?: boolean;
+  decorations?: GitDecorations | undefined;
 }) {
   return (
     <div className={props.compact ? "ptree ptree-compact" : "ptree"}>
@@ -55,6 +89,7 @@ export function WorkspaceTreeList(props: {
           depth={0}
           selectedPath={props.selectedPath ?? null}
           compact={props.compact ?? false}
+          decorations={props.decorations}
         />
       ))}
     </div>
@@ -67,8 +102,9 @@ function TreeItem(props: {
   depth: number;
   selectedPath: string | null;
   compact: boolean;
+  decorations?: GitDecorations | undefined;
 }) {
-  const { node, depth, selectedPath, compact, root } = props;
+  const { node, depth, selectedPath, compact, root, decorations } = props;
   const { entry, children } = node;
   const isDir = entry.kind === "dir";
   const directoryKey = `${root}:${entry.path}`;
@@ -78,6 +114,8 @@ function TreeItem(props: {
   const toggleDirectory = useFilesStore((state) => state.toggleDirectory);
   const openFile = useFilesStore((state) => state.openFile);
   const isSelected = entry.path === selectedPath;
+  const dirState = isDir ? decorations?.dirs.get(entry.path) : undefined;
+  const fileState = isDir ? undefined : decorations?.files.get(entry.path);
 
   if (isDir) {
     return (
@@ -92,8 +130,9 @@ function TreeItem(props: {
           <ChevronRight
             className={`ptree-chevron${open ? " is-expanded" : ""}`}
           />
-          <Folder className="ptree-icon is-dir" />
+          <Folder className="ptree-icon" />
           <span className="ptree-name">{entry.name}</span>
+          {dirState ? <DirectoryStatus state={dirState} /> : null}
         </button>
         {open ? (
           <div className="ptree-children">
@@ -108,6 +147,7 @@ function TreeItem(props: {
                   depth={depth + 1}
                   selectedPath={selectedPath}
                   compact={compact}
+                  decorations={decorations}
                 />
               ))
             )}
@@ -129,6 +169,7 @@ function TreeItem(props: {
     >
       <FileIcon className="ptree-icon" />
       <span className="ptree-name">{entry.name}</span>
+      {fileState ? <FileStatus state={fileState} /> : null}
     </button>
   );
 }

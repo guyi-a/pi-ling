@@ -110,11 +110,7 @@
   width: 13px;
   height: 13px;
   flex: 0 0 auto;
-  color: var(--muted);
-}
-
-.ptree-icon.is-dir {
-  color: var(--accent);
+  color: var(--muted-2);
 }
 
 .ptree-chevron {
@@ -130,10 +126,58 @@
 }
 
 .ptree-name {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* git 状态是树里唯一的色彩层；文件名与图标保持中性，颜色只承载信息。 */
+.ptree-status {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding-left: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.ptree-status[data-state="modified"] {
+  color: var(--warning);
+}
+
+.ptree-status[data-state="added"],
+.ptree-status[data-state="untracked"] {
+  color: var(--success);
+}
+
+.ptree-status[data-state="deleted"] {
+  color: var(--danger);
+}
+
+.ptree-dot {
+  flex: 0 0 auto;
+  margin-left: auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted-3);
+}
+
+.ptree-dot[data-state="modified"] {
+  background: var(--warning);
+}
+
+.ptree-dot[data-state="added"],
+.ptree-dot[data-state="untracked"] {
+  background: var(--success);
+}
+
+.ptree-dot[data-state="deleted"] {
+  background: var(--danger);
 }
 
 .ptree-message {

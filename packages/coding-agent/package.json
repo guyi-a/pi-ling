@@ -19,6 +19,7 @@
     "@pi-ling/agent-core": "workspace:*",
     "@pi-ling/contracts": "workspace:*",
     "@pi-ling/skills": "workspace:*",
+    "@pi-ling/web-tools": "workspace:*",
     "diff": "8.0.4",
     "typebox": "1.3.7"
   },

@@ -8,6 +8,7 @@ import {
 import { useState } from "react";
 
 import {
+  resolveToolCategory,
   resolveToolLabel,
   resolveToolRenderer,
   resolveToolTarget,
@@ -38,6 +39,8 @@ export function DefaultToolCard(props: { item: ToolTimelineItem }) {
             ? CircleSlash
             : null;
   const target = resolveToolTarget(item);
+  const category = resolveToolCategory(item);
+  const ext = target.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() ?? "";
   const failedLike = item.status === "failed" || item.status === "denied";
   const expandable =
     failedLike ||
@@ -46,7 +49,8 @@ export function DefaultToolCard(props: { item: ToolTimelineItem }) {
 
   return (
     <div
-      className={`tool-entry ${item.status} ${open ? "expanded" : ""}`}
+      className={`tool-entry tool-cat-${category} ${item.status} ${open ? "expanded" : ""}`}
+      data-ext={ext || undefined}
     >
       <button
         className="tool-entry-row"

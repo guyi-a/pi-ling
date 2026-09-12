@@ -1,6 +1,8 @@
 import { useState } from "react";
 
 import type { UserTimelineItem } from "../../timeline/reducer";
+import { MessageCopyButton } from "./MessageCopyButton";
+import { resolveUserMessageCopyText } from "./message-copy-text";
 import { UserAttachmentChips } from "./UserAttachmentChips";
 import { isLongUserPromptText } from "./user-turn-prompt";
 
@@ -15,6 +17,8 @@ export function UserTurnPrompt(props: {
   const isLong = hasText && isLongUserPromptText(item.text);
 
   if (!hasText && !hasAttachments) return null;
+
+  const copyText = resolveUserMessageCopyText(item);
 
   return (
     <header
@@ -42,6 +46,9 @@ export function UserTurnPrompt(props: {
           {expanded ? "收起" : "展开"}
         </button>
       ) : null}
+      <div className="message-footer message-footer-outside">
+        <MessageCopyButton text={copyText} />
+      </div>
     </header>
   );
 }

@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const PLATFORM_PACKAGE_BY_TARGET: Record<string, string> = {
   "x86_64-unknown-linux-musl": "@openai/codex-linux-x64",
@@ -40,15 +41,13 @@ function targetTriple(): string | undefined {
   return undefined;
 }
 
-/** Resolve the native Codex binary bundled with `@openai/codex` optional deps. */
-export function resolveBundledCodexBin(): string | undefined {
-  const triple = targetTriple();
-  if (!triple) return undefined;
-  const platformPackage = PLATFORM_PACKAGE_BY_TARGET[triple];
-  if (!platformPackage) return undefined;
-
+function resolveBundledCodexBinFromAnchor(
+  anchor: string,
+  triple: string,
+  platformPackage: string,
+): string | undefined {
   try {
-    const require = createRequire(import.meta.url);
+    const require = createRequire(anchor);
     const codexRoot = dirname(require.resolve("@openai/codex/package.json"));
     const platformRoot = dirname(
       createRequire(codexRoot).resolve(`${platformPackage}/package.json`),
@@ -60,4 +59,44 @@ export function resolveBundledCodexBin(): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function bundledCodexBinAnchors(
+  searchRoots: readonly string[] = [],
+): string[] {
+  const anchors = new Set<string>();
+  anchors.add(fileURLToPath(import.meta.url));
+  for (const root of searchRoots) {
+    anchors.add(join(root, "packages", "codex-runtime", "package.json"));
+    anchors.add(join(root, "node_modules", "@pi-ling", "codex-runtime", "package.json"));
+  }
+  anchors.add(
+    join(process.cwd(), "node_modules", "@pi-ling", "codex-runtime", "package.json"),
+  );
+  return [...anchors].filter((anchor) => existsSync(anchor));
+}
+
+export interface ResolveBundledCodexBinOptions {
+  /** Repo or app roots used when the caller is bundled outside codex-runtime. */
+  searchRoots?: readonly string[];
+}
+
+/** Resolve the native Codex binary bundled with `@openai/codex` optional deps. */
+export function resolveBundledCodexBin(
+  options: ResolveBundledCodexBinOptions = {},
+): string | undefined {
+  const triple = targetTriple();
+  if (!triple) return undefined;
+  const platformPackage = PLATFORM_PACKAGE_BY_TARGET[triple];
+  if (!platformPackage) return undefined;
+
+  for (const anchor of bundledCodexBinAnchors(options.searchRoots)) {
+    const candidate = resolveBundledCodexBinFromAnchor(
+      anchor,
+      triple,
+      platformPackage,
+    );
+    if (candidate) return candidate;
+  }
+  return undefined;
 }

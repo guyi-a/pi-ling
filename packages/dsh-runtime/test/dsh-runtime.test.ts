@@ -97,6 +97,17 @@ describe("DshRuntimeAdapter", () => {
     expect(resumed.externalSessionId).toBe(remoteSessionId);
   });
 
+  it("creates a fresh session when resume hits a non-resumable id", async () => {
+    const adapter = runtime();
+    const recovered = await adapter.resumeSession({
+      sessionId: "local-stale",
+      workspaceRoot: process.cwd(),
+      externalSessionId: "stale-dsh-session",
+    });
+    expect(recovered.externalSessionId).not.toBe("stale-dsh-session");
+    expect(recovered.externalSessionId).toBeTruthy();
+  });
+
   it("resumes a closed session with the original external id", async () => {
     const remoteSessionId = "remote-session-42";
     const adapter = runtime({ FAKE_SESSION_ID: remoteSessionId });

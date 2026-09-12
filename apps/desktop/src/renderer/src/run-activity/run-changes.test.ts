@@ -2,7 +2,11 @@ import type { ChangedFile } from "@pi-ling/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { TimelineItem } from "../timeline/reducer";
-import { changesFilesByRunId, lastAgentTurnChanges } from "./run-changes";
+import {
+  changesFilesByRunId,
+  lastAgentTurnChanges,
+  reconcileLastAgentTurnChanges,
+} from "./run-changes";
 
 function changesItem(
   runId: string,
@@ -40,6 +44,55 @@ describe("lastAgentTurnChanges", () => {
 
   it("returns empty when there are no changes items", () => {
     expect(lastAgentTurnChanges([], {})).toEqual([]);
+  });
+});
+
+describe("reconcileLastAgentTurnChanges", () => {
+  it("drops timeline files that no longer have net workspace changes", () => {
+    const turnFiles: ChangedFile[] = [
+      {
+        path: "py/a.py",
+        status: "added",
+        binary: false,
+        sensitive: false,
+        tooLarge: false,
+        additions: 52,
+      },
+      {
+        path: "py/b.py",
+        status: "added",
+        binary: false,
+        sensitive: false,
+        tooLarge: false,
+        additions: 9,
+      },
+    ];
+    expect(reconcileLastAgentTurnChanges(turnFiles, [])).toEqual([]);
+  });
+
+  it("uses net file metadata for paths still changed on disk", () => {
+    const turnFiles: ChangedFile[] = [
+      {
+        path: "src/a.ts",
+        status: "added",
+        binary: false,
+        sensitive: false,
+        tooLarge: false,
+        additions: 99,
+      },
+    ];
+    const netFiles: ChangedFile[] = [
+      {
+        path: "src/a.ts",
+        status: "modified",
+        binary: false,
+        sensitive: false,
+        tooLarge: false,
+        additions: 3,
+        deletions: 1,
+      },
+    ];
+    expect(reconcileLastAgentTurnChanges(turnFiles, netFiles)).toEqual(netFiles);
   });
 });
 

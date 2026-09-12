@@ -102,25 +102,26 @@ export const Sidebar = memo(function Sidebar(props: {
 
   return (
     <aside className="sidebar">
-      <header className="sidebar-top">
-        <button
-          type="button"
-          title="Hide sidebar"
-          aria-label="Hide sidebar"
-          onClick={props.onCollapse}
-        >
-          <PanelLeftClose />
-        </button>
-      </header>
       <nav className="primary-navigation" aria-label="Primary">
-        <button
-          className="sidebar-command"
-          type="button"
-          onClick={() => props.onNewSession()}
-        >
-          <MessageSquarePlus />
-          <span>New chat</span>
-        </button>
+        <div className="sidebar-command-row">
+          <button
+            className="sidebar-command"
+            type="button"
+            onClick={() => props.onNewSession()}
+          >
+            <MessageSquarePlus />
+            <span>New chat</span>
+          </button>
+          <button
+            className="sidebar-collapse"
+            type="button"
+            title="Hide sidebar"
+            aria-label="Hide sidebar"
+            onClick={props.onCollapse}
+          >
+            <PanelLeftClose />
+          </button>
+        </div>
       </nav>
       <div className="sidebar-section-header">
         <span>Repositories</span>

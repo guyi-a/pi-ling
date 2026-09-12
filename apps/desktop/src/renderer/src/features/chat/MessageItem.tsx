@@ -6,6 +6,11 @@ import type {
 } from "../../timeline/reducer";
 import { formatMessageUsage } from "./format-message-usage";
 import { Markdown } from "./Markdown";
+import { MessageCopyButton } from "./MessageCopyButton";
+import {
+  resolveAssistantMessageCopyText,
+  resolveUserMessageCopyText,
+} from "./message-copy-text";
 import { UserAttachmentChips } from "./UserAttachmentChips";
 
 export function MessageItem(props: {
@@ -15,16 +20,22 @@ export function MessageItem(props: {
 }) {
   const { item } = props;
   if (item.kind === "user") {
+    const copyText = resolveUserMessageCopyText(item);
     return (
-      <article className="message user">
-        {item.attachments && item.attachments.length > 0 ? (
-          <UserAttachmentChips
-            attachments={item.attachments}
-            workspaceRoot={props.workspaceRoot}
-          />
-        ) : null}
-        {item.text ? <div className="message-text">{item.text}</div> : null}
-      </article>
+      <div className="user-message-shell">
+        <article className="message user">
+          {item.attachments && item.attachments.length > 0 ? (
+            <UserAttachmentChips
+              attachments={item.attachments}
+              workspaceRoot={props.workspaceRoot}
+            />
+          ) : null}
+          {item.text ? <div className="message-text">{item.text}</div> : null}
+        </article>
+        <div className="message-footer message-footer-outside">
+          <MessageCopyButton text={copyText} />
+        </div>
+      </div>
     );
   }
 
@@ -35,6 +46,9 @@ export function MessageItem(props: {
           ...(item.contextUsage ? { contextUsage: item.contextUsage } : {}),
         })
       : null;
+  const copyText = resolveAssistantMessageCopyText(item, {
+    includeThinking: !props.hideThinking,
+  });
 
   return (
     <article className="message assistant">
@@ -55,7 +69,12 @@ export function MessageItem(props: {
         <span className="streaming-cursor" aria-label="正在生成" />
       ) : null}
       {item.error ? <div className="message-error">{item.error}</div> : null}
-      {usageLabel ? <div className="message-usage">{usageLabel}</div> : null}
+      {usageLabel || copyText.trim() ? (
+        <div className="message-footer">
+          {usageLabel ? <div className="message-usage">{usageLabel}</div> : null}
+          <MessageCopyButton text={copyText} />
+        </div>
+      ) : null}
     </article>
   );
 }

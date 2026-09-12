@@ -31,7 +31,7 @@ pi-ling 是一个用于运行和展示编码 Agent 会话的工程，核心包�
    pnpm test
    ```
 
-3. 复制 `.env.example` 为 `.env`，填入 `DEEPSEEK_API_KEY` 等配置。
+3. 复制 `.env.example` 为 `.env`，填入 `DEEPSEEK_API_KEY` 等配置；也可在应用 **设置 → 模型与 API** 中配置（优先级高于 `.env`）。
 
 4. 启动桌面端：
 
@@ -39,4 +39,4 @@ pi-ling 是一个用于运行和展示编码 Agent 会话的工程，核心包�
    pnpm dev
    ```
 
-更多细节请参阅 `docs/` 目录下的文档。
+开发与架构约定见 [`agent.md`](agent.md)；设计文档见 [`docs/README.md`](docs/README.md)。

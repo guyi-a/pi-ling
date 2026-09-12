@@ -1,9 +1,6 @@
 import {
   CodingAgent,
-  PI_LING_DEEPSEEK_MODEL,
-  PI_LING_DEEPSEEK_PROVIDER,
   SubagentService,
-  registerPiLingDeepseekProvider,
   wrapPromptForComposerMode,
   Workspace,
   type ApprovalDecision,
@@ -14,16 +11,16 @@ import {
   type SubagentRuntime,
   type SubagentSpawnResult,
 } from "@pi-ling/coding-agent";
-import {
-  createModels,
-  type AssistantMessage,
-  type Message,
-  type Api,
-  type Model,
-  type ToolCall,
-  type ToolResultMessage,
-  type Usage,
-  type UserMessage,
+import { isLlmConfigured } from "@pi-ling/llm-config";
+import type {
+  AssistantMessage,
+  Message,
+  Api,
+  Model,
+  ToolCall,
+  ToolResultMessage,
+  Usage,
+  UserMessage,
 } from "@earendil-works/pi-ai";
 import type {
   AgentStatus,
@@ -56,16 +53,23 @@ import {
 import { RunMessageBuffer } from "./run-message-buffer.js";
 import type { TaskRunner } from "./tasks/task-runner.js";
 import { diffLineStats } from "./diff-stats.js";
+import { createWebSearchService } from "./web-search-service.js";
+import { getResolvedLlmConfig } from "./llm-config-store.js";
+import { getPiAiModel, piAiModels as models } from "./llm-model-registry.js";
 import {
   canonicalFromMessage,
   SessionStore,
   type RunCheckpoint,
 } from "./session-store/session-store.js";
 
-const PROVIDER = PI_LING_DEEPSEEK_PROVIDER;
-const MODEL = PI_LING_DEEPSEEK_MODEL;
-const models = createModels();
-registerPiLingDeepseekProvider(models);
+function resolveNativeModel(): Model<Api> {
+  const config = getResolvedLlmConfig();
+  const model = getPiAiModel(config.provider, config.model);
+  if (!model) {
+    throw new Error(`Model is unavailable: ${config.provider}/${config.model}`);
+  }
+  return model;
+}
 
 function emptyUsage(): Usage {
   return {
@@ -176,8 +180,8 @@ async function nativeMessages(
         role: "assistant",
         content,
         api: "openai-completions",
-        provider: "deepseek",
-        model: MODEL,
+        provider: getResolvedLlmConfig().provider,
+        model: getResolvedLlmConfig().model,
         usage: emptyUsage(),
         stopReason: content.some((block) => block.type === "toolCall")
           ? "toolUse"
@@ -309,10 +313,7 @@ export class PiAgentSession {
     taskRunner?: TaskRunner;
     onAutoContinue?: () => Promise<void>;
   }): Promise<PiAgentSession> {
-    const model = models.getModel(PROVIDER, MODEL);
-    if (!model) {
-      throw new Error(`Model is unavailable: ${PROVIDER}/${MODEL}`);
-    }
+    const model = resolveNativeModel();
     const checkpoint = options.store.getActiveCheckpoint(options.session.id);
     const pending = options.store.loadPendingApprovals(options.session.id);
     const approved =
@@ -325,6 +326,8 @@ export class PiAgentSession {
     const subagentRuntime: SubagentRuntime = {
       spawn: (spec, context) => instance.#spawnSubagent(spec, context),
     };
+    // 无搜索 key 时为 undefined → createBuiltinTools 不注册 web_search
+    const searchService = createWebSearchService();
     const canonical = projectCanonicalMessages(
       options.store.loadSessionEvents(options.session.id),
     );
@@ -357,6 +360,7 @@ export class PiAgentSession {
       approvalMode: options.session.approvalMode,
       composerMode: options.session.composerMode ?? "agent",
       subagentRuntime: options.taskRunner ? subagentRuntime : undefined,
+      ...(searchService ? { searchService } : {}),
       prepareContext: async (context) =>
         maybeCompactRuntimeContextIfNeeded(context, activeCompaction()),
       recoverContextOverflow: async (context) =>
@@ -391,10 +395,10 @@ export class PiAgentSession {
       sessionId: this.#session.id,
       runtimeKind: "native",
       availableRuntimes: this.#availableRuntimes,
-      provider: PROVIDER,
+      provider: getResolvedLlmConfig().provider,
       model: this.#model.id,
       contextWindow: this.#model.contextWindow,
-      configured: Boolean(process.env["DEEPSEEK_API_KEY"]?.trim()),
+      configured: isLlmConfigured(getResolvedLlmConfig()),
       approvalMode: this.#agent.approvalMode,
       composerMode: this.#agent.composerMode,
       workspace: this.#session.workspace,
@@ -445,10 +449,7 @@ export class PiAgentSession {
         this.#flush(started);
         await this.#rehydrateAgentMessages();
         const hasImages = attachments.length > 0;
-        const model = models.getModel(PROVIDER, MODEL);
-        if (!model) {
-          throw new Error(`Model is unavailable: ${PROVIDER}/${MODEL}`);
-        }
+        const model = resolveNativeModel();
         this.#model = model;
         this.#agent.setModel(model);
         const composerMode =
