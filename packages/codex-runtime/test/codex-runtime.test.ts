@@ -75,6 +75,16 @@ describe("CodexRuntimeAdapter app-server", () => {
       callId: "run-1:tool-1",
       title: "run_command",
     });
+    // 回归：必须取 `last`（最近一次调用），不能取 `total`（thread 累计）。
+    // 误取 total 会得到 30000 - 300 = 29700。
+    expect(events.find((event) => event.type === "context_usage")).toMatchObject({
+      type: "context_usage",
+      used: 200,
+      size: 1000,
+      input: 200,
+      output: 300,
+      reasoning: 0,
+    });
     await rm(home, { recursive: true, force: true });
   });
 

@@ -155,8 +155,20 @@ export type RuntimeEvent =
       type: "context_usage";
       sessionId: string;
       runId: string;
+      /**
+       * 本次调用发给模型的 prompt 大小（含缓存命中部分）。
+       * 与 Native 的 `totalTokens - output` 保持同一语义：描述「当前上下文占了多少」，
+       * 而不是「整个会话累计消耗了多少」。
+       */
       used: number;
       size: number;
+      /**
+       * 本次调用的真实用量。协议不提供时省略（例如 ACP 只给 used/size）。
+       * 有值时上层会像 Native 一样把它写进 assistant 消息，footer 因此能显示「输出」。
+       */
+      input?: number;
+      output?: number;
+      reasoning?: number;
     }
   | {
       type: "run_end";

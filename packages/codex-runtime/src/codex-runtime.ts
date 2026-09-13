@@ -585,13 +585,25 @@ export class CodexRuntimeAdapter implements RuntimeAdapter {
     if (notification.method === "thread/tokenUsage/updated") {
       if (session.silent) return;
       const tokenUsage = record(params["tokenUsage"]);
-      const total = record(tokenUsage["total"]);
+      // `total` 是整个 thread 的累计，`last` 才是最近一次模型调用。
+      // 「当前上下文占用」必须取 last —— 取 total 会得到「会话至今所有轮次之和」，
+      // 数值会单调增长到远超模型窗口（曾出现 1.4m 这种不可能的值）。
+      const last = record(tokenUsage["last"]);
+      const input = Number(last["inputTokens"] ?? 0);
+      const output = Number(last["outputTokens"] ?? 0);
       await this.#emit({
         type: "context_usage",
         sessionId,
         runId,
-        used: Number(total["totalTokens"] ?? 0),
+        // 与 Native 的 contextUsageFromModel 同构：totalTokens - output
+        used: Math.max(
+          0,
+          Number(last["totalTokens"] ?? 0) - output,
+        ),
         size: Number(tokenUsage["modelContextWindow"] ?? 0),
+        input,
+        output,
+        reasoning: Number(last["reasoningOutputTokens"] ?? 0),
       });
       return;
     }

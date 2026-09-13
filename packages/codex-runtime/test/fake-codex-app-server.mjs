@@ -97,8 +97,25 @@ async function completeTurn(threadId, turnId, prompt) {
     threadId,
     turnId,
     tokenUsage: {
-      total: { totalTokens: 20 },
-      last: { totalTokens: 20 },
+      // total 是整个 thread 的累计，last 才是最近一次调用。
+      // 刻意让两者差异明显：如果被测代码误取 total，"used" 会变成 30000 而非 500，
+      // 断言会立刻失败（历史上正是取错字段导致 footer 显示 1.4m）。
+      total: {
+        totalTokens: 30_000,
+        inputTokens: 29_700,
+        cachedInputTokens: 0,
+        cacheWriteInputTokens: 0,
+        outputTokens: 300,
+        reasoningOutputTokens: 0,
+      },
+      last: {
+        totalTokens: 500,
+        inputTokens: 200,
+        cachedInputTokens: 0,
+        cacheWriteInputTokens: 0,
+        outputTokens: 300,
+        reasoningOutputTokens: 0,
+      },
       modelContextWindow: 1000,
     },
   });

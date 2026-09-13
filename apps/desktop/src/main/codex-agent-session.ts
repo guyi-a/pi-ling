@@ -34,6 +34,11 @@ import { CodexRuntimeAdapter } from "@pi-ling/codex-runtime";
 import { isLlmConfigured } from "@pi-ling/llm-config";
 import { getResolvedLlmConfig } from "./llm-config-store.js";
 import {
+  hasCallUsage,
+  toAgentUsage,
+  type CodexCallUsage,
+} from "./codex-call-usage.js";
+import {
   buildCodexThreadOptions,
   evaluateCodexApproval,
   mapCodexApprovalPolicy,
@@ -94,6 +99,7 @@ export class CodexAgentSession {
   #approvalMode: ApprovalMode;
   #composerMode: ComposerMode;
   #contextUsage: ContextUsage | undefined;
+  #callUsage: CodexCallUsage | undefined;
   #runTurn = 0;
   #changes: ChangeTracker | null = null;
   #workspaceRoot: string;
@@ -306,6 +312,7 @@ export class CodexAgentSession {
     this.#assistantReasoning = "";
     this.#assistantToolCalls = [];
     this.#contextUsage = undefined;
+    this.#callUsage = undefined;
     this.#runTurn = 0;
     const userMessage: CanonicalMessage = {
       id: `${runId}:user`,
@@ -531,6 +538,10 @@ export class CodexAgentSession {
       this.#assistantText = "";
       this.#assistantReasoning = "";
       this.#assistantToolCalls = [];
+      // 每次模型调用（= 一个 assistant 消息）拥有自己的用量；
+      // 不复用上一个消息的值，否则没有收到 tokenUsage 的调用会继承旧数据。
+      this.#contextUsage = undefined;
+      this.#callUsage = undefined;
       this.#flush(
         this.#store.appendSessionEvent({
           sessionId: this.#session.id,
@@ -587,7 +598,7 @@ export class CodexAgentSession {
           kind: "message.assistant.committed",
           message,
           stopReason: effectiveStop,
-          usage: { input: 0, output: 0, totalTokens: 0, cost: 0 },
+          usage: toAgentUsage(this.#callUsage),
           ...(this.#contextUsage ? { contextUsage: this.#contextUsage } : {}),
         },
       }),
@@ -600,17 +611,22 @@ export class CodexAgentSession {
     this.#assistantToolCalls = [];
   }
 
-  #recordContextUsage(runId: string, usage: ContextUsage): void {
-    this.#contextUsage = usage;
+  #recordContextUsage(
+    runId: string,
+    context: ContextUsage,
+    call: CodexCallUsage | undefined,
+  ): void {
+    this.#contextUsage = context;
+    if (call) this.#callUsage = call;
     this.#store.appendSessionEvent({
       sessionId: this.#session.id,
       runtimeKind: "codex",
       runId,
-      idempotencyKey: `run:${runId}:context-usage:${usage.used}:${usage.size}`,
+      idempotencyKey: `run:${runId}:context-usage:${context.used}:${context.size}:${call?.output ?? 0}`,
       event: {
         kind: "usage.recorded",
-        usage: { input: 0, output: 0, totalTokens: 0, cost: 0 },
-        contextUsage: usage,
+        usage: toAgentUsage(call),
+        contextUsage: context,
       },
     });
   }
@@ -659,10 +675,17 @@ export class CodexAgentSession {
         frame: { kind: "assistant.text.delta", delta: event.delta },
       });
     } else if (event.type === "context_usage") {
-      this.#recordContextUsage(runId, {
-        used: event.used,
-        size: event.size,
-      });
+      const call: CodexCallUsage = {
+        input: event.input ?? 0,
+        output: event.output ?? 0,
+        reasoning: event.reasoning ?? 0,
+      };
+      this.#recordContextUsage(
+        runId,
+        { used: event.used, size: event.size },
+        // 协议不提供逐次用量时（如 ACP）保持 undefined，footer 就不显示「输出」
+        hasCallUsage(call) ? call : undefined,
+      );
     } else if (event.type === "tool") {
       const turnId = this.#assistantMessageId ?? `${runId}:exec`;
       const arguments_ =
