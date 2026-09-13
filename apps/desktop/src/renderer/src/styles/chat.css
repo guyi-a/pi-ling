@@ -184,7 +184,8 @@
   padding: 10px 12px;
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  /* 四角直角：与用户消息气泡统一，靠底色和投影区分层次而不是圆角 */
+  border-radius: 0;
   background: color-mix(in srgb, var(--surface-2) 94%, var(--editor-bg));
   box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
   backdrop-filter: blur(8px);
@@ -243,7 +244,8 @@
   padding: 8px 11px;
   color: var(--text);
   border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
-  border-radius: 12px 12px 4px 12px;
+  /* 四角直角（原为 12/12/4/12，右下角特意收窄以指向头像方向） */
+  border-radius: 0;
   background: color-mix(in srgb, var(--accent-soft) 55%, var(--surface-2));
 }
 
@@ -604,7 +606,8 @@
 
 .approval-mode-menu strong {
   font-size: 14px;
-  font-weight: 570;
+  /* 用 600 而不是 570：600 是可感知的层级，570/600 肉眼无差别 */
+  font-weight: 600;
 }
 
 .approval-mode-menu small {
@@ -663,7 +666,7 @@
 
 .composer-mode-menu strong {
   font-size: 14px;
-  font-weight: 570;
+  font-weight: 600;
 }
 
 .composer-mode-menu small {
@@ -765,7 +768,7 @@
 
 .runtime-menu strong {
   font-size: 14px;
-  font-weight: 570;
+  font-weight: 600;
 }
 
 .runtime-menu small {
@@ -890,7 +893,8 @@
 .markdown h3 {
   margin: 1.25em 0 0.5em;
   color: var(--text);
-  font-weight: 650;
+  /* 与 h1/h2 一起收敛到 600 —— 650 与 600 视觉上无法区分，只是噪声 */
+  font-weight: 600;
   line-height: 1.3;
 }
 

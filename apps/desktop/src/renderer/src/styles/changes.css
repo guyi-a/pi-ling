@@ -164,7 +164,7 @@
   color: var(--muted-2);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
-  font-size: 15px;
+  font-size: 16px;
 }
 
 .changes-empty strong {

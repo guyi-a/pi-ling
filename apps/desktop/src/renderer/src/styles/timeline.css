@@ -267,10 +267,17 @@
   white-space: pre-wrap;
 }
 
+/*
+ * run 执行过程中的 assistant 叙述。
+ *
+ * 字号与最终答复（.markdown = 14px）保持一致 —— 同一段 assistant 文字不应因
+ * 「执行中 / 已完成」而改变字号，否则滚动时视线要反复重新对焦。
+ * 「这是中间步骤」的信号交给颜色（--muted）表达即可。
+ */
 .run-activity-segment-content .markdown {
   color: var(--muted);
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: 14px;
+  line-height: 1.65;
 }
 
 .run-activity-segment-content {
@@ -542,7 +549,7 @@
 
 .tool-label {
   color: var(--text-soft);
-  font-weight: 540;
+  font-weight: 500;
 }
 
 .tool-summary {

@@ -304,7 +304,7 @@
   color: var(--muted-2);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
-  font-size: 15px;
+  font-size: 16px;
 }
 
 .workbench-empty strong {
@@ -351,7 +351,7 @@
   margin: 7px 0 13px;
   color: var(--text);
   font-size: 18px;
-  font-weight: 620;
+  font-weight: 600;
 }
 
 .session-activation-overlay {
