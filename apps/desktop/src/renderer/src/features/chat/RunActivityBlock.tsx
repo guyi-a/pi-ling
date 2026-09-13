@@ -120,8 +120,10 @@ export function RunActivityBlock(props: {
           aria-live="polite"
           aria-atomic="true"
         >
-          <span className="run-activity-leading-spacer" aria-hidden="true" />
-          {activity.summary ? (
+          {/* 只占一个图标槽位，宽度与摘要行的箭头（同为 13px）一致，
+              这样「Planning next steps」与上方的「Ran N commands」左对齐。
+              有工具在跑时由工具卡片自己转圈，此处留空占位以保持对齐。 */}
+          {activity.hasUnsettledWork ? (
             <span className="run-activity-status-spacer" aria-hidden="true" />
           ) : (
             <LoaderCircle className="run-activity-status" />
@@ -171,21 +173,6 @@ export function RunActivityBlock(props: {
           {orphanTools.map((tool) => (
             <ToolCard item={tool} key={tool.id} />
           ))}
-          {activity.changes.length > 0 ? (
-            <div className="run-activity-changes">
-              {activity.changes.flatMap((change) =>
-                change.files.map((file) => (
-                  <div
-                    className="run-activity-change"
-                    key={`${change.id}:${file.path}`}
-                  >
-                    <span>{file.path}</span>
-                    <small>{file.status}</small>
-                  </div>
-                )),
-              )}
-            </div>
-          ) : null}
         </div>
       ) : null}
     </section>

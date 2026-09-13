@@ -36,11 +36,9 @@ export function ToolCardShell(props: {
   statusText?: string;
 }) {
   const { item, children, defaultOpen = false, keepCollapsed = false } = props;
-  const [open, setOpen] = useState(
-    keepCollapsed
-      ? false
-      : defaultOpen || item.status === "failed",
-  );
+  // 一律默认折叠（含失败）：失败状态已在行尾以红色标出，
+  // 自动展开会在长 run 里堆出大片内容，反而淹没真正要看的地方。
+  const [open, setOpen] = useState(keepCollapsed ? false : defaultOpen);
   const StateIcon =
     item.status === "running"
       ? LoaderCircle

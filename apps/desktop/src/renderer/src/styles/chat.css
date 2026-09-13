@@ -1010,6 +1010,39 @@
   background: transparent;
 }
 
+/*
+ * Shiki 把每一行输出为一组顶层 <span>，且行与行之间**没有换行符** ——
+ * 断行完全依赖 CSS。Streamdown 假设项目里有 Tailwind 的 preflight 来处理，
+ * 而 pi-ling 用的是手写样式，因此必须自己补上，否则整段代码会挤成一行。
+ */
+.markdown [data-streamdown="code-block-body"] code > span {
+  display: block;
+  min-height: 1lh;
+}
+
+/*
+ * 语法着色的颜色落地。
+ *
+ * Streamdown 把每个 token 的颜色写成**内联 CSS 变量**（`--sdm-c` 浅色 /
+ * `--shiki-dark` 深色 / `--sdm-tbg` 背景），再用 Tailwind 工具类消费：
+ *
+ *   class="text-[var(--sdm-c,inherit)] dark:text-[var(--shiki-dark,…)] …"
+ *
+ * pi-ling 没有 Tailwind，这些类不会生成任何声明，结果是变量被设了却无人使用，
+ * 代码块因此全是继承色（纯灰）。这里手写等价规则补上这一环。
+ *
+ * 深浅色按 pi-ling 的主题属性切换：默认深色，`html[data-theme="light"]` 为浅色。
+ */
+.markdown [data-streamdown="code-block-body"] code > span > span {
+  color: var(--shiki-dark, var(--sdm-c, inherit));
+  background-color: var(--shiki-dark-bg, var(--sdm-tbg, transparent));
+}
+
+html[data-theme="light"] .markdown [data-streamdown="code-block-body"] code > span > span {
+  color: var(--sdm-c, inherit);
+  background-color: var(--sdm-tbg, transparent);
+}
+
 .markdown-code-block pre code {
   padding: 0;
   border: 0;

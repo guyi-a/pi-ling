@@ -24,6 +24,18 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
   ".bmp": "image/bmp",
 };
 
+/** 单个文本文件的大小上限；超过则不读取（grep 与 readText 共用）。 */
+const MAX_TEXT_FILE_BYTES = 512 * 1024;
+
+/**
+ * grep 的并发批大小。
+ *
+ * 逐文件串行读取时，几乎全部时间花在 syscall 往返上（实测 1671 个文件
+ * 约 500ms，其中读 22MB 只占极小部分），因此并发收益接近线性。
+ * 批内并行、批间按顺序收集，保证结果顺序与串行版一致。
+ */
+const GREP_READ_BATCH = 32;
+
 export interface WorkspaceEntry {
   path: string;
   type: "file" | "directory";
@@ -67,7 +79,7 @@ export class Workspace {
     return relative === "" ? "." : relative.split(path.sep).join("/");
   }
 
-  async readText(userPath: string, maxBytes = 512 * 1024): Promise<string> {
+  async readText(userPath: string, maxBytes = MAX_TEXT_FILE_BYTES): Promise<string> {
     const absolute = await this.resolve(userPath);
     const stats = await fs.stat(absolute);
     if (!stats.isFile()) {
@@ -108,29 +120,58 @@ export class Workspace {
   ): Promise<Array<{ path: string; line: number; text: string }>> {
     const expression = new RegExp(pattern, "i");
     const files = (await this.list(userPath, true, maxEntries)).filter(
-      (entry) => entry.type === "file" && (entry.size ?? 0) <= 512 * 1024,
+      (entry) =>
+        entry.type === "file" && (entry.size ?? 0) <= MAX_TEXT_FILE_BYTES,
     );
     const matches: Array<{ path: string; line: number; text: string }> = [];
-    for (const file of files) {
-      if (matches.length >= maxMatches) {
-        break;
-      }
-      let content: string;
-      try {
-        content = await this.readText(file.path);
-      } catch {
-        continue;
-      }
-      for (const [index, line] of content.split(/\r?\n/).entries()) {
-        if (expression.test(line)) {
-          matches.push({ path: file.path, line: index + 1, text: line });
-          if (matches.length >= maxMatches) {
-            break;
-          }
+
+    for (
+      let offset = 0;
+      offset < files.length && matches.length < maxMatches;
+      offset += GREP_READ_BATCH
+    ) {
+      const batch = files.slice(offset, offset + GREP_READ_BATCH);
+      const contents = await Promise.all(
+        batch.map((file) => this.#readForGrep(file.path)),
+      );
+
+      // 按批内顺序收集，保持与串行实现相同的「先文件序、后行序」
+      for (let index = 0; index < batch.length; index += 1) {
+        const content = contents[index];
+        if (content === undefined) continue;
+        for (const [lineIndex, line] of content.split(/\r?\n/).entries()) {
+          if (!expression.test(line)) continue;
+          matches.push({
+            path: batch[index]!.path,
+            line: lineIndex + 1,
+            text: line,
+          });
+          if (matches.length >= maxMatches) break;
         }
+        if (matches.length >= maxMatches) break;
       }
     }
+
     return matches;
+  }
+
+  /**
+   * grep 专用读取快路径。
+   *
+   * 路径来自 `#walk`，而 `#walk` 会跳过符号链接，因此这些路径必定是
+   * 工作区内的真实文件 —— 不必再走 `resolve()` 的 `realpath` 校验
+   * （那是每次 grep 最主要的额外 syscall 开销）。
+   * 只保留与 `readText` 一致的大小与二进制内容检查。
+   */
+  async #readForGrep(relativePath: string): Promise<string | undefined> {
+    try {
+      const content = await fs.readFile(path.join(this.root, relativePath));
+      if (content.length > MAX_TEXT_FILE_BYTES) return undefined;
+      if (content.subarray(0, 8192).includes(0)) return undefined;
+      return content.toString("utf8");
+    } catch {
+      return undefined;
+    }
   }
 
   async glob(
@@ -196,6 +237,31 @@ export class Workspace {
     output: WorkspaceEntry[],
   ): Promise<void> {
     const entries = await fs.readdir(directory, { withFileTypes: true });
+
+    // 第一遍：只并发 stat 本目录下的文件，拿到 size。
+    // 单独 stat 是为了 size —— grep 依赖它过滤超大文件（构建产物里
+    // 有数百 MB 的 app.asar），所以不能省。
+    const filePaths: string[] = [];
+    for (const entry of entries) {
+      if (entry.isSymbolicLink() || !entry.isFile()) continue;
+      filePaths.push(path.join(directory, entry.name));
+    }
+    const sizes = new Map<string, number>();
+    const stats = await Promise.all(
+      filePaths.map(async (absolute) => {
+        try {
+          return (await fs.stat(absolute)).size;
+        } catch {
+          return undefined;
+        }
+      }),
+    );
+    for (let index = 0; index < filePaths.length; index += 1) {
+      const size = stats[index];
+      if (size !== undefined) sizes.set(filePaths[index]!, size);
+    }
+
+    // 第二遍：严格按 readdir 顺序输出，与串行实现完全一致。
     for (const entry of entries) {
       if (output.length >= maxEntries) {
         return;
@@ -210,11 +276,12 @@ export class Workspace {
           await this.#walk(absolute, true, maxEntries, output);
         }
       } else if (entry.isFile()) {
-        const stats = await fs.stat(absolute);
+        const size = sizes.get(absolute);
+        if (size === undefined) continue;
         output.push({
           path: this.relative(absolute),
           type: "file",
-          size: stats.size,
+          size,
         });
       }
     }

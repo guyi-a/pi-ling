@@ -6,8 +6,8 @@ import {
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 import type { BundledLanguage, BundledTheme, LanguageInput } from "shiki";
 
-const THEME_LIGHT: BundledTheme = "github-light";
-const THEME_DARK: BundledTheme = "github-dark";
+const THEME_LIGHT: BundledTheme = "one-light";
+const THEME_DARK: BundledTheme = "one-dark-pro";
 const FALLBACK_LANG: BundledLanguage = "typescript";
 
 const LANG_BY_EXT: Record<string, BundledLanguage> = {
@@ -117,8 +117,8 @@ let highlighterPromise: Promise<HighlighterCore> | null = null;
 
 async function createCoreHighlighter(): Promise<HighlighterCore> {
   const [lightTheme, darkTheme] = await Promise.all([
-    import("@shikijs/themes/github-light"),
-    import("@shikijs/themes/github-dark"),
+    import("@shikijs/themes/one-light"),
+    import("@shikijs/themes/one-dark-pro"),
   ]);
   return createHighlighterCore({
     themes: [lightTheme.default, darkTheme.default],

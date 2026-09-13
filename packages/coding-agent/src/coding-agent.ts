@@ -180,6 +180,7 @@ export class CodingAgent {
           ]
         : []),
       "When you mention a page you fetched, or any external URL, write it as a markdown link with the full URL — [Title](https://example.com/page). Never wrap a URL or link text in backticks: backticks render as code, not as a clickable link.",
+      "Write math with LaTeX delimiters: $...$ for inline and $$...$$ for display. Do NOT escape the dollar signs (write $x$, not \\$x\\$) — escaped dollars render as literal text instead of formulas. Keep prose outside the delimiters.",
       ...(options.subagentRuntime
         ? [
             "Use spawn_subagent for independent read-only research that would clutter the main conversation. The subagent prompt must be self-contained.",

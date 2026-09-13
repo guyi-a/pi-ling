@@ -39,8 +39,11 @@
 }
 
 .run-activity-status {
-  width: 13px;
-  height: 13px;
+  width: 11px;
+  height: 11px;
+  /* 11 + 左右各 1px = 13px 占位，与摘要行的箭头同宽；
+     缩小图标的同时保持两行文字左对齐。 */
+  margin: 0 1px;
   flex: 0 0 auto;
 }
 
@@ -141,10 +144,15 @@
   font-weight: 500;
 }
 
-.run-activity-leading-spacer,
+/*
+ * 状态行的图标槽位：占位 13px，与摘要行的箭头（.run-activity-chevron）等宽，
+ * 因此两行文字起始位置一致，「Planning next steps」与上方的「Ran N commands」
+ * 左对齐。有工具在跑时用空占位顶替转圈，避免文字左右跳动。
+ */
 .run-activity-status-spacer {
-  width: 13px;
-  height: 13px;
+  width: 11px;
+  height: 11px;
+  margin: 0 1px;
   flex: 0 0 auto;
 }
 
@@ -267,32 +275,6 @@
 
 .run-activity-segment-content {
   margin: 2px 0 7px;
-}
-
-.run-activity-changes {
-  display: grid;
-  gap: 2px;
-  margin: 7px 0 2px 23px;
-}
-
-.run-activity-change {
-  min-width: 0;
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.run-activity-change > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.run-activity-change small {
-  color: var(--muted-2);
-  font-size: 11px;
 }
 
 .tool-entry {

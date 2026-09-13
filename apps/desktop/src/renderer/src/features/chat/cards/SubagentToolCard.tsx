@@ -94,7 +94,6 @@ export function SubagentToolCard(props: { item: ToolTimelineItem }) {
   return (
     <ToolCardShell
       item={props.item}
-      defaultOpen={Boolean(resultText)}
       hideRawDetails
       label={presentation.label}
       target={presentation.target}

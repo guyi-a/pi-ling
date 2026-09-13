@@ -27,7 +27,8 @@ const statusLabel: Record<ToolTimelineItem["status"], string> = {
 
 export function DefaultToolCard(props: { item: ToolTimelineItem }) {
   const { item } = props;
-  const [open, setOpen] = useState(item.status === "failed");
+  // 一律默认折叠：失败会以红色 Failed 标在行尾，需要详情时再展开。
+  const [open, setOpen] = useState(false);
   const StateIcon =
     item.status === "running"
       ? LoaderCircle

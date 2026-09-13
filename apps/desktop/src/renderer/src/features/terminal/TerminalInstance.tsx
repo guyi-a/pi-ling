@@ -4,28 +4,7 @@ import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 
 import { useFilesStore } from "../files/store";
-
-function readCssColor(name: string, fallback: string): string {
-  const value = getComputedStyle(document.documentElement)
-    .getPropertyValue(name)
-    .trim();
-  return value || fallback;
-}
-
-function buildTerminalTheme() {
-  return {
-    background: readCssColor("--code-bg", "#171717"),
-    foreground: readCssColor("--text-soft", "#dedede"),
-    cursor: readCssColor("--accent-strong", "#7aded3"),
-    selectionBackground: readCssColor("--surface-selected", "#37373d"),
-    red: readCssColor("--danger", "#f5927e"),
-    green: readCssColor("--success", "#7fd99a"),
-    yellow: readCssColor("--warning", "#e0c04a"),
-    blue: readCssColor("--info", "#7eb6ff"),
-    magenta: readCssColor("--tool-command", "#c792ea"),
-    cyan: readCssColor("--accent", "#5ec4bc"),
-  };
-}
+import { createTerminalTheme } from "./terminal-theme";
 
 export type TerminalStatus = "connecting" | "ready" | "exited" | "error";
 
@@ -91,7 +70,7 @@ export function TerminalInstance(props: {
       fontSize: 12,
       lineHeight: 1.25,
       scrollback: 5000,
-      theme: buildTerminalTheme(),
+      theme: createTerminalTheme(),
     });
     const fit = new FitAddon();
     terminal.loadAddon(fit);

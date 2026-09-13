@@ -73,8 +73,8 @@ export default defineConfig({
     optimizeDeps: {
       include: [
         "@shikijs/engine-javascript",
-        "@shikijs/themes/github-light",
-        "@shikijs/themes/github-dark",
+        "@shikijs/themes/one-light",
+        "@shikijs/themes/one-dark-pro",
         "@shikijs/langs/typescript",
       ],
     },

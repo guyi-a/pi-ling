@@ -21,7 +21,7 @@ export function WebSearchToolCard(props: { item: ToolTimelineItem }) {
     typeof props.item.output === "string" ? props.item.output.trim() : "";
 
   return (
-    <ToolCardShell item={props.item} defaultOpen={Boolean(output)}>
+    <ToolCardShell item={props.item}>
       <div className="tool-web-search-body">
         {query ? <p className="tool-web-search-query">{query}</p> : null}
         {output ? (

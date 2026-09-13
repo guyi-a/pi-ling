@@ -304,8 +304,10 @@ describe("RunActivityBlock", () => {
       <RunActivityBlock activity={model} forceOpen />,
     );
     expect(expanded).toContain("run-activity-details");
-    expect(expanded).toContain("CHECK constraint failed: lifecycle");
-    expect(expanded).toContain("Error");
+    // 工具卡片本身也是折叠的：失败以红色 Failed 标出，展开 run 不再顺带
+    // 抖出一大段错误正文，需要时再点开该工具。
+    expect(expanded).not.toContain("CHECK constraint failed: lifecycle");
+    expect(expanded).toMatch(/tool-entry-state">Failed</);
   });
 
   it("falls back to the phase label when planning with no active tool", () => {
