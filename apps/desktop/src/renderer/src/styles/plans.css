@@ -176,9 +176,7 @@
 
   color: var(--muted-2);
 
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-
-    "Liberation Mono", monospace;
+  font-family: var(--font-mono);
 
   font-size: 10px;
 
@@ -298,9 +296,7 @@
 
   color: var(--muted-2);
 
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-
-    "Liberation Mono", monospace;
+  font-family: var(--font-mono);
 
   font-size: 10px;
 

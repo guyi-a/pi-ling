@@ -16,7 +16,21 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
-  scroll-padding-bottom: max(28px, var(--message-scroll-cushion));
+  /*
+   * 这里刻意**不设** `scroll-padding-bottom`。
+   *
+   * 底部余量由 `.message-list-inner` 的 `padding-bottom` 提供 —— 那是真实的
+   * 可滚动空间，同时让最后一轮能停在面板中部。而 `scroll-padding` 完全不同：
+   * 它定义滚动口的「最佳可视区」，会被所有 scroll-into-view 类操作采用。
+   *
+   * 实测（容器高 520px、目标元素本就在视野内 top=321）：
+   *   设成 42vh 时，`scrollIntoView({ block: "nearest" })` 多滚 301px，
+   *   把元素顶到离底边 454px 处；去掉后位移为 0（正确的不动）。
+   *
+   * 拖选文本时，浏览器会对选区终点持续做这类 reveal —— 于是每移动一次鼠标
+   * 就多滚 42vh，表现为「选中时视图飞快下滑、选区失控」。这条属性是那轮
+   * 「底部留白」改动顺手加上的，属于误用：留白该用 padding，不该用 scroll-padding。
+   */
 }
 
 .scroll-to-bottom {
@@ -269,7 +283,7 @@
   border: 1px solid color-mix(in srgb, var(--danger) 24%, transparent);
   border-radius: var(--radius-sm);
   background: var(--danger-tint);
-  font-family: "Cascadia Code", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
   display: flex;
   align-items: flex-start;
@@ -294,7 +308,7 @@
 .message-usage {
   margin: 0;
   color: var(--muted-2);
-  font-family: "Cascadia Code", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
 }
 
@@ -945,8 +959,13 @@
   border: 0;
   border-radius: 5px;
   background: var(--surface-2);
-  font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 0.92em;
+  font-family: var(--font-mono);
+  /* 整数像素：0.92em 在 14px 正文下等于 12.88px，分数尺寸会让字形对不齐
+     像素网格而发虚（与编辑器曾用 12.5px 是同一类问题）。13px 已是字号阶梯上
+     的既有档位。 */
+  font-size: 13px;
+  /* 与编辑器一致：连字会把 != 和 ==、-> 和 => 合成一个字形 */
+  font-variant-ligatures: none;
 }
 
 .markdown ul,
@@ -982,7 +1001,10 @@
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: var(--surface-2);
+  /* 代码面统一用 --code-bg（与工具输出、时间线一致）。
+     此前这里与下面的 .markdown-code-block 都用 --surface-2 —— 那是「抬起表面」
+     的 token（菜单/按钮语义），比聊天区底色 #151515 亮 16 级，所以整块发灰。 */
+  background: var(--code-bg);
 }
 
 .markdown pre code {
@@ -990,7 +1012,10 @@
   border: 0;
   background: transparent;
   color: inherit;
-  font-size: 13px;
+  /* 与正文同号（此前是 13px，比正文小一档，阅读时明显发虚）。
+     行高显式取 1.6，与编辑器/diff 的每行节奏保持一致。 */
+  font-size: 14px;
+  line-height: 1.6;
 }
 
 .markdown-code-block,
@@ -1001,7 +1026,9 @@
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: var(--surface-2);
+  /* 代码面统一用 --code-bg，与工具输出 / 时间线一致（此前误用 --surface-2，
+     那是菜单/按钮的「抬起表面」语义，导致代码块在深色下明显发灰）。 */
+  background: var(--code-bg);
 }
 
 .markdown-code-block pre,
@@ -1012,6 +1039,31 @@
   border: 0;
   border-radius: 0;
   background: transparent;
+}
+
+/*
+ * Streamdown 围栏块的**内层 pre 必须完全让位**。
+ *
+ * 实测 DOM 是三层：
+ *   div[data-streamdown="code-block"]        ← 外层，提供边框/圆角/底色
+ *     div[data-streamdown="code-block-body"] ← 提供内边距与滚动
+ *       pre                                  ← 内层
+ *
+ * 上方那条规则用的是 `.markdown-code-block pre`，它要求祖先带
+ * `markdown-code-block` class —— 而该 class 只有纯文本块的自定义组件会加。
+ * Streamdown 的外层用的是 `rounded-xl border border-border bg-sidebar` 这类
+ * Tailwind 工具类（项目里没有 Tailwind，不生成任何 CSS），因此规则没命中，
+ * 内层 pre 保留 `.markdown pre` 的边框与圆角，结果就是**框套框**，
+ * 且内边距也被叠加成 12+12px。这里用 (0,2,1) 的选择器明确压掉。
+ */
+.markdown [data-streamdown="code-block"] pre {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  /* 滚动交给 body，避免出现嵌套滚动条 */
+  overflow: visible;
 }
 
 /*
@@ -1195,7 +1247,7 @@ html[data-theme="light"] .markdown [data-streamdown="code-block-body"] code > sp
 .turn-changes-badge {
   min-width: 1.5rem;
   color: var(--muted-2);
-  font-family: "Cascadia Code", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
@@ -1205,7 +1257,7 @@ html[data-theme="light"] .markdown [data-streamdown="code-block-body"] code > sp
   min-width: 0;
   overflow: hidden;
   color: var(--text-soft);
-  font-family: "Cascadia Code", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1214,7 +1266,7 @@ html[data-theme="light"] .markdown [data-streamdown="code-block-body"] code > sp
 .turn-changes-stats {
   display: inline-flex;
   gap: 6px;
-  font-family: "Cascadia Code", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
 }
 

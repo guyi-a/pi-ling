@@ -13,7 +13,7 @@ function imagePath(arguments_: Record<string, unknown>): string | undefined {
 }
 
 export function ReadImageToolCard(props: { item: ToolTimelineItem }) {
-  const openFile = useFilesStore((state) => state.openFile);
+  const requestOpenFile = useFilesStore((state) => state.requestOpenFile);
   const workspaceRoot = useAgentWorkspaceRoot();
   const path = imagePath(props.item.arguments);
   const previewSrc =
@@ -35,7 +35,7 @@ export function ReadImageToolCard(props: { item: ToolTimelineItem }) {
           <button
             type="button"
             className="tool-read-image-open"
-            onClick={() => openFile(path)}
+            onClick={() => requestOpenFile(path)}
           >
             在 Files 中预览 {path}
           </button>

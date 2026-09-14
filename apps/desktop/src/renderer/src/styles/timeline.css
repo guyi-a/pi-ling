@@ -120,7 +120,7 @@
   display: flex;
   gap: 5px;
   flex: 0 0 auto;
-  font-family: "Cascadia Code", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
@@ -287,7 +287,7 @@
 .tool-entry {
   margin: 1px 0;
   color: var(--muted);
-  font-family: "Cascadia Code", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
@@ -588,7 +588,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--code-bg);
-  font-family: "Cascadia Code", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.55;
   white-space: pre-wrap;
@@ -726,7 +726,7 @@
 .approval-target {
   margin: 0;
   color: var(--text);
-  font-family: "Cascadia Code", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.45;
   word-break: break-word;

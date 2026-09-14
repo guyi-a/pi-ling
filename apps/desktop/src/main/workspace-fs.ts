@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type {
@@ -6,6 +6,7 @@ import type {
   WorkspaceFileKind,
   WorkspaceTreeNode,
   WorkspaceTreeResult,
+  WorkspaceWriteResult,
 } from "@pi-ling/contracts";
 
 const MAX_TREE_ENTRIES = 20_000;
@@ -253,6 +254,101 @@ export async function readFileContent(
     };
   }
 }
+
+/** 单次编辑允许写入的最大字节数，防止误写超大数据把界面卡死。 */
+const MAX_WRITE_BYTES = 4 * 1024 * 1024;
+
+/**
+ * 写入工作区内的 UTF-8 文本文件。
+ *
+ * 与 `readFileContent` 对称：路径一律经 `resolveWorkspacePath` 校验，
+ * 越界或不可写时返回 `{ ok: false }` 而不抛异常 —— 调用方是 UI，
+ * 需要把失败原因展示出来而不是让 IPC 直接 reject。
+ */
+export async function writeFileContent(
+  root: string,
+  subpath: string,
+  content: string,
+): Promise<WorkspaceWriteResult> {
+  let target: string;
+  try {
+    target = resolveWorkspacePath(root, subpath);
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  const size = Buffer.byteLength(content, "utf8");
+  if (size > MAX_WRITE_BYTES) {
+    return {
+      ok: false,
+      message: `文件超过 ${Math.round(MAX_WRITE_BYTES / 1024 / 1024)} MB，已拒绝写入`,
+    };
+  }
+
+  try {
+    const stats = await stat(target);
+    if (stats.isDirectory()) {
+      return { ok: false, message: "目标是目录，无法写入" };
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+    // 文件不存在：允许创建，但父目录必须已存在，避免手滑写出意外路径。
+    try {
+      await stat(path.dirname(target));
+    } catch {
+      return { ok: false, message: "父目录不存在" };
+    }
+  }
+
+  try {
+    await writeFile(target, content, "utf8");
+    return { ok: true, size };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/**
+ * 读取用于 diff 的工作区侧文本。
+ *
+ * 与 `readFileContent` 的区别：不做类型分类、不返回 union，只关心
+ * 「能不能拿到纯文本」。二进制或超限返回 `undefined`，调用方回退到 patch。
+ */
+export async function readTextForDiff(
+  root: string,
+  subpath: string,
+): Promise<string | undefined> {
+  let target: string;
+  try {
+    target = resolveWorkspacePath(root, subpath);
+  } catch {
+    return undefined;
+  }
+  try {
+    const stats = await stat(target);
+    if (!stats.isFile() || stats.size > MAX_DIFF_TEXT_BYTES) return undefined;
+    const handle = await readFile(target);
+    if (isBinaryContent(handle.subarray(0, BINARY_SNIFF_LEN))) return undefined;
+    return handle.toString("utf8");
+  } catch {
+    // 文件不存在（删除场景）由调用方按空串处理
+    return undefined;
+  }
+}
+
+/** diff 双侧内容的大小上限；超过则不做高亮渲染，回退 patch。 */
+export const MAX_DIFF_TEXT_BYTES = 2 * 1024 * 1024;
 
 const MIME_BY_EXT: Record<string, string> = {
   ".pdf": "application/pdf",

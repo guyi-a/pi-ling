@@ -12,7 +12,7 @@ function AttachmentChip(props: {
   workspaceRoot: string;
   onRemove: () => void;
 }) {
-  const openFile = useFilesStore((state) => state.openFile);
+  const requestOpenFile = useFilesStore((state) => state.requestOpenFile);
   const src = workspaceInlineURL(props.workspaceRoot, props.file.relativePath);
   return (
     <div className="attachment-chip">
@@ -21,7 +21,7 @@ function AttachmentChip(props: {
         className="attachment-chip-preview"
         aria-label={`预览 ${props.file.name}`}
         title={props.file.name}
-        onClick={() => openFile(props.file.relativePath)}
+        onClick={() => requestOpenFile(props.file.relativePath)}
       >
         <img
           className="attachment-chip-thumb"

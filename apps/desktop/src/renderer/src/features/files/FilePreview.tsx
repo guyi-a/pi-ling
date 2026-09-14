@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { WorkspaceFileContent } from "@pi-ling/contracts";
 
+import { CodeEditor, type CodeEditorHandle } from "./CodeEditor";
+import { pickFileView, resolveFileViews, type FileViewMode } from "./file-views";
 import { FileSwitcherOverlay } from "./FileSwitcherOverlay";
-import { CodePreview } from "./renderers/CodePreview";
 import { DocxPreview } from "./renderers/DocxPreview";
 import { ImageRenderer } from "./renderers/ImageRenderer";
 import { MarkdownRenderer } from "./renderers/MarkdownRenderer";
@@ -60,17 +61,68 @@ function CloseIcon() {
   );
 }
 
+/**
+ * Preview / Source 切换。仅在文件支持两种视图时渲染。
+ *
+ * 图标沿用 Cursor 的语义：眼睛 = 预览，代码括号 = 源码。
+ */
+function ViewToggle(props: {
+  views: readonly FileViewMode[];
+  value: FileViewMode | undefined;
+  onChange: (mode: FileViewMode) => void;
+}) {
+  if (props.views.length < 2 || !props.value) return null;
+  const options: Array<{ mode: FileViewMode; label: string }> = [
+    { mode: "preview", label: "Preview" },
+    { mode: "source", label: "Source" },
+  ];
+  return (
+    <div className="files-view-toggle" role="group" aria-label="视图模式">
+      {options
+        .filter((option) => props.views.includes(option.mode))
+        .map((option) => (
+          <button
+            key={option.mode}
+            type="button"
+            className={`files-view-toggle-button${
+              props.value === option.mode ? " is-active" : ""
+            }`}
+            aria-pressed={props.value === option.mode}
+            onClick={() => props.onChange(option.mode)}
+          >
+            {option.label}
+          </button>
+        ))}
+    </div>
+  );
+}
+
 export function FilePreview(props: { root: string; path: string }) {
   const closePreview = useFilesStore((state) => state.closePreview);
+  const requestClosePreview = useFilesStore(
+    (state) => state.requestClosePreview,
+  );
   const previewLine = useFilesStore((state) => state.previewLine);
   const switcherOpen = useFilesStore((state) => state.switcherOpen);
   const toggleSwitcher = useFilesStore((state) => state.toggleSwitcher);
+  const viewModePreference = useFilesStore((state) => state.viewMode);
+  const setViewMode = useFilesStore((state) => state.setViewMode);
+  const dirty = useFilesStore((state) => state.dirty);
+  const setDirty = useFilesStore((state) => state.setDirty);
+  const pendingPath = useFilesStore((state) => state.pendingPath);
+  const pendingClose = useFilesStore((state) => state.pendingClose);
+  const discardPending = useFilesStore((state) => state.discardPending);
+  const cancelPending = useFilesStore((state) => state.cancelPending);
+  const refreshTree = useFilesStore((state) => state.refreshTree);
+
   const pathButtonRef = useRef<HTMLButtonElement>(null);
   const loadedPathRef = useRef<string | null>(null);
+  const editorRef = useRef<CodeEditorHandle | null>(null);
   const inlineKind = detectInlineKind(props.path);
   const [file, setFile] = useState<WorkspaceFileContent | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (inlineKind) {
@@ -85,6 +137,7 @@ export function FilePreview(props: { root: string; path: string }) {
       loadedPathRef.current = props.path;
       setFile(null);
       setLoading(true);
+      setSaveError(null);
     }
     const ac = new AbortController();
     setError(null);
@@ -110,6 +163,46 @@ export function FilePreview(props: { root: string; path: string }) {
 
   const name = basename(props.path);
 
+  // 只有 text / markdown 才有视图切换；missing 与 error 没有 path 字段
+  const views =
+    file && (file.kind === "text" || file.kind === "markdown")
+      ? resolveFileViews({ kind: file.kind, path: file.path })
+      : [];
+  const activeView = pickFileView(views, viewModePreference);
+  const truncated = Boolean(file && "truncated" in file && file.truncated);
+
+  const handleSave = useCallback(async () => {
+    if (!file || (file.kind !== "text" && file.kind !== "markdown")) return;
+    const content = editorRef.current?.getValue();
+    if (content === undefined) return;
+    const result = await window.piLing.writeFile(
+      props.root,
+      file.path,
+      content,
+    );
+    if (!result.ok) {
+      setSaveError(result.message);
+      return;
+    }
+    setSaveError(null);
+    setDirty(false);
+    // 保存后同步本地内容：切到 Preview 或重开编辑器时用的是最新文本
+    setFile((current) =>
+      current && (current.kind === "text" || current.kind === "markdown")
+        ? { ...current, content, size: result.size }
+        : current,
+    );
+    refreshTree();
+  }, [file, props.root, refreshTree, setDirty]);
+
+  // 挂起的导航：保存后继续前往目标
+  const handleSaveAndProceed = useCallback(async () => {
+    await handleSave();
+    // handleSave 失败时会 setSaveError 且 dirty 仍为 true，此处不继续跳转
+    if (useFilesStore.getState().dirty) return;
+    discardPending();
+  }, [discardPending, handleSave]);
+
   return (
     <div className="files-preview-shell">
       <div className="files-preview-header-wrap">
@@ -125,6 +218,13 @@ export function FilePreview(props: { root: string; path: string }) {
           >
             {props.path}
           </button>
+          {dirty ? (
+            <span
+              className="files-preview-dirty"
+              title="有未保存的更改"
+              aria-label="有未保存的更改"
+            />
+          ) : null}
           {file &&
           (file.kind === "markdown" ||
             file.kind === "text" ||
@@ -133,15 +233,50 @@ export function FilePreview(props: { root: string; path: string }) {
             file.kind === "unsupported") ? (
             <span className="files-preview-size">{formatSize(file.size)}</span>
           ) : null}
+          <ViewToggle
+            views={views}
+            value={activeView}
+            onChange={setViewMode}
+          />
           <button
             type="button"
             className="files-preview-close"
-            onClick={closePreview}
+            onClick={requestClosePreview}
             aria-label="关闭文件预览"
           >
             <CloseIcon />
           </button>
         </div>
+        {pendingPath || pendingClose ? (
+          <div className="files-unsaved-bar" role="alert">
+            <span className="files-unsaved-text">
+              {pendingClose ? "有未保存的更改" : `未保存：${basename(props.path)}`}
+            </span>
+            <div className="files-unsaved-actions">
+              <button
+                type="button"
+                className="files-unsaved-save"
+                onClick={() => void handleSaveAndProceed()}
+              >
+                保存并打开
+              </button>
+              <button
+                type="button"
+                className="files-unsaved-discard"
+                onClick={discardPending}
+              >
+                放弃更改
+              </button>
+              <button
+                type="button"
+                className="files-unsaved-cancel"
+                onClick={cancelPending}
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        ) : null}
         {switcherOpen ? (
           <FileSwitcherOverlay root={props.root} anchorRef={pathButtonRef} />
         ) : null}
@@ -182,20 +317,35 @@ export function FilePreview(props: { root: string; path: string }) {
         ) : null}
         {!inlineKind && !loading && !error && file ? (
           <>
-            {file.kind === "markdown" ? (
+            {file.kind === "markdown" && activeView === "preview" ? (
               <MarkdownRenderer content={file.content} />
             ) : null}
-            {file.kind === "text" ? (
-              isTablePath(file.path) ? (
-                <TablePreview content={file.content} path={file.path} />
-              ) : (
-                <CodePreview
-                  content={file.content}
-                  fileName={file.name}
-                  highlightLine={previewLine}
-                />
-              )
+            {file.kind === "text" &&
+            activeView === "preview" &&
+            isTablePath(file.path) ? (
+              <TablePreview content={file.content} path={file.path} />
             ) : null}
+            {/* 源码视图：可编辑；截断的超大文件只读，避免保存出半截内容 */}
+            {activeView === "source" &&
+            (file.kind === "text" || file.kind === "markdown") ? (
+              <>
+                {truncated ? (
+                  <div className="files-editor-readonly-note">
+                    文件过大，仅显示前 512 KB，已切换为只读。
+                  </div>
+                ) : null}
+                <CodeEditor
+                  path={file.path}
+                  value={file.content}
+                  readOnly={truncated}
+                  highlightLine={previewLine}
+                  onChange={() => setDirty(true)}
+                  onSave={() => void handleSave()}
+                  handleRef={editorRef}
+                />
+              </>
+            ) : null}
+            {/* 纯文本与 Markdown 的源码视图统一走 CodeEditor(cf. 只读的旧 CodePreview) */}
             {file.kind === "image" ? (
               <ImageRenderer root={props.root} path={file.path} name={file.name} />
             ) : null}
@@ -222,6 +372,9 @@ export function FilePreview(props: { root: string; path: string }) {
         ) : null}
       </div>
 
+      {saveError ? (
+        <div className="files-preview-truncated">保存失败：{saveError}</div>
+      ) : null}
       {file &&
       (file.kind === "markdown" || file.kind === "text") &&
       file.truncated ? (

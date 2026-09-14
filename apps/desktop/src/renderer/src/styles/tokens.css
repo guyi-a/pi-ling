@@ -2,7 +2,10 @@
   color-scheme: dark;
   --window-bg: #181818;
   --sidebar-bg: #181818;
-  --editor-bg: #151515;
+  /* 与 Cursor 代码区一致（实测 #181818）。此前是 #151515 —— 比 Cursor 暗 3 级，
+     是"我们的区域更暗更扁"的来源。代价是它与 --window-bg/--sidebar-bg 同色，
+     整屏更平，分栏靠 --border 勾勒（这是刻意的取舍）。 */
+  --editor-bg: #181818;
   --workbench-bg: #181818;
   --panel-bg: #181818;
   --surface-1: #1f1f1f;
@@ -12,7 +15,9 @@
   --surface-selected: #37373d;
   --menu-bg: #252526;
   --input-bg: #202020;
-  --code-bg: #171717;
+  /* 比 --editor-bg 亮 2 级，让代码面从背景里"浮"一点出来，又不至于像 --surface-2
+     那样变成一块显眼的灰卡（保持原有的相对关系，未随底色一起变浅）。 */
+  --code-bg: #1a1a1a;
   --border: #2b2b2b;
   --border-subtle: color-mix(in srgb, var(--border) 82%, transparent);
   --border-strong: #3c3c3c;
@@ -22,8 +27,13 @@
   --muted-2: #9a9a9a;
   --muted-3: #757575;
   --font-mono:
-    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
-    monospace;
+    Consolas, "Cascadia Mono", ui-monospace, SFMono-Regular, Menlo, Monaco,
+    "Liberation Mono", monospace;
+  /* 编辑器/diff 的行号色。不复用 --muted-2：后者深色下 6.3:1、
+     浅色下只有 3.9:1，两侧不对称。这里两个主题都调到约 5.5:1 ——
+     清楚可读，但不会和正文抢注意力。 */
+  --editor-gutter: #8f8f8f;
+  --editor-gutter-active: #d0d0d0;
   --accent: #5ec4bc;
   --accent-strong: #7aded3;
   --accent-soft: #1a3330;
@@ -69,7 +79,10 @@
   font-family:
     "Segoe UI Variable", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
   font-synthesis: none;
-  text-rendering: optimizeLegibility;
+  /* 曾设为 optimizeLegibility：它会开连字并启用亚像素字形定位，
+     小字号下反而发虚（且对等宽代码有害）。默认 auto 在 Windows 上
+     走完整 hinting，字形更贴像素网格。 */
+  text-rendering: auto;
 }
 
 html[data-theme="light"] {
@@ -96,8 +109,10 @@ html[data-theme="light"] {
   --muted-2: #818181;
   --muted-3: #a8a8a8;
   --font-mono:
-    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
-    monospace;
+    Consolas, "Cascadia Mono", ui-monospace, SFMono-Regular, Menlo, Monaco,
+    "Liberation Mono", monospace;
+  --editor-gutter: #6b6b6b;
+  --editor-gutter-active: #2b2b2b;
   --accent: #2a9d94;
   --accent-strong: #1f7f78;
   --accent-soft: #d9f0ee;

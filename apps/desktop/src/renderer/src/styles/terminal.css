@@ -26,8 +26,7 @@
   min-height: 32px;
   padding: 0 8px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-    "Liberation Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 10px;
   color: rgba(255, 255, 255, 0.45);
   flex: 0 0 auto;
@@ -129,8 +128,7 @@
   padding: 8px 12px;
   border: none;
   background: transparent;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-    "Liberation Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   color: rgba(255, 255, 255, 0.7);
   text-align: left;

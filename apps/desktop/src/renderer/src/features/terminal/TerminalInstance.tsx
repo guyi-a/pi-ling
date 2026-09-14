@@ -66,7 +66,7 @@ export function TerminalInstance(props: {
       cursorBlink: true,
       cursorStyle: "bar",
       fontFamily:
-        'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+        'Consolas, "Cascadia Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, monospace',
       fontSize: 12,
       lineHeight: 1.25,
       scrollback: 5000,

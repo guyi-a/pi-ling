@@ -49,6 +49,8 @@ import type {
   WorkspaceSummary,
   WorkspaceTreeResult,
   WorkspaceFileContent,
+  WorkspaceWriteResult,
+  DiffFileContents,
 } from "@pi-ling/contracts";
 import { CodexRuntimeAdapter } from "@pi-ling/codex-runtime";
 import { DshRuntimeAdapter } from "@pi-ling/dsh-runtime";
@@ -94,7 +96,7 @@ import { listPiAiModels } from "./llm-model-registry.js";
 import { SessionStore } from "./session-store/session-store.js";
 import { SessionSupervisor } from "./session-supervisor.js";
 import { TerminalSupervisor } from "./terminal-supervisor.js";
-import { buildWorkspaceTree, readFileContent } from "./workspace-fs.js";
+import { buildWorkspaceTree, readFileContent, writeFileContent } from "./workspace-fs.js";
 import { importFilesToWorkspaceRoot } from "./workspace-upload.js";
 import {
   ensureRuntimeConfig,
@@ -131,6 +133,8 @@ const CHANGES_GET_CHANNEL = "changes:get";
 const DIFF_GET_CHANNEL = "diff:get";
 const WORKSPACE_TREE_CHANNEL = "workspace:tree";
 const WORKSPACE_READ_FILE_CHANNEL = "workspace:read-file";
+const WORKSPACE_WRITE_FILE_CHANNEL = "workspace:write-file";
+const WORKSPACE_DIFF_CONTENTS_CHANNEL = "workspace:diff-contents";
 const SESSIONS_LIST_CHANNEL = "sessions:list";
 const SESSIONS_CREATE_CHANNEL = "sessions:create";
 const SESSIONS_SWITCH_CHANNEL = "sessions:switch";
@@ -787,6 +791,42 @@ ipcMain.handle(
       throw new Error("Invalid file path");
     }
     return readFileContent(resolvedRoot, subpath.trim());
+  },
+);
+
+ipcMain.handle(
+  WORKSPACE_WRITE_FILE_CHANNEL,
+  async (
+    event,
+    root: unknown,
+    subpath: unknown,
+    content: unknown,
+  ): Promise<WorkspaceWriteResult> => {
+    const resolvedRoot = parseWorkspaceRoot(root);
+    if (typeof subpath !== "string" || !subpath.trim()) {
+      throw new Error("Invalid file path");
+    }
+    if (typeof content !== "string") {
+      throw new Error("Invalid file content");
+    }
+    return writeFileContent(resolvedRoot, subpath.trim(), content);
+  },
+);
+
+ipcMain.handle(
+  WORKSPACE_DIFF_CONTENTS_CHANNEL,
+  async (
+    event,
+    path: unknown,
+    source: unknown,
+  ): Promise<DiffFileContents | undefined> => {
+    if (typeof path !== "string" || !path.trim()) {
+      throw new Error("Invalid diff path");
+    }
+    return (await getSupervisor(event.sender)).diffFileContents(
+      path.trim(),
+      normalizeChangesSource(source),
+    );
   },
 );
 

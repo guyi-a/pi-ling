@@ -1,4 +1,4 @@
-import type { ChangedFile, FileDiff, TimelineEnvelope } from "@pi-ling/contracts";
+import type { ChangedFile, DiffFileContents, FileDiff, TimelineEnvelope } from "@pi-ling/contracts";
 import type { RuntimeKind } from "@pi-ling/contracts";
 import {
   ChevronsRight,
@@ -149,6 +149,9 @@ export function WorkbenchPanel(props: {
   changesLoading?: boolean;
   onChangeSource?: (source: ChangesSourceId) => void;
   onLoadDiff?: (path: string) => Promise<FileDiff | undefined>;
+  onLoadDiffContents?:
+    | ((path: string) => Promise<DiffFileContents | undefined>)
+    | undefined;
   filesRoot?: string | undefined;
   terminalRoot?: string | undefined;
   traceSessionId?: string | null;
@@ -274,6 +277,7 @@ export function WorkbenchPanel(props: {
             loading={props.changesLoading}
             onSourceChange={props.onChangeSource!}
             getDiff={props.onLoadDiff!}
+            getDiffContents={props.onLoadDiffContents}
           />
         ) : showTerminalEmpty ? (
           <TerminalEmptyState />

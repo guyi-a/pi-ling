@@ -45,15 +45,19 @@ const math = createMathPlugin({ singleDollarTextMath: true });
  * 内核取值顺序是 `plugin.getThemes() ?? props.shikiTheme`，插件的主题会覆盖
  * prop，传 prop 会被静默忽略。
  *
- * One Dark Pro / One Light 是同一套配色的深浅两版，关键字都是紫/蓝系而非
- * 红色 —— 红色在本产品里是「错误」的语义色（失败的工具卡片、报错提示），
- * 代码块里满屏红字会和它抢注意力。
+ * 用 VS Code 的 `light-plus` / `dark-plus`，与 Cursor 一致。
  *
- * 与 Files 预览（lib/shiki.ts）保持一致，否则同一个文件在聊天里和右侧预览
- * 里会长得不一样。
+ * 之前用的是 One Dark Pro / One Light，理由是「它的关键字不是红色」——
+ * 红色在本产品里是「错误」的语义色（失败的工具卡片、报错提示），代码块里
+ * 满屏红字会和它抢注意力。Dark+ 的关键字是蓝色，同样没有这个问题，
+ * 因此这个约束依然成立。
+ *
+ * 与 Files 面板的 CodeMirror 编辑器（features/files/editor-theme.ts）用的是
+ * **同一套色值**（那边是从这两个 shiki 主题里提取的），否则同一个文件在聊天里
+ * 引用和在编辑器里打开会长得不一样。
  */
 const code = createCodePlugin({
-  themes: ["one-light", "one-dark-pro"],
+  themes: ["light-plus", "dark-plus"],
 });
 
 export const Markdown = memo(function Markdown(props: {

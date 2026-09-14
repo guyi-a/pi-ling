@@ -8,7 +8,7 @@ export function UserAttachmentChips(props: {
   workspaceRoot?: string;
 }) {
   if (props.attachments.length === 0) return null;
-  const openFile = useFilesStore((state) => state.openFile);
+  const requestOpenFile = useFilesStore((state) => state.requestOpenFile);
   return (
     <div className="user-attachment-chips" aria-label="消息图片">
       {props.attachments.map((attachment) => {
@@ -22,7 +22,7 @@ export function UserAttachmentChips(props: {
             className="user-attachment-chip"
             aria-label={`预览 ${attachment.name}`}
             title={attachment.name}
-            onClick={() => openFile(attachment.relativePath)}
+            onClick={() => requestOpenFile(attachment.relativePath)}
           >
             {src ? (
               <img

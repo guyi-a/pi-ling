@@ -1,0 +1,67 @@
+/* CodeMirror 的「表面」样式：底色、字体、行号、选区。
+ *
+ * 为什么这些不写在 editor-theme.ts 的 EditorView.theme 里：
+ * CodeMirror 的基础主题与 oneDark 都会设 `background-color` / `font-family`，
+ * 而它们的样式表是用 `adoptedStyleSheets` 在文档样式表**之后**注入的 ——
+ * 同优先级时后者胜出，写进 theme 会被静默压掉（底色会一直是 oneDark 的 #282c34）。
+ *
+ * 所以这里统一用 `.cm-editor.pi-code-surface` 起手（0,2,0），涉及子元素时
+ * 叠到 0,3,0，稳赢 CM 自己最高 0,2,0 的规则，且不依赖注入顺序。
+ *
+ * 面上两个消费者（features/files/CodeEditor 与 features/diff/MergeDiffView）
+ * 都通过 CODE_SURFACE_ATTRIBUTES 带上这个 class，所以只写一份。
+ */
+
+/* 根：底色融入面板 + 字体配方 */
+.cm-editor.pi-code-surface {
+  background-color: var(--editor-bg);
+  font-family: var(--font-mono);
+  /* 刻意关掉连字：编辑器与 diff 都用于读代码，连字会把 != 和 ==、
+     -> 和 => 合成一个字形，而审阅恰恰靠分辨它们。 */
+  font-variant-ligatures: none;
+  /* 默认 auto：Windows 走完整 hinting，字形贴合像素网格（非亚像素定位） */
+  text-rendering: auto;
+}
+
+/* 兜住 CM 基础主题的 font-family: monospace（它作用在 scroller/content 上） */
+.cm-editor.pi-code-surface .cm-scroller,
+.cm-editor.pi-code-surface .cm-content {
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+}
+
+.cm-editor.pi-code-surface .cm-content {
+  caret-color: var(--accent);
+}
+
+.cm-editor.pi-code-surface .cm-cursor,
+.cm-editor.pi-code-surface .cm-dropCursor {
+  border-left-color: var(--accent);
+}
+
+/* 行号：用独立的 --editor-gutter，深浅两侧都约 5.5:1 */
+.cm-editor.pi-code-surface .cm-gutters {
+  background-color: var(--editor-bg);
+  color: var(--editor-gutter);
+  border: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.cm-editor.pi-code-surface .cm-activeLine {
+  background-color: var(--surface-hover);
+}
+
+.cm-editor.pi-code-surface .cm-activeLineGutter {
+  background-color: var(--surface-hover);
+  color: var(--editor-gutter-active);
+}
+
+.cm-editor.pi-code-surface .cm-lineNumbers .cm-gutterElement {
+  padding: 0 8px 0 12px;
+}
+
+.cm-editor.pi-code-surface.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground,
+.cm-editor.pi-code-surface .cm-selectionBackground,
+.cm-editor.pi-code-surface .cm-content ::selection {
+  background-color: var(--accent-soft);
+}

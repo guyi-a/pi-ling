@@ -11,3 +11,5 @@
 @import "./styles/trace.css";
 @import "./styles/plans.css";
 @import "./styles/eval.css";
+/* 放最后：CodeMirror 的表面样式需要压过 oneDark 与 CM 基础主题 */
+@import "./styles/codemirror.css";

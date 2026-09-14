@@ -25,6 +25,8 @@ import type {
 
   CreateSessionRequest,
 
+  DiffFileContents,
+
   FileDiff,
 
   PromptAttachment,
@@ -58,14 +60,14 @@ import type { CodexRuntimeAdapter } from "@pi-ling/codex-runtime";
 import { CodexAgentSession } from "./codex-agent-session.js";
 import { DshAgentSession } from "./dsh-agent-session.js";
 
-import { gitDiff, gitScopedFiles } from "./git-diff.js";
+import { gitDiff, gitScopedFiles, gitShowFile, gitShowIndexFile } from "./git-diff.js";
 
 import { PiAgentSession } from "./pi-agent-session.js";
 
 import { RunMessageBuffer } from "./run-message-buffer.js";
 
 import { SessionStore } from "./session-store/session-store.js";
-
+import { readTextForDiff, MAX_DIFF_TEXT_BYTES } from "./workspace-fs.js";
 import { TaskRunner } from "./tasks/task-runner.js";
 
 import { projectTimelineSnapshot } from "@pi-ling/session-events";
@@ -736,6 +738,77 @@ export class SessionSupervisor {
 
     return active?.diff(path) ?? Promise.resolve(undefined);
 
+  }
+
+  /**
+   * 取 diff 的双侧内容，供 MergeView 做带语法高亮的渲染。
+   *
+   * 与 `diff()` 的拒绝条件保持一致：敏感 / 二进制 / 超大文件一律返回
+   * `undefined`，绝不把内容送进 Renderer —— 由调用方回退到 patch 渲染。
+   *
+   * before 的来源随 scope 变化：agent 改动取持久化的 baseline，
+   * git 改动取 `git show`；after 通常是工作区文件（staged 则取 index）。
+   */
+  async diffFileContents(
+    path: string,
+    source: ChangesSource = "agent",
+  ): Promise<DiffFileContents | undefined> {
+    const session = this.#selectedSessionId
+      ? this.#store.getSession(this.#selectedSessionId)
+      : undefined;
+    const root = session?.workspace.root;
+    if (!root || !session) return Promise.resolve(undefined);
+
+    // 复用 changedFiles 的元信息（binary / sensitive / tooLarge）做把关
+    const files = await this.changedFiles(source);
+    const entry = files.find((file) => file.path === path);
+    if (!entry) return undefined;
+    if (entry.binary || entry.sensitive || entry.tooLarge) return undefined;
+
+    const isAgentScope = source === "agent" || source === "last-agent-turn";
+
+    let before: string | undefined;
+    let after: string | undefined;
+
+    if (isAgentScope) {
+      const baseline = this.#store
+        .loadBaselines(session.id)
+        .find((item) => item.path === path);
+      // 没有 baseline 说明不是 Agent 改的（或已超出保留范围），回退 patch
+      if (!baseline) return undefined;
+      before = baseline.content?.toString("utf8") ?? "";
+      after = await readTextForDiff(root, path);
+    } else if (source === "staged") {
+      // staged：HEAD → index
+      before = await gitShowFile(root, "HEAD", path);
+      after = await gitShowIndexFile(root, path);
+    } else if (source === "unstaged") {
+      // unstaged：index → 工作区
+      before = await gitShowIndexFile(root, path);
+      after = await readTextForDiff(root, path);
+    } else {
+      // uncommitted：HEAD → 工作区
+      before = await gitShowFile(root, "HEAD", path);
+      after = await readTextForDiff(root, path);
+    }
+
+    // `undefined` 只在语义上合理时才归一为空串：
+    // - 新增文件（status=added）没有 before
+    // - 删除文件（status=deleted）没有 after
+    // 其余情况下取不到内容说明是二进制 / 超大 / 读失败 —— 必须回退 patch，
+    // 否则会把一个本不该展示的文件渲染成「空 diff」。
+    const beforeText = before ?? (entry.status === "added" ? "" : null);
+    const afterText = after ?? (entry.status === "deleted" ? "" : null);
+    if (beforeText === null || afterText === null) return undefined;
+
+    const total =
+      Buffer.byteLength(beforeText, "utf8") +
+      Buffer.byteLength(afterText, "utf8");
+    if (total > MAX_DIFF_TEXT_BYTES) {
+      return { path, before: "", after: "", truncated: true };
+    }
+
+    return { path, before: beforeText, after: afterText };
   }
 
 

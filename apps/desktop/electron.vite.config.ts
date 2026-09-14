@@ -70,13 +70,5 @@ export default defineConfig({
   renderer: {
     root: resolve(root, "src/renderer"),
     plugins: [react()],
-    optimizeDeps: {
-      include: [
-        "@shikijs/engine-javascript",
-        "@shikijs/themes/one-light",
-        "@shikijs/themes/one-dark-pro",
-        "@shikijs/langs/typescript",
-      ],
-    },
   },
 });

@@ -31,6 +31,39 @@
   font-size: 11px;
 }
 
+/* split / inline 布局切换 */
+.diff-layout-toggle {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.diff-layout-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 6px;
+  color: var(--muted);
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.diff-layout-button:hover {
+  color: var(--text-soft);
+}
+
+.diff-layout-button.is-active {
+  color: var(--text);
+  background: var(--surface-selected);
+}
+
 /* Source 下拉 */
 .source-picker {
   position: relative;
@@ -74,7 +107,7 @@
   gap: 5px;
   flex: 0 0 auto;
   margin-left: 2px;
-  font-family: "Cascadia Code", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
@@ -254,7 +287,7 @@
   place-items: center;
   flex: 0 0 auto;
   border-radius: var(--radius-sm);
-  font-family: "Cascadia Code", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 600;
 }
@@ -280,7 +313,7 @@
   color: var(--text-soft);
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: "Cascadia Code", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
@@ -289,7 +322,7 @@
   gap: 6px;
   flex: 0 0 auto;
   margin-left: auto;
-  font-family: "Cascadia Code", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
@@ -302,13 +335,106 @@
   display: none;
 }
 
+/* ---------- CodeMirror MergeView diff ---------- */
+
+.merge-diff-view {
+  min-width: 0;
+  overflow: hidden;
+  background: var(--editor-bg);
+}
+
+/* 单个文件 diff 不无上限地撑高整页：每个编辑器自己有滚动条，
+   由 MergeView 负责两侧滚动同步，容器不再叠加一层滚动。
+   字体与渲染方式来自 SHARED_SURFACE，这里只调尺寸，与编辑器保持一致。 */
+.merge-diff-view .cm-editor {
+  max-height: 560px;
+  font-size: 14px;
+}
+
+.merge-diff-view .cm-editor.cm-focused {
+  outline: none;
+}
+
+.merge-diff-view .cm-scroller {
+  line-height: 1.6;
+}
+
+/* 不显示光标：这是审阅面，不是编辑面 */
+.merge-diff-view .cm-cursor,
+.merge-diff-view .cm-dropCursor {
+  display: none;
+}
+
+/* split 两栏：中间分隔线用应用边框色，别用默认的硬黑 */
+.merge-diff-view-split .cm-mergeView {
+  gap: 0;
+}
+
+.merge-diff-view-split .cm-mergeViewEditors {
+  gap: 0;
+}
+
+.merge-diff-view-split .cm-merge-a {
+  border-right: 1px solid var(--border);
+}
+
+/* 改动行的底色：与 diff 的语义色一致（新增绿 / 删除红） */
+.merge-diff-view .cm-changedLine {
+  background: var(--success-tint);
+}
+
+.merge-diff-view .cm-deletedLine {
+  background: var(--danger-tint);
+}
+
+/* 字符级高亮：比整行底色更重一档，让改动精确到词 */
+.merge-diff-view .cm-changedText,
+.merge-diff-view .cm-deletedText {
+  border-radius: 2px;
+}
+
+.merge-diff-view .cm-changedText {
+  background: color-mix(in srgb, var(--success) 30%, transparent);
+}
+
+.merge-diff-view .cm-deletedText {
+  background: color-mix(in srgb, var(--danger) 30%, transparent);
+}
+
+/* 折叠提示条 */
+.merge-diff-view .cm-collapsedLines {
+  color: var(--muted);
+  background: var(--surface-2);
+  font-size: 11px;
+}
+
+.merge-diff-view .cm-collapsedLines:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+/* gutter 上的改动标记 */
+.merge-diff-view .cm-changedLineGutter,
+.merge-diff-view .cm-deletedLineGutter {
+  border-radius: 0;
+}
+
+.merge-diff-view .cm-changedLineGutter {
+  background: var(--success-tint);
+}
+
+.merge-diff-view .cm-deletedLineGutter {
+  background: var(--danger-tint);
+}
+
 /* Unified diff 行级渲染 */
 .unified-diff {
   min-width: 0;
   overflow: auto;
-  font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.55;
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+  font-size: 14px;
+  line-height: 1.6;
 }
 
 .diff-lines {

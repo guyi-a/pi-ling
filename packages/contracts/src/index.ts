@@ -14,6 +14,8 @@ export const IPC_CHANNELS = {
   diffGet: "diff:get",
   workspaceTree: "workspace:tree",
   workspaceReadFile: "workspace:read-file",
+  workspaceWriteFile: "workspace:write-file",
+  workspaceDiffContents: "workspace:diff-contents",
   sessionsList: "sessions:list",
   sessionsCreate: "sessions:create",
   sessionsSwitch: "sessions:switch",
@@ -491,6 +493,25 @@ export type WorkspaceFileContent =
   | { kind: "missing" }
   | { kind: "error"; message: string };
 
+/** 写文件结果。失败不抛错，交由 UI 展示。 */
+export type WorkspaceWriteResult =
+  | { ok: true; size: number }
+  | { ok: false; message: string };
+
+/**
+ * diff 审阅用的双侧内容。
+ *
+ * MergeView 需要两份文档而不是 patch 字符串；`getDiff` 仍保留给兜底渲染。
+ * `before` 为空串表示新增文件，`after` 为空串表示删除文件。
+ */
+export interface DiffFileContents {
+  path: string;
+  before: string;
+  after: string;
+  /** 内容被截断时置位，UI 应回退到 patch 渲染。 */
+  truncated?: boolean;
+}
+
 export interface TimelineUserAttachment {
   relativePath: string;
   name: string;
@@ -915,6 +936,23 @@ export interface DesktopApi {
   getDiff(path: string, source?: ChangesSource): Promise<FileDiff | undefined>;
   workspaceTree(root: string): Promise<WorkspaceTreeResult>;
   readFile(root: string, subpath: string): Promise<WorkspaceFileContent>;
+  /**
+   * 写入工作区内的文本文件（Files 面板编辑保存）。
+   * 仅用于用户手改；不进入 `ChangeTracker`，不影响 Agent 的 diff 基准。
+   */
+  writeFile(
+    root: string,
+    subpath: string,
+    content: string,
+  ): Promise<WorkspaceWriteResult>;
+  /**
+   * 取 diff 的双侧内容，供 MergeView 做语法高亮渲染。
+   * 二进制 / 敏感 / 超大文件返回 undefined，调用方回退到 patch 渲染。
+   */
+  getDiffFileContents(
+    path: string,
+    source?: ChangesSource,
+  ): Promise<DiffFileContents | undefined>;
   getTimelineSnapshot(sessionId?: string): Promise<TimelineSnapshot>;
   listSessions(): Promise<SessionSummary[]>;
   listWorkspaces(includeArchived?: boolean): Promise<WorkspaceListEntry[]>;

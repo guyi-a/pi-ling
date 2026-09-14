@@ -112,7 +112,7 @@ function TreeItem(props: {
     (state) => state.expandedDirectories[directoryKey] === true,
   );
   const toggleDirectory = useFilesStore((state) => state.toggleDirectory);
-  const openFile = useFilesStore((state) => state.openFile);
+  const requestOpenFile = useFilesStore((state) => state.requestOpenFile);
   const isSelected = entry.path === selectedPath;
   const dirState = isDir ? decorations?.dirs.get(entry.path) : undefined;
   const fileState = isDir ? undefined : decorations?.files.get(entry.path);
@@ -162,7 +162,7 @@ function TreeItem(props: {
       className={`ptree-row${isSelected ? " is-selected" : ""}`}
       type="button"
       style={{ paddingLeft: `${8 + depth * 14}px` }}
-      onClick={() => openFile(entry.path)}
+      onClick={() => requestOpenFile(entry.path)}
       role="treeitem"
       aria-selected={isSelected}
       title={entry.path}

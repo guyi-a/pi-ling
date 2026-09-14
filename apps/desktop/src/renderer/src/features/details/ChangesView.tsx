@@ -1,6 +1,8 @@
-import type { ChangedFile, FileDiff } from "@pi-ling/contracts";
+import type { ChangedFile, DiffFileContents, FileDiff } from "@pi-ling/contracts";
+import { Columns2, Rows2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { MergeDiffView, type DiffLayout } from "../diff/MergeDiffView";
 import { sourceDef } from "./changes-source";
 import type { ChangesSourceId } from "./changes-source";
 import { SourcePicker } from "./SourcePicker";
@@ -18,12 +20,19 @@ export function ChangesView(props: {
   source: ChangesSourceId;
   files: ChangedFile[];
   getDiff: (path: string) => Promise<FileDiff | undefined>;
+  /** 取 diff 双侧内容，用于 MergeDiffView；返回 undefined 时回退 patch 渲染。 */
+  getDiffContents?:
+    | ((path: string) => Promise<DiffFileContents | undefined>)
+    | undefined;
   onSourceChange: (source: ChangesSourceId) => void;
   loading?: boolean | undefined;
 }) {
-  const { source, files, getDiff, onSourceChange, loading } = props;
+  const { source, files, getDiff, getDiffContents, onSourceChange, loading } =
+    props;
   const currentDef = sourceDef(source);
   const collapseByDefault = files.length > AUTO_COLLAPSE_FILE_COUNT;
+  const [layout, setLayout] = useState<DiffLayout>("split");
+  const canUseMergeView = Boolean(getDiffContents);
 
   return (
     <aside className="changes-panel" aria-label="Changes">
@@ -31,6 +40,28 @@ export function ChangesView(props: {
         <SourcePicker value={source} files={files} onChange={onSourceChange} />
         {!currentDef.enabled ? (
           <span className="changes-coming-soon">即将上线</span>
+        ) : null}
+        {canUseMergeView ? (
+          <div className="diff-layout-toggle" role="group" aria-label="Diff 布局">
+            <button
+              type="button"
+              className={`diff-layout-button${layout === "split" ? " is-active" : ""}`}
+              aria-pressed={layout === "split"}
+              title="左右对照"
+              onClick={() => setLayout("split")}
+            >
+              <Columns2 size={13} />
+            </button>
+            <button
+              type="button"
+              className={`diff-layout-button${layout === "inline" ? " is-active" : ""}`}
+              aria-pressed={layout === "inline"}
+              title="单栏内联"
+              onClick={() => setLayout("inline")}
+            >
+              <Rows2 size={13} />
+            </button>
+          </div>
         ) : null}
       </div>
 
@@ -54,6 +85,8 @@ export function ChangesView(props: {
             <FileSection
               file={file}
               getDiff={getDiff}
+              getDiffContents={getDiffContents}
+              layout={layout}
               defaultCollapsed={collapseByDefault}
               key={file.path}
             />
@@ -67,21 +100,28 @@ export function ChangesView(props: {
 function FileSection(props: {
   file: ChangedFile;
   getDiff: (path: string) => Promise<FileDiff | undefined>;
+  getDiffContents:
+    | ((path: string) => Promise<DiffFileContents | undefined>)
+    | undefined;
+  layout: DiffLayout;
   defaultCollapsed: boolean;
 }) {
-  const { file, getDiff, defaultCollapsed } = props;
+  const { file, getDiff, getDiffContents, layout, defaultCollapsed } = props;
   const [diff, setDiff] = useState<FileDiff | undefined>(undefined);
+  const [contents, setContents] = useState<DiffFileContents | undefined>(
+    undefined,
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const [shouldLoad, setShouldLoad] = useState(false);
   const bodyRef = useRef<HTMLDivElement | null>(null);
-  const skipDiff =
-    file.sensitive || file.binary || file.tooLarge;
+  const skipDiff = file.sensitive || file.binary || file.tooLarge;
 
   useEffect(() => {
     setCollapsed(defaultCollapsed);
     setDiff(undefined);
+    setContents(undefined);
     setError(null);
     setShouldLoad(false);
   }, [defaultCollapsed, file.path]);
@@ -115,13 +155,22 @@ function FileSection(props: {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    void getDiff(file.path)
-      .then((result) => {
-        if (!cancelled) setDiff(result);
+    // patch 与双侧内容各取所需：任一侧拿到都能渲染，双双失败才算错误
+    void Promise.all([
+      getDiff(file.path).catch(() => undefined),
+      getDiffContents
+        ? getDiffContents(file.path).catch(() => undefined)
+        : Promise.resolve(undefined),
+    ])
+      .then(([patchResult, contentsResult]) => {
+        if (cancelled) return;
+        setDiff(patchResult);
+        setContents(contentsResult);
       })
       .catch((err) => {
         if (!cancelled) {
           setDiff(undefined);
+          setContents(undefined);
           setError(err instanceof Error ? err.message : String(err));
         }
       })
@@ -131,11 +180,20 @@ function FileSection(props: {
     return () => {
       cancelled = true;
     };
-  }, [file.path, getDiff, shouldLoad, skipDiff]);
+  }, [file.path, getDiff, getDiffContents, shouldLoad, skipDiff]);
 
   const stats = diff
     ? diffStats(diff.patch)
     : { additions: file.additions ?? 0, deletions: file.deletions ?? 0 };
+
+  // 双侧内容可用时用带语法高亮的 MergeView，否则回退到 patch 渲染。
+  // 两侧都为空（例如新增的空文件）没有可展示的差异，也走兜底路径。
+  const showMergeView = Boolean(
+    contents &&
+      !contents.truncated &&
+      (contents.before !== "" || contents.after !== "") &&
+      getDiffContents,
+  );
 
   return (
     <section className="file-section" aria-label={file.path}>
@@ -185,11 +243,15 @@ function FileSection(props: {
           </div>
         ) : loading ? (
           <div className="changes-empty-mini">加载 Diff…</div>
-        ) : diff?.patch ? (
-          <UnifiedDiffView
-            patch={diff.patch}
-            truncated={diff.truncated}
+        ) : showMergeView && contents ? (
+          <MergeDiffView
+            path={file.path}
+            before={contents.before}
+            after={contents.after}
+            layout={layout}
           />
+        ) : diff?.patch ? (
+          <UnifiedDiffView patch={diff.patch} truncated={diff.truncated} />
         ) : shouldLoad ? (
           <div className="changes-empty-mini">
             该文件没有可展示的文本差异。

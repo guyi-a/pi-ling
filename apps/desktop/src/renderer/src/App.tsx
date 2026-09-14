@@ -519,6 +519,12 @@ export function App() {
     [],
   );
 
+  const loadDiffContents = useCallback(
+    (path: string) =>
+      window.piLing.getDiffFileContents(path, changesSourceRef.current),
+    [],
+  );
+
   function startResize(event: React.PointerEvent<HTMLDivElement>) {
     event.preventDefault();
     const startX = event.clientX;
@@ -972,6 +978,7 @@ export function App() {
                     refreshChanges(source);
                   }}
                   onLoadDiff={loadDiff}
+                  onLoadDiffContents={loadDiffContents}
                   filesRoot={workspaceRoot}
                   terminalRoot={workspaceRoot}
                   traceSessionId={timeline.sessionId}

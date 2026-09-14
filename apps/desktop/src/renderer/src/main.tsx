@@ -3,10 +3,7 @@ import { createRoot } from "react-dom/client";
 import "streamdown/styles.css";
 
 import { App } from "./App";
-import { warmShikiHighlighter } from "./lib/shiki";
 import "./styles.css";
-
-warmShikiHighlighter();
 
 const root = document.getElementById("root");
 

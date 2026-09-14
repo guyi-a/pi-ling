@@ -95,6 +95,38 @@ function runGit(
 /** 变更作用域：staged=暂存区(index)、unstaged=工作区、uncommitted=两者之和 */
 export type GitChangeScope = "staged" | "unstaged" | "uncommitted";
 
+/**
+ * 读取某个 revision（或 index）里文件的内容，用于 diff 的 before 侧。
+ *
+ * `ref` 取 `"HEAD"` 时是提交内容；取 `":path"` 形式可用 index 内容。
+ * 文件在该 revision 不存在（新增文件）返回 `undefined`。
+ */
+export async function gitShowFile(
+  root: string,
+  ref: string,
+  filePath: string,
+  signal?: AbortSignal,
+): Promise<string | undefined> {
+  const result = await runGit(
+    root,
+    ["show", `${ref}:${filePath}`],
+    signal,
+  );
+  if (result.code !== 0) return undefined;
+  return result.stdout;
+}
+
+/** 读取 index 里文件的内容（`git show :path`），用于 staged 的 after 侧。 */
+export async function gitShowIndexFile(
+  root: string,
+  filePath: string,
+  signal?: AbortSignal,
+): Promise<string | undefined> {
+  const result = await runGit(root, ["show", `:${filePath}`], signal);
+  if (result.code !== 0) return undefined;
+  return result.stdout;
+}
+
 interface GitStatusEntry {
   path: string;
   status: ChangedFile["status"];
