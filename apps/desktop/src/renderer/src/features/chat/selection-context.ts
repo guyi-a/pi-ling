@@ -22,6 +22,80 @@ export interface ContextSnippet {
 }
 
 /**
+ * 标记占位符。
+ *
+ * 一个不可见的私用区字符，在遍历阶段代替真实的序号写入正文。它的关键作用是
+ * 充当**非空白锚点**：后续做空白规整时，标记前面的空白会被一并压掉，标记自然
+ * 落到行首，不需要做任何偏移映射 —— 偏移映射在空白被改写后必然失效。
+ */
+export const MARKER_SENTINEL = "\uE000";
+
+/** 引用正文的片段。`kind` 决定空白如何处理。 */
+export interface ExcerptSegment {
+  text: string;
+  /**
+   * - `list`：列表内的文本。Streamdown 的 `ul` 会输出 `<li>\n<p>…</p>\n</li>`，
+   *   原样拼接会得到一串空行。这里做空白规整，让引用可读。
+   * - `pre`：代码块，**逐字符原样保留**（缩进是代码语义的一部分）。
+   * - `text`：普通正文，保持原样。
+   */
+  kind: "text" | "list" | "pre";
+}
+
+/** 把一个片段的空白规整到「每个换行只出现一次」。 */
+function normalizeListText(value: string): string {
+  return value
+    .replace(/[^\S\n]*\n[^\S\n]*/g, "\n")
+    .replace(/\n{2,}/g, "\n")
+    .replace(/[ \t]{2,}/g, " ");
+}
+
+/**
+ * 组装引用正文。
+ *
+ * 先**合并相邻同类片段**再规整 —— 空白串常常横跨多个文本节点
+ * （Streamdown 会连续输出多个 `"\n"` 节点），逐个片段规整会漏掉它们。
+ * 然后裁掉首尾空白，最后把哨兵替换成真实标记。
+ */
+export function assembleExcerpt(
+  segments: readonly ExcerptSegment[],
+  markers: readonly string[],
+): string {
+  let out = "";
+  let buffer = "";
+  let bufferKind: ExcerptSegment["kind"] | null = null;
+
+  const flush = () => {
+    if (!buffer) return;
+    out += bufferKind === "list" ? normalizeListText(buffer) : buffer;
+    buffer = "";
+  };
+
+  for (const segment of segments) {
+    if (!segment.text) continue;
+    if (bufferKind !== null && segment.kind !== bufferKind) flush();
+    bufferKind = segment.kind;
+    buffer += segment.text;
+  }
+  flush();
+
+  let text = out.trim();
+
+  // 标记与内容之间补一个空格（`1.` → `1. 内容`）；标记文本自带缩进时同样适用
+  let index = 0;
+  text = text.replace(new RegExp(MARKER_SENTINEL, "g"), () => {
+    const marker = markers[index++] ?? "";
+    return marker ? `${marker} ` : "";
+  });
+  return text;
+}
+
+/** 供测试：`^` 表示这里的空白会被规整。 */
+export function excerptWhitespaceProfile(value: string): string {
+  return value.replace(/\n/g, "\\n");
+}
+
+/**
  * 单段引用的正文上限。
  *
  * 选中的可能是一整段回答，直接塞进去会吃掉大量上下文窗口。超出部分截断并

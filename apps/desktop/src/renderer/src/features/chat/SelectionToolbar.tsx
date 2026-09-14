@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 
 import { useComposerContextStore } from "./composer-context-store";
+import { collectSelectionExcerpt } from "./selection-excerpt";
 import {
   chatSource,
   capSnippetText,
@@ -92,7 +93,10 @@ export function SelectionToolbar(props: {
       }
 
       setPending({
-        text,
+        // 用 collectSelectionExcerpt 而不是 selection.toString()：
+        // 后者会丢掉列表序号（CSS ::marker 不在 DOM 里），
+        // 对「1. 2. 3.」这类步骤清单会丢失顺序语义
+        text: collectSelectionExcerpt(range),
         anchor: {
           left: rect.left,
           top: rect.top,

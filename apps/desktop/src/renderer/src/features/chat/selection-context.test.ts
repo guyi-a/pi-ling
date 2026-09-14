@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  assembleExcerpt,
   capSnippetText,
   chatSource,
   composePromptWithContext,
   formatFileSource,
   formatSnippetBlock,
+  MARKER_SENTINEL,
   placeToolbar,
   shouldOfferAddToChat,
   snippetPreview,
@@ -111,6 +113,96 @@ describe("composePromptWithContext", () => {
 
   it("trims the user's prompt", () => {
     expect(composePromptWithContext("  hi  ", [])).toBe("hi");
+  });
+});
+
+describe("assembleExcerpt", () => {
+  const S = MARKER_SENTINEL;
+
+  it("replaces sentinels with markers in order", () => {
+    const out = assembleExcerpt(
+      [{ text: `${S}first\n${S}second`, kind: "list" }],
+      ["1.", "2."],
+    );
+    expect(out).toBe("1. first\n2. second");
+  });
+
+  it("lets a sentinel pull the marker to the start of the line", () => {
+    // 哨兵是非空白字符，规整会把前面的空白压掉，序号自然落到行首
+    const out = assembleExcerpt([{ text: `\n\n${S}甲\n\n\n${S}乙`, kind: "list" }], [
+      "-",
+      "-",
+    ]);
+    expect(out).toBe("- 甲\n- 乙");
+  });
+
+  it("collapses the blank-line runs that Streamdown emits for ul", () => {
+    // 实测原生文本：ul 是 "\n\n无序项甲\n\n\n无序项乙…"，是一串空行
+    const out = assembleExcerpt(
+      [{ text: "\n\n无序项甲\n\n\n无序项乙\n\n", kind: "list" }],
+      [],
+    );
+    expect(out).toBe("无序项甲\n无序项乙");
+  });
+
+  it("preserves pre content byte for byte", () => {
+    // 代码缩进是语义的一部分，绝不能被规整
+    const code = "def f():\n    if x:\n        return\n\n    return 1";
+    const out = assembleExcerpt([{ text: code, kind: "pre" }], []);
+    expect(out).toBe(code);
+  });
+
+  it("keeps prose paragraphs untouched", () => {
+    const prose = "第一段。\n\n第二段。";
+    expect(assembleExcerpt([{ text: prose, kind: "text" }], [])).toBe(prose);
+  });
+
+  it("normalizes across adjacent segments of the same kind", () => {
+    // 跨文本节点的空白串必须一起规整，否则会漏掉
+    const out = assembleExcerpt(
+      [
+        { text: "甲\n", kind: "list" },
+        { text: "\n", kind: "list" },
+        { text: "\n乙", kind: "list" },
+      ],
+      [],
+    );
+    expect(out).toBe("甲\n乙");
+  });
+
+  it("trims the assembled result", () => {
+    expect(assembleExcerpt([{ text: "\n\n  hi  \n\n", kind: "text" }], [])).toBe(
+      "hi",
+    );
+  });
+
+  it("does not let a pre block inherit list normalization", () => {
+    const code = "a\n\n\nb";
+    const out = assembleExcerpt(
+      [
+        { text: "项：\n", kind: "list" },
+        { text: code, kind: "pre" },
+      ],
+      [],
+    );
+    expect(out).toContain(code);
+  });
+
+  it("ignores empty segments", () => {
+    expect(
+      assembleExcerpt(
+        [
+          { text: "", kind: "list" },
+          { text: "x", kind: "list" },
+        ],
+        [],
+      ),
+    ).toBe("x");
+  });
+
+  it("leaves a sentinel with no marker as nothing", () => {
+    // 防御：标记数量与哨兵不匹配时不要留下可见字符
+    expect(assembleExcerpt([{ text: `a${S}b`, kind: "list" }], [])).toBe("ab");
   });
 });
 
