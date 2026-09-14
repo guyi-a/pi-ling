@@ -30,7 +30,7 @@ import {
 import { SessionActivationOverlay } from "./features/shell/SessionActivationOverlay";
 import {
   bindFilesTabActivator,
-  refreshFilesFromOutside,
+  refreshFilesThrottled,
   useFilesStore,
 } from "./features/files/store";
 import { SettingsView } from "./features/settings/SettingsView";
@@ -250,7 +250,7 @@ export function App() {
         (envelope.event.type === "tool_end" &&
           isFileAffectingTool(envelope.event.tool))
       ) {
-        refreshFilesFromOutside();
+        refreshFilesThrottled();
       }
     });
     const unsubscribeFrames = window.piLing.onStreamFrame(

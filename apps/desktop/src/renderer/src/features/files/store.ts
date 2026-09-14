@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 import type { FileViewMode } from "./file-views";
+import { createRefreshThrottle } from "./refresh-throttle";
 import { remapExpandedKeys, remapPath } from "./workspace-path";
 
 interface FilesState {
@@ -54,7 +55,17 @@ interface FilesState {
   expandDirectory: (key: string) => void;
   toggleSwitcher: () => void;
   closeSwitcher: () => void;
+  /**
+   * 立即刷新文件树，**不受节流影响**。
+   * 用于用户主动操作（新建 / 删除 / 重命名 / 保存）—— 这类刷新被丢弃会让
+   * 界面看起来"没反应"（文件已删但树里还在）。
+   */
   refreshTree: () => void;
+  /**
+   * 节流刷新，用于高频的环境信号（终端输出、agent 事件）。
+   * 这些来源几秒内可能触发很多次，必须合并。
+   */
+  refreshTreeThrottled: () => void;
   beginDraft: (parent: string, kind: "file" | "dir") => void;
   cancelDraft: () => void;
   beginRename: (path: string) => void;
@@ -70,7 +81,7 @@ interface FilesState {
 }
 
 const REFRESH_THROTTLE_MS = 600;
-let lastRefreshAt = 0;
+const refreshThrottle = createRefreshThrottle(REFRESH_THROTTLE_MS);
 let activateFilesTab: (() => void) | null = null;
 
 export function bindFilesTabActivator(fn: () => void): void {
@@ -247,9 +258,12 @@ export const useFilesStore = create<FilesState>()(
       closeSwitcher: () => set({ switcherOpen: false }),
 
       refreshTree: () => {
-        const now = Date.now();
-        if (now - lastRefreshAt < REFRESH_THROTTLE_MS) return;
-        lastRefreshAt = now;
+        refreshThrottle.immediate(Date.now());
+        set((state) => ({ treeEpoch: state.treeEpoch + 1 }));
+      },
+
+      refreshTreeThrottled: () => {
+        if (!refreshThrottle.throttled(Date.now())) return;
         set((state) => ({ treeEpoch: state.treeEpoch + 1 }));
       },
     }),
@@ -263,6 +277,18 @@ export const useFilesStore = create<FilesState>()(
   ),
 );
 
+/** 外部变更后立即刷新（用户上传、用户保存等一次性动作）。 */
 export function refreshFilesFromOutside(): void {
   useFilesStore.getState().refreshTree();
+}
+
+/**
+ * 外部变更后的节流刷新。
+ *
+ * 用于**高频环境信号**：agent 的 tool_end / changes / run_end，终端输出。
+ * 这些来源在一个 agent 回合里可能触发几十次，必须合并；但它们绝不能影响
+ * 用户主动操作 —— 后者走 `refreshTree()` 的无条件路径。
+ */
+export function refreshFilesThrottled(): void {
+  useFilesStore.getState().refreshTreeThrottled();
 }

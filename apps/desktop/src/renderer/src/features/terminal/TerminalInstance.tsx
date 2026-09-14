@@ -32,7 +32,9 @@ export function TerminalInstance(props: {
     shell: "",
     exitCode: null,
   });
-  const refreshTree = useFilesStore((state) => state.refreshTree);
+  const refreshTreeThrottled = useFilesStore(
+    (state) => state.refreshTreeThrottled,
+  );
   const onMetaRef = useRef(props.onMeta);
   onMetaRef.current = props.onMeta;
 
@@ -58,7 +60,8 @@ export function TerminalInstance(props: {
       }
       refreshTimerRef.current = window.setTimeout(() => {
         refreshTimerRef.current = null;
-        refreshTree();
+        // 终端输出是高频环境信号 —— 用节流版，避免把用户操作的刷新窗口占满
+        refreshTreeThrottled();
       }, delay);
     };
 
@@ -183,7 +186,7 @@ export function TerminalInstance(props: {
       fitRef.current = null;
       sessionIdRef.current = null;
     };
-  }, [props.root, refreshTree]);
+  }, [props.root, refreshTreeThrottled]);
 
   useEffect(() => {
     if (!props.active || !props.visible) return;

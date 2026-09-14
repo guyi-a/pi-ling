@@ -15,6 +15,11 @@ import {
  * 界面状态（draft / renaming / pendingDelete）由调用方决定何时清理，
  * 便于失败时保留输入让用户改名重试。
  */
+/** 把异常转成可展示的消息，避免 IPC 层抛错时界面毫无反馈。 */
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export function useFileOperations(root: string) {
   const refreshTree = useFilesStore((state) => state.refreshTree);
   const setTreeError = useFilesStore((state) => state.setTreeError);
@@ -27,12 +32,15 @@ export function useFileOperations(root: string) {
     async (parent: string, name: string, kind: "file" | "dir") => {
       const trimmed = name.trim();
       if (!trimmed) return false;
-      const result = await window.piLing.createEntry(
-        root,
-        parent,
-        trimmed,
-        kind,
-      );
+      let result;
+      try {
+        result = await window.piLing.createEntry(root, parent, trimmed, kind);
+      } catch (error) {
+        // IPC 层抛错（例如主进程 handler 未注册）也必须留下可见反馈，
+        // 否则输入框会静默消失、用户以为操作成功了
+        setTreeError(messageOf(error));
+        return false;
+      }
       if (!result.ok) {
         setTreeError(result.message);
         // 返回 false 让调用方保留输入框，用户可以直接改名重试
@@ -54,7 +62,13 @@ export function useFileOperations(root: string) {
 
   const deleteEntry = useCallback(
     async (path: string) => {
-      const result = await window.piLing.deleteEntry(root, path);
+      let result;
+      try {
+        result = await window.piLing.deleteEntry(root, path);
+      } catch (error) {
+        setTreeError(messageOf(error));
+        return false;
+      }
       if (!result.ok) {
         setTreeError(result.message);
         return false;
@@ -89,7 +103,13 @@ export function useFileOperations(root: string) {
     async (path: string, newName: string) => {
       const trimmed = newName.trim();
       if (!trimmed) return false;
-      const result = await window.piLing.renameEntry(root, path, trimmed);
+      let result;
+      try {
+        result = await window.piLing.renameEntry(root, path, trimmed);
+      } catch (error) {
+        setTreeError(messageOf(error));
+        return false;
+      }
       if (!result.ok) {
         setTreeError(result.message);
         return false;
