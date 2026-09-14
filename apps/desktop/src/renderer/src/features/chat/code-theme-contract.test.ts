@@ -254,4 +254,36 @@ describe("code highlighting theme contract", () => {
       expect(source, name).not.toContain("github-dark");
     }
   });
+
+  it("does not paint whole lines in the diff", () => {
+    // 踩过的坑：diff 里整行刷绿/红背景观感很重，而 gutter 竖线 + 字符级高亮
+    // 已足够区分增删（Cursor 的审阅样式正是如此）。
+    // 关键难点：merge 的 baseTheme 用 `.cm-merge-a/.cm-merge-b` 前缀
+    // （特异性 0,3,0），写 0,2,0 的 transparent 会被它压掉，整行仍是默认的
+    // rgba(.08) tint。必须带上 `.cm-editor` 叠到 0,4,0。
+    expect(CHANGES_CSS).toMatch(
+      /\.merge-diff-view \.cm-editor\.cm-merge-[ab] \.cm-changedLine/,
+    );
+    // 整行背景必须是 transparent，而不是 success-tint / danger-tint
+    const lineRule = stripComments(
+      CHANGES_CSS.match(
+        /\.cm-changedLine,[\s\S]*?cm-inlineChangedLine \{[^}]*\}/,
+      )?.[0] ?? "",
+    );
+    expect(lineRule).toContain("background: transparent");
+    expect(lineRule).not.toContain("--success-tint");
+    expect(lineRule).not.toContain("--danger-tint");
+  });
+
+  it("colors the diff gutter by side, not by line tint", () => {
+    // 增删的判断依据是 gutter 竖线：a 侧红、b 侧绿。
+    // 注意 `.cm-changedLineGutter` 是两侧共用的类名，必须用
+    // `.cm-merge-a` / `.cm-merge-b` 上下文区分，否则 a 侧也会变绿。
+    expect(CHANGES_CSS).toMatch(
+      /\.cm-merge-a \.cm-changedLineGutter[^{]*\{[^}]*var\(--danger\)/,
+    );
+    expect(CHANGES_CSS).toMatch(
+      /\.cm-merge-b \.cm-changedLineGutter[^{]*\{[^}]*var\(--success\)/,
+    );
+  });
 });

@@ -378,27 +378,32 @@
   border-right: 1px solid var(--border);
 }
 
-/* 改动行的底色：与 diff 的语义色一致（新增绿 / 删除红） */
-.merge-diff-view .cm-changedLine {
-  background: var(--success-tint);
+/* 改动行不再整行刷色：整行绿/红背景观感重，且 gutter 的竖线已能区分增删。
+   merge 的 baseTheme 用 `.cm-merge-a/.cm-merge-b` 前缀（特异性 0,3,0），
+   这里必须带上 `.cm-editor` 叠到 0,4,0 才能压过它。 */
+.merge-diff-view .cm-editor.cm-merge-a .cm-changedLine,
+.merge-diff-view .cm-editor.cm-merge-b .cm-changedLine,
+.merge-diff-view .cm-deletedLine,
+.merge-diff-view .cm-deletedChunk,
+.merge-diff-view .cm-inlineChangedLine {
+  background: transparent;
 }
 
-.merge-diff-view .cm-deletedLine {
-  background: var(--danger-tint);
-}
-
-/* 字符级高亮：比整行底色更重一档，让改动精确到词 */
-.merge-diff-view .cm-changedText,
-.merge-diff-view .cm-deletedText {
+/* 字符级高亮：只标「行内部分改动」的具体字符，a 侧红、b 侧绿 */
+.merge-diff-view .cm-editor .cm-changedText,
+.merge-diff-view .cm-editor .cm-deletedText {
   border-radius: 2px;
 }
 
-.merge-diff-view .cm-changedText {
-  background: color-mix(in srgb, var(--success) 30%, transparent);
+/* b 侧（after）：新增字符 → 绿 */
+.merge-diff-view .cm-editor.cm-merge-b .cm-changedText {
+  background: color-mix(in srgb, var(--success) 28%, transparent);
 }
 
-.merge-diff-view .cm-deletedText {
-  background: color-mix(in srgb, var(--danger) 30%, transparent);
+/* a 侧（before）：删除字符 → 红 */
+.merge-diff-view .cm-editor.cm-merge-a .cm-changedText,
+.merge-diff-view .cm-editor .cm-deletedText {
+  background: color-mix(in srgb, var(--danger) 28%, transparent);
 }
 
 /* 折叠提示条 */
@@ -413,18 +418,20 @@
   background: var(--surface-hover);
 }
 
-/* gutter 上的改动标记 */
+/* gutter 竖线：这是判断增删的主要视觉依据 —— a 侧红、b 侧绿，
+   比整行刷色克制，也符合 Cursor 的审阅样式。 */
 .merge-diff-view .cm-changedLineGutter,
 .merge-diff-view .cm-deletedLineGutter {
   border-radius: 0;
 }
 
-.merge-diff-view .cm-changedLineGutter {
-  background: var(--success-tint);
+.merge-diff-view .cm-merge-a .cm-changedLineGutter,
+.merge-diff-view .cm-deletedLineGutter {
+  background: var(--danger);
 }
 
-.merge-diff-view .cm-deletedLineGutter {
-  background: var(--danger-tint);
+.merge-diff-view .cm-merge-b .cm-changedLineGutter {
+  background: var(--success);
 }
 
 /* Unified diff 行级渲染 */
