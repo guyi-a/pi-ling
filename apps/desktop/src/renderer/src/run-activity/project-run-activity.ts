@@ -200,6 +200,20 @@ export function projectRunActivities(input: {
     let phase: RunPhase;
     let currentAction: RunActivityModel["currentAction"];
     const terminal = terminalPhase(lifecycle);
+    /*
+     * 正文是否正在产出。
+     *
+     * 两条路径都要覆盖（实测各命中一次）：
+     * - 直播中：`status === "streaming"`，此时消息还不在 liveMessageIds 里
+     * - 结束后：`assistant_end` 已到（status 变 completed）但内容仍在逐块浮现，
+     *   消息在 presentingMessageIds 里
+     */
+    const respondingAssistant = [...assistants].reverse().find(
+      (assistant) =>
+        assistant.text.trim().length > 0 &&
+        (assistant.status === "streaming" ||
+          input.presentingMessageIds?.has(assistant.id) === true),
+    );
     if (terminal && viewMode === "settled") {
       phase = terminal;
     } else if (
@@ -235,6 +249,15 @@ export function projectRunActivities(input: {
         ...toolAction(activeTool),
         toolItemId: activeTool.id,
       };
+    } else if (respondingAssistant) {
+      /*
+       * 正文正在产出：可能是还在流式（status === "streaming"），也可能是运行已结束、
+       * 消息正在逐块浮现（在 presentingMessageIds 里）。
+       *
+       * 没有这一分支时，两种情况都会落到下面的 planning 兜底 —— 表现为正文已经在
+       * 输出，左侧却还写着「Planning next steps」。实测确认过这两种输入。
+       */
+      phase = "responding";
     } else {
       phase = "planning";
     }
@@ -314,6 +337,7 @@ export function projectRunActivities(input: {
 export function activityPhaseLabel(phase: RunPhase): string {
   return {
     planning: "Planning next steps",
+    responding: "Writing response",
     exploring: "Exploring codebase",
     editing: "Editing files",
     running: "Running command",
