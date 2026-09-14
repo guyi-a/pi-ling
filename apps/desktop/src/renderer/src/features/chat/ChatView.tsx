@@ -38,6 +38,13 @@ import { ApprovalModePicker } from "./ApprovalModePicker";
 import { ApprovalDock } from "./ApprovalDock";
 import { QuestionDock } from "./QuestionDock";
 import { AttachmentChips } from "./AttachmentChips";
+import { ContextChips } from "./ContextChips";
+import { SelectionToolbar } from "./SelectionToolbar";
+import {
+  toContextSnippets,
+  useComposerContextStore,
+} from "./composer-context-store";
+import { composePromptWithContext } from "./selection-context";
 import {
   saveImageFiles,
   toPromptAttachments,
@@ -143,11 +150,13 @@ export function ChatView(props: {
     (state) => state.pending[attachmentSessionId] ?? EMPTY_ATTACHMENTS,
   );
   const clearAttachments = useAttachmentsStore((state) => state.clear);
+  const clearContext = useComposerContextStore((state) => state.clear);
   const hasAttachments = attachments.length > 0;
   const canAttachImages = attachmentsEnabled && Boolean(workspaceRoot);
   const canUploadFiles = Boolean(workspaceRoot);
   const { entries: workspaceEntries } = useWorkspaceTree(workspaceRoot ?? "");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const messageAreaRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const mention = useComposerFileMention({
     enabled: Boolean(workspaceRoot),
@@ -228,17 +237,31 @@ export function ChatView(props: {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const value = prompt.trim();
-    if ((!value && !hasAttachments) || composerBusy || !workspaceReady) return;
+    const snippets = toContextSnippets(attachmentSessionId);
+    // 只加了引用、没打字也是合法发送（"看看这个"）
+    if (
+      (!value && !hasAttachments && snippets.length === 0) ||
+      composerBusy ||
+      !workspaceReady
+    ) {
+      return;
+    }
     const outgoingAttachments = toPromptAttachments(attachmentSessionId);
+    // 引用片段序列化进用户消息正文：这样三个 runtime 都自动支持，
+    // 不必碰只认图片的附件通道
+    const outgoingPrompt = composePromptWithContext(value, snippets);
     setPrompt("");
     setSendError(null);
     requestAnimationFrame(scrollToBottom);
     if (outgoingAttachments.length > 0) {
       clearAttachments(attachmentSessionId);
     }
+    if (snippets.length > 0) {
+      clearContext(attachmentSessionId);
+    }
     try {
       await onSend(
-        value,
+        outgoingPrompt,
         outgoingAttachments.length > 0 ? outgoingAttachments : undefined,
       );
     } catch (error) {
@@ -410,7 +433,7 @@ export function ChatView(props: {
   return (
     <section className="content" aria-label="会话">
       <div className="chat-column">
-      <div className="message-list-area">
+      <div className="message-list-area" ref={messageAreaRef}>
         <div
           className={`message-list${composerOverlay ? " has-composer-overlay" : ""}`}
           ref={scrollRef}
@@ -434,6 +457,11 @@ export function ChatView(props: {
             <ArrowDown size={16} />
           </button>
         ) : null}
+        <SelectionToolbar
+          containerRef={messageAreaRef}
+          sessionId={attachmentSessionId}
+          onAdded={() => textareaRef.current?.focus()}
+        />
       </div>
 
       <div className="composer-wrap">
@@ -469,6 +497,7 @@ export function ChatView(props: {
               workspaceRoot={workspaceRoot}
             />
           ) : null}
+          <ContextChips sessionId={attachmentSessionId} />
           <textarea
             ref={textareaRef}
             value={prompt}

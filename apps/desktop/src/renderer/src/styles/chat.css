@@ -377,6 +377,91 @@
   background: var(--editor-bg);
 }
 
+/* ---------- 选中文本「加入对话」 ---------- */
+
+/* 浮动按钮：fixed 定位，坐标由 placeToolbar() 算出。z-index 高于消息内容、
+   低于右键菜单（40），避免盖住菜单。 */
+.selection-add-to-chat {
+  position: fixed;
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--menu-bg);
+  box-shadow: 0 6px 20px var(--shadow);
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.selection-add-to-chat:hover {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border-strong));
+  background: var(--surface-hover);
+}
+
+/* ---------- 输入框上方的引用片段芯片 ---------- */
+
+.composer-context-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.composer-context-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 3px 4px 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* 来源标签：这是「引用」与「图片附件」在观感上的区分点，
+   用左边一条竖线而不是整块上色，保持克制。 */
+.composer-context-chip-source {
+  flex: 0 0 auto;
+  padding-left: 5px;
+  color: var(--muted-2);
+  border-left: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.composer-context-chip-preview {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-soft);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-context-chip-remove {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  color: var(--muted-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+}
+
+.composer-context-chip-remove:hover {
+  color: var(--danger);
+  background: var(--danger-tint);
+}
+
 .composer-stack {
   position: relative;
   z-index: 1;
