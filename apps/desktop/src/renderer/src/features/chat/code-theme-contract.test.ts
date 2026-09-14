@@ -255,6 +255,15 @@ describe("code highlighting theme contract", () => {
     }
   });
 
+  it("force-reloads on theme module changes in dev", () => {
+    // 踩过的坑：主题是模块级常量，而 CodeEditor 的挂载 effect 依赖是
+    // [path, readOnly] —— 改本文件不会重跑 effect，React Fast Refresh 只重渲染
+    // 组件、不重建 EditorView，于是已打开的文件永久停在旧配色上，看起来就像
+    // 「代码没高亮」。没有这个兜底时必须手动刷窗口才生效。
+    expect(EDITOR_THEME_TS).toContain("import.meta.hot");
+    expect(EDITOR_THEME_TS).toContain("invalidate()");
+  });
+
   it("does not paint whole lines in the diff", () => {
     // 踩过的坑：diff 里整行刷绿/红背景观感很重，而 gutter 竖线 + 字符级高亮
     // 已足够区分增删（Cursor 的审阅样式正是如此）。

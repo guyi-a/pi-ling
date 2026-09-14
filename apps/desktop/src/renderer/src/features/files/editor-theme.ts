@@ -285,3 +285,18 @@ export function observeThemeChange(onChange: () => void): () => void {
   });
   return () => observer.disconnect();
 }
+
+/*
+ * 开发期的 HMR 兜底：改本文件后强制整页刷新。
+ *
+ * 主题是模块级常量，而 CodeEditor 的挂载 effect 依赖是 [path, readOnly] ——
+ * 所以改了这里不会重跑 effect，已创建的 EditorView 会永久持有**挂载那一刻**的
+ * 主题扩展。React Fast Refresh 只重渲染组件、不重建 EditorView，于是配色永远
+ * 停在旧值，表现为「改了没生效」甚至「代码没高亮」，很容易被误判成 bug。
+ *
+ * `invalidate()` 表示本模块不适合局部热更新，让 Vite 向上传播成整页刷新。
+ * 仅开发期生效，不影响生产构建。
+ */
+if (import.meta.hot) {
+  import.meta.hot.invalidate();
+}
