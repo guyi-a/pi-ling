@@ -1,8 +1,12 @@
 import { useCallback, useRef, useState, type ReactNode } from "react";
 
+import { AddToChatButton } from "../chat/AddToChatButton";
+import { useComposerContextStore } from "../chat/composer-context-store";
+import { capSnippetText, terminalSource } from "../chat/selection-context";
 import {
   TerminalInstance,
   type TerminalMeta,
+  type TerminalSelection,
   type TerminalStatus,
 } from "./TerminalInstance";
 
@@ -24,12 +28,19 @@ function createInitialSessions(): TerminalTab[] {
   return [createTerminalTab("Terminal 1")];
 }
 
-export function TerminalPanel(props: { root: string; active: boolean }) {
+export function TerminalPanel(props: {
+  root: string;
+  active: boolean;
+  /** 会话 id：引用片段按会话隔离；缺失时不显示「加入对话」。 */
+  sessionId?: string | undefined;
+}) {
   const sequenceRef = useRef(1);
   const [sessions, setSessions] = useState<TerminalTab[]>(createInitialSessions);
   const [activeId, setActiveId] = useState(() => sessions[0]?.id ?? "");
   const [metaById, setMetaById] = useState<Record<string, TerminalMeta>>({});
   const [listOpen, setListOpen] = useState(false);
+  const [selection, setSelection] = useState<TerminalSelection | null>(null);
+  const addSnippet = useComposerContextStore((state) => state.add);
 
   const activeSession = sessions.find((session) => session.id === activeId);
   const activeMeta = activeSession ? metaById[activeSession.id] : undefined;
@@ -167,10 +178,34 @@ export function TerminalPanel(props: { root: string; active: boolean }) {
               active={props.active}
               visible={session.id === activeId}
               onMeta={(meta) => setTabMeta(session.id, meta)}
+              onSelectionChange={(selection) => {
+                // 只认当前可见的那个终端，避免后台终端的选区抢走按钮
+                if (session.id !== activeId) return;
+                setSelection(selection);
+              }}
             />
           ))}
         </div>
       )}
+
+      {/*
+        终端的「加入对话」。终端内容由 xterm 自己渲染、没有可选的 DOM 文本，
+        所以选区来自 `terminal.getSelection()`，坐标由 xterm 的行列 API 换算。
+      */}
+      {selection && props.sessionId ? (
+        <AddToChatButton
+          anchor={selection.anchor}
+          title={selection.text.slice(0, 200)}
+          onAdd={() => {
+            const capped = capSnippetText(selection.text);
+            addSnippet(props.sessionId!, {
+              text: capped.text,
+              source: terminalSource(),
+            });
+            setSelection(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -180,12 +215,22 @@ function TabTerminalInstance(props: {
   active: boolean;
   visible: boolean;
   onMeta: (meta: TerminalMeta) => void;
+  onSelectionChange: (selection: TerminalSelection | null) => void;
 }) {
   const onMetaRef = useRef(props.onMeta);
   onMetaRef.current = props.onMeta;
   const handleMeta = useCallback((meta: TerminalMeta) => {
     onMetaRef.current(meta);
   }, []);
+  // 终端选区回调不进 effect 依赖（否则每次渲染都要重建终端），故走 ref
+  const onSelectionChangeRef = useRef(props.onSelectionChange);
+  onSelectionChangeRef.current = props.onSelectionChange;
+  const handleSelectionChange = useCallback(
+    (selection: TerminalSelection | null) => {
+      onSelectionChangeRef.current(selection);
+    },
+    [],
+  );
 
   return (
     <TerminalInstance
@@ -193,6 +238,7 @@ function TabTerminalInstance(props: {
       active={props.active}
       visible={props.visible}
       onMeta={handleMeta}
+      onSelectionChange={handleSelectionChange}
     />
   );
 }

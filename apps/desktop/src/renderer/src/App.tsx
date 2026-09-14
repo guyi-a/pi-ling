@@ -1006,6 +1006,7 @@ export function App() {
                   filesRoot={workspaceRoot}
                   filesSessionId={timeline.sessionId ?? undefined}
                   terminalRoot={workspaceRoot}
+                  terminalSessionId={timeline.sessionId ?? undefined}
                   traceSessionId={timeline.sessionId}
                   traceEvents={traceEvents}
                   traceRuns={timeline.runs}

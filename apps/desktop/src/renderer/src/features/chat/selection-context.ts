@@ -6,10 +6,10 @@
  * 分支靠手点很难覆盖全。
  */
 
-/** 引用来源。`kind` 为将来接入文件选区（带行号）预留。 */
+/** 引用来源。`kind` 用于给不同面板的引用做区分（也便于将来接入文件行号）。 */
 export interface ContextSource {
-  kind: "file" | "chat";
-  /** 已格式化好的来源标签，例如 `docs/py/lru.py:12-20` 或 `对话记录`。 */
+  kind: "file" | "chat" | "terminal";
+  /** 已格式化好的来源标签，例如 `docs/py/lru.py:12-20` / `对话记录` / `终端输出`。 */
   label: string;
 }
 
@@ -121,6 +121,11 @@ export function formatFileSource(
 
 export function chatSource(): ContextSource {
   return { kind: "chat", label: CHAT_SOURCE_LABEL };
+}
+
+/** 终端输出的引用来源。 */
+export function terminalSource(): ContextSource {
+  return { kind: "terminal", label: "终端输出" };
 }
 
 /**

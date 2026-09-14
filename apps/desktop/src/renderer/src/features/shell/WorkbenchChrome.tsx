@@ -156,6 +156,8 @@ export function WorkbenchPanel(props: {
   /** 会话 id：Files 面板的引用片段按会话隔离。 */
   filesSessionId?: string | undefined;
   terminalRoot?: string | undefined;
+  /** 会话 id：终端的引用片段按会话隔离。 */
+  terminalSessionId?: string | undefined;
   traceSessionId?: string | null;
   traceEvents?: TimelineEnvelope[];
   traceRuns?: Record<string, TimelineRun>;
@@ -299,6 +301,9 @@ export function WorkbenchPanel(props: {
               key={props.terminalRoot}
               root={props.terminalRoot}
               active={activeTab === "terminal"}
+              {...(props.terminalSessionId
+                ? { sessionId: props.terminalSessionId }
+                : {})}
             />
           </Suspense>
         ) : null}
