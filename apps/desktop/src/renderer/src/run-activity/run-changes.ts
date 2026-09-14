@@ -10,8 +10,11 @@ import { classifyTool } from "./tool-taxonomy";
 
 /**
  * 从 timeline 中按「最新有改动的 run」聚合出 Last Agent Turn 的文件改动。
- * 采用累计语义：匹配到最新 runId 后，把该 run 内所有 `changes` 事件的 files 合并，
- * 以 path 去重（后发生的覆盖前面的 status/统计）。
+ *
+ * **以该 run 内最后一个 `changes` 快照为准**，不是把各次快照求并集。
+ * 原因：`changes` 事件携带的是 `ChangeTracker.changedFiles()` —— 一个会话级
+ * **累计**快照（每次文件改动后重算全量）。既然如此，最后一份就是该 run 结束时的
+ * 权威状态；求并集反而会把「先建后删、已回退」的文件永远留在列表里。
  */
 export function lastAgentTurnChanges(
   items: readonly TimelineItem[],
@@ -28,14 +31,27 @@ export function lastAgentTurnChanges(
   );
   const runId = latest.runId;
 
-  const byPath = new Map<string, ChangedFile>();
+  return latestSnapshotFiles(changesItems, runId);
+}
+
+/**
+ * 取某个 run 内最后一个 changes 快照的文件，按路径排序。
+ *
+ * `editCallIds` 给定时只考虑这些工具发出的快照（用于「只看编辑类工具」的场景）。
+ */
+function latestSnapshotFiles(
+  changesItems: readonly ChangesTimelineItem[],
+  runId: string,
+  editCallIds?: ReadonlySet<string>,
+): ChangedFile[] {
+  let latest: ChangesTimelineItem | undefined;
   for (const item of changesItems) {
     if (item.runId !== runId) continue;
-    for (const file of item.files) {
-      byPath.set(file.path, file);
-    }
+    if (editCallIds && !editCallIds.has(item.callId)) continue;
+    if (!latest || item.createdSeq >= latest.createdSeq) latest = item;
   }
-  return [...byPath.values()].sort((left, right) =>
+  if (!latest) return [];
+  return [...latest.files].sort((left, right) =>
     left.path.localeCompare(right.path),
   );
 }
@@ -79,18 +95,12 @@ export function changesFilesByRunId(
   runId: string,
   options?: { editToolsOnly?: boolean },
 ): ChangedFile[] {
+  const changesItems = items.filter(
+    (item): item is ChangesTimelineItem => item.kind === "changes",
+  );
   const editCallIds = options?.editToolsOnly
     ? editToolCallIds(items, runId)
     : undefined;
-  const byPath = new Map<string, ChangedFile>();
-  for (const item of items) {
-    if (item.kind !== "changes" || item.runId !== runId) continue;
-    if (editCallIds && !editCallIds.has(item.callId)) continue;
-    for (const file of item.files) {
-      byPath.set(file.path, file);
-    }
-  }
-  return [...byPath.values()].sort((left, right) =>
-    left.path.localeCompare(right.path),
-  );
+  // 同样以「最后一个累计快照」为准，理由见 lastAgentTurnChanges 的注释
+  return latestSnapshotFiles(changesItems, runId, editCallIds);
 }

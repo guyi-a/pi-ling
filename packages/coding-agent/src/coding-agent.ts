@@ -221,7 +221,13 @@ export class CodingAgent {
         }
         if (effect.kind !== "filesystem-write") return;
         const files = await this.#changes.changedFiles();
-        if (files.length === 0) return;
+        /*
+         * 即使 files 为空也要发事件。
+         *
+         * changes 事件携带的是会话级**累计**快照；文件被删除/回退后快照会变空，
+         * 而下游以「最后一个快照」为准。若在这里提前 return，最后一个快照会
+         * 一直停在回退之前 —— 表现为「先建后删的文件永远留在改动列表里」。
+         */
         await this.#emit({
           type: "changes",
           runId: event.runId,

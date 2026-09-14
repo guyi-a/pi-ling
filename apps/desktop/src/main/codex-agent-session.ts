@@ -872,7 +872,27 @@ export class CodexAgentSession {
     } catch {
       return;
     }
-    if (files.length === 0) return;
+    if (files.length === 0) {
+      /*
+       * 不为空才落盘（避免无意义的基线写入），但**仍要发出空快照**。
+       *
+       * changes 事件是会话级累计快照，下游以「最后一个快照」为准；若这里直接
+       * return，删除/回退后最后一个快照会停在回退之前 —— 表现为「先建后删的
+       * 文件永远留在改动列表里」。
+       */
+      this.#flush(
+        this.#store.appendSessionEvent({
+          sessionId: this.#session.id,
+          runtimeKind: "codex",
+          runId,
+          turnId,
+          toolCallId: callId,
+          idempotencyKey: `changes:${callId}`,
+          event: { kind: "changes.committed", callId, files: [] },
+        }),
+      );
+      return;
+    }
     for (const baseline of this.#changes.exportBaselines()) {
       this.#store.saveBaseline(this.#session.id, baseline);
     }

@@ -23,3 +23,6 @@ b.md
 
 # Desktop packaging outputs
 apps/desktop/release-*/
+
+# Scratch examples / experiments (not versioned)
+example/
