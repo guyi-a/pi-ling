@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type {
@@ -465,6 +465,75 @@ export async function deleteWorkspaceEntry(
 
   try {
     await rm(target, { recursive: true, force: true });
+  } catch (error) {
+    return fail(error);
+  }
+  return { ok: true };
+}
+
+/**
+ * 重命名工作区内的文件或目录（只改名字，不移动位置）。
+ *
+ * **必须显式拒绝覆盖**：实测本机（Windows）上 `fs.rename` 对同名文件是
+ * **静默覆盖**（Node 内部用 `MoveFileEx` + `MOVEFILE_REPLACE_EXISTING`），
+ * 目录对目录才会报 EPERM。不加检查就会把用户已有文件无声吃掉。
+ *
+ * 存在性检查与实际改名之间有极小的竞态窗口；对一个文件管理器来说可接受，
+ * 真要严格得用 `link` + `unlink` 那套，代价远大于收益。
+ */
+export async function renameWorkspaceEntry(
+  root: string,
+  subpath: string,
+  newName: string,
+): Promise<WorkspaceMutationResult> {
+  const nameError = validateEntryName(newName);
+  if (nameError) return { ok: false, message: nameError };
+  const trimmedName = newName.trim();
+
+  const trimmed = subpath.trim().replace(/\/+$/, "");
+  if (!trimmed) return { ok: false, message: "不能重命名工作区根目录" };
+  if (trimmed === ".git" || trimmed.startsWith(".git/")) {
+    return { ok: false, message: "拒绝重命名 .git 目录" };
+  }
+
+  let source: string;
+  try {
+    source = resolveWorkspacePath(root, trimmed);
+  } catch (error) {
+    return fail(error);
+  }
+
+  let stats;
+  try {
+    stats = await stat(source);
+  } catch (error) {
+    return fail(error);
+  }
+
+  // 原名不变就直接成功，避免把 no-op 当成错误报给用户
+  const currentName = path.basename(source);
+  if (currentName === trimmedName) return { ok: true };
+
+  const destination = path.join(path.dirname(source), trimmedName);
+  try {
+    // 目标必须仍在工作区内（destination 由已校验的 source 派生，这里是兜底）
+    resolveWorkspacePath(root, path.relative(path.resolve(root), destination));
+  } catch (error) {
+    return fail(error);
+  }
+
+  try {
+    await stat(destination);
+    return {
+      ok: false,
+      message: `已存在同名${stats.isDirectory() ? "目录" : "文件"}`,
+    };
+  } catch {
+    // 目标不存在 —— 正是期望的情况
+  }
+
+  try {
+    await rename(source, destination);
   } catch (error) {
     return fail(error);
   }

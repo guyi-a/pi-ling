@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 import type { FileViewMode } from "./file-views";
+import { remapExpandedKeys, remapPath } from "./workspace-path";
 
 interface FilesState {
   previewPath: string | null;
@@ -25,11 +26,10 @@ interface FilesState {
   pendingPath: string | null;
   /** 被拦下的「关闭预览」请求。 */
   pendingClose: boolean;
-  /**
-   * 正在新建的条目（Files 树的行内命名输入）。
-   * `parent` 是目标父目录路径（工作区根用 ""），树据此决定在哪个层级渲染输入行。
-   */
+  /** 正在新建的条目（Files 树的行内命名输入）。 */
   draft: { parent: string; kind: "file" | "dir" } | null;
+  /** 正在改名的条目路径（目录以 "/" 结尾）。 */
+  renaming: string | null;
   /** 正在等待确认删除的路径（目录以 "/" 结尾）。 */
   pendingDelete: string | null;
   /** 文件操作的失败原因，展示在树顶部。 */
@@ -57,6 +57,13 @@ interface FilesState {
   refreshTree: () => void;
   beginDraft: (parent: string, kind: "file" | "dir") => void;
   cancelDraft: () => void;
+  beginRename: (path: string) => void;
+  cancelRename: () => void;
+  /**
+   * 重命名成功后修正所有指向旧路径的状态。
+   * 不改的话：右侧预览会指着不存在的旧路径，展开状态也会变成垃圾键。
+   */
+  remapPaths: (root: string, oldPath: string, newPath: string) => void;
   beginDelete: (path: string) => void;
   cancelDelete: () => void;
   setTreeError: (message: string | null) => void;
@@ -84,6 +91,7 @@ export const useFilesStore = create<FilesState>()(
       pendingPath: null,
       pendingClose: false,
       draft: null,
+      renaming: null,
       pendingDelete: null,
       treeError: null,
 
@@ -182,9 +190,50 @@ export const useFilesStore = create<FilesState>()(
         ),
 
       beginDraft: (parent, kind) =>
-        set({ draft: { parent, kind }, pendingDelete: null, treeError: null }),
+        set({
+          draft: { parent, kind },
+          renaming: null,
+          pendingDelete: null,
+          treeError: null,
+        }),
 
       cancelDraft: () => set({ draft: null }),
+
+      beginRename: (path) =>
+        set({
+          renaming: path,
+          draft: null,
+          pendingDelete: null,
+          treeError: null,
+        }),
+
+      cancelRename: () => set({ renaming: null }),
+
+      remapPaths: (root, oldPath, newPath) =>
+        set((state) => ({
+          previewPath: state.previewPath
+            ? remapPath(state.previewPath, oldPath, newPath)
+            : state.previewPath,
+          pendingPath: state.pendingPath
+            ? remapPath(state.pendingPath, oldPath, newPath)
+            : state.pendingPath,
+          // 草稿的父目录可能就是被改名的目录本身
+          draft: state.draft
+            ? {
+                ...state.draft,
+                parent: remapPath(state.draft.parent, oldPath, newPath),
+              }
+            : state.draft,
+          pendingDelete: state.pendingDelete
+            ? remapPath(state.pendingDelete, oldPath, newPath)
+            : state.pendingDelete,
+          expandedDirectories: remapExpandedKeys(
+            state.expandedDirectories,
+            root,
+            oldPath,
+            newPath,
+          ),
+        })),
 
       beginDelete: (path) =>
         set({ pendingDelete: path, draft: null, treeError: null }),

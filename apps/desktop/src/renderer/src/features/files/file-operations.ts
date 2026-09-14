@@ -1,67 +1,27 @@
 import { useCallback } from "react";
 
 import { useFilesStore } from "./store";
+import {
+  directoryKeyOf,
+  joinWorkspacePath,
+  openTargetAfterCreate,
+  renamedPathOf,
+} from "./workspace-path";
 
 /**
- * Files 面板的路径约定与树有关，集中放这里，避免各处手拼字符串出错。
+ * Files 面板的新建 / 删除 / 重命名执行体。
  *
- * 约定（与 main 进程的 `WorkspaceTreeNode.path` 一致）：
- * - 路径用 "/" 分隔
- * - **目录以 "/" 结尾**，文件不带
- * - 工作区根目录表示为空串 ""
- */
-
-/** 取父目录路径（保留结尾 "/"，根目录返回 ""）。 */
-export function parentDirOf(path: string): string {
-  const trimmed = path.replace(/\/+$/, "");
-  const slash = trimmed.lastIndexOf("/");
-  if (slash < 0) return "";
-  return `${trimmed.slice(0, slash)}/`;
-}
-
-/** 取路径最后一段（名称）。 */
-export function baseNameOf(path: string): string {
-  const trimmed = path.replace(/\/+$/, "");
-  const slash = trimmed.lastIndexOf("/");
-  return slash < 0 ? trimmed : trimmed.slice(slash + 1);
-}
-
-/** 把父目录与单段名称拼成完整路径。 */
-export function joinWorkspacePath(
-  parent: string,
-  name: string,
-  kind: "file" | "dir",
-): string {
-  const prefix = parent === "" || parent.endsWith("/") ? parent : `${parent}/`;
-  return `${prefix}${name}${kind === "dir" ? "/" : ""}`;
-}
-
-/** 目录行的展开键；store 用它记录展开状态。 */
-export function directoryKeyOf(root: string, dirPath: string): string {
-  return `${root}:${dirPath}`;
-}
-
-/**
- * 操作成功后要打开的路径；目录没有"打开"的概念，返回 undefined。
- * 单独抽出来是为了让"新建 -> 是否跳转"这个判断可测。
- */
-export function openTargetAfterCreate(
-  createdPath: string,
-  kind: "file" | "dir",
-): string | undefined {
-  return kind === "file" ? createdPath : undefined;
-}
-
-/**
- * 新建 / 删除的实际执行体。
- *
- * 只做三件事：调 IPC、把失败写回 store、成功后刷新树。
- * 界面状态（draft / pendingDelete）由调用方决定何时清理，便于失败时保留输入。
+ * 只做三件事：调 IPC、把失败写回 store、成功后刷新树与路径重映射。
+ * 界面状态（draft / renaming / pendingDelete）由调用方决定何时清理，
+ * 便于失败时保留输入让用户改名重试。
  */
 export function useFileOperations(root: string) {
   const refreshTree = useFilesStore((state) => state.refreshTree);
   const setTreeError = useFilesStore((state) => state.setTreeError);
   const expandDirectory = useFilesStore((state) => state.expandDirectory);
+  const beginRename = useFilesStore((state) => state.beginRename);
+  const dirty = useFilesStore((state) => state.dirty);
+  const previewPath = useFilesStore((state) => state.previewPath);
 
   const createEntry = useCallback(
     async (parent: string, name: string, kind: "file" | "dir") => {
@@ -106,5 +66,57 @@ export function useFileOperations(root: string) {
     [refreshTree, root, setTreeError],
   );
 
-  return { createEntry, deleteEntry };
+  /**
+   * 进入重命名编辑态。
+   *
+   * 若待改名的就是当前打开且有未保存改动的文件，先拦下 —— 改名会让
+   * CodeEditor 因 path 变化而重挂载，未保存的内容会直接丢。与其静默丢失，
+   * 不如让用户先保存（Cmd+S）再来。
+   */
+  const startRename = useCallback(
+    (path: string) => {
+      const isTargetOpen = previewPath !== null && path === previewPath;
+      if (isTargetOpen && dirty) {
+        setTreeError("该文件有未保存的改动，请先保存（Ctrl/Cmd+S）再重命名");
+        return;
+      }
+      beginRename(path);
+    },
+    [beginRename, dirty, previewPath, setTreeError],
+  );
+
+  const renameEntry = useCallback(
+    async (path: string, newName: string) => {
+      const trimmed = newName.trim();
+      if (!trimmed) return false;
+      const result = await window.piLing.renameEntry(root, path, trimmed);
+      if (!result.ok) {
+        setTreeError(result.message);
+        return false;
+      }
+      setTreeError(null);
+      // 重映射必须早于刷新：预览面板正指着旧路径，先改掉才不会闪一下"文件不存在"
+      const { newPath, kind } = renamedPathOf(path, trimmed);
+      useFilesStore.getState().remapPaths(root, path, newPath);
+      if (kind === "dir") expandDirectory(directoryKeyOf(root, newPath));
+      refreshTree();
+      return true;
+    },
+    [expandDirectory, refreshTree, root, setTreeError],
+  );
+
+  return { createEntry, deleteEntry, startRename, renameEntry };
 }
+
+// 纯路径工具都在 ./workspace-path，这里 re-export 以保持调用方导入路径单一
+export {
+  baseNameOf,
+  directoryKeyOf,
+  joinWorkspacePath,
+  openTargetAfterCreate,
+  parentDirOf,
+  remapExpandedKeys,
+  remapPath,
+  renameSelectionRange,
+  renamedPathOf,
+} from "./workspace-path";

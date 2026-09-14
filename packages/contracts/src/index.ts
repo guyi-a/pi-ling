@@ -18,6 +18,7 @@ export const IPC_CHANNELS = {
   workspaceDiffContents: "workspace:diff-contents",
   workspaceCreateEntry: "workspace:create-entry",
   workspaceDeleteEntry: "workspace:delete-entry",
+  workspaceRenameEntry: "workspace:rename-entry",
   sessionsList: "sessions:list",
   sessionsCreate: "sessions:create",
   sessionsSwitch: "sessions:switch",
@@ -972,6 +973,17 @@ export interface DesktopApi {
   deleteEntry(
     root: string,
     subpath: string,
+  ): Promise<WorkspaceMutationResult>;
+  /**
+   * 重命名工作区内的文件或目录（只改名字，不移动位置）。
+   *
+   * 目标已存在时返回失败而不是覆盖 —— `fs.rename` 在 Windows 上会**静默覆盖**
+   * 同名文件（Node 用了 MOVEFILE_REPLACE_EXISTING），必须显式挡一道。
+   */
+  renameEntry(
+    root: string,
+    subpath: string,
+    newName: string,
   ): Promise<WorkspaceMutationResult>;
   /**
    * 取 diff 的双侧内容，供 MergeView 做语法高亮渲染。

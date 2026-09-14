@@ -8,6 +8,7 @@ import {
   createWorkspaceEntry,
   deleteWorkspaceEntry,
   readTextForDiff,
+  renameWorkspaceEntry,
   resolveWorkspacePath,
   writeFileContent,
 } from "./workspace-fs.js";
@@ -330,5 +331,143 @@ describe("deleteWorkspaceEntry", () => {
     const result = await deleteWorkspaceEntry(root, "not-there.txt");
     // rm 带 force，缺失视为成功；关键是不要抛异常
     expect(result).toEqual({ ok: true });
+  });
+});
+
+describe("renameWorkspaceEntry", () => {
+  let root = "";
+
+  beforeEach(async () => {
+    root = await fs.mkdtemp(path.join(os.tmpdir(), "pi-ling-rename-"));
+    await fs.mkdir(path.join(root, "src", "deep"), { recursive: true });
+    await fs.writeFile(path.join(root, "src", "deep", "a.ts"), "content-a");
+    await fs.writeFile(path.join(root, "src", "b.ts"), "content-b");
+    await fs.mkdir(path.join(root, ".git"));
+  });
+
+  afterEach(async () => {
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
+  it("renames a file and preserves its content", async () => {
+    const result = await renameWorkspaceEntry(root, "src/deep/a.ts", "renamed.ts");
+    expect(result).toEqual({ ok: true });
+    expect(
+      await fs.readFile(path.join(root, "src", "deep", "renamed.ts"), "utf8"),
+    ).toBe("content-a");
+    await expect(
+      fs.stat(path.join(root, "src", "deep", "a.ts")),
+    ).rejects.toBeDefined();
+  });
+
+  it("renames a directory with its contents", async () => {
+    const result = await renameWorkspaceEntry(root, "src", "lib");
+    expect(result).toEqual({ ok: true });
+    expect(
+      await fs.readFile(path.join(root, "lib", "deep", "a.ts"), "utf8"),
+    ).toBe("content-a");
+  });
+
+  it("accepts a directory path with a trailing slash", async () => {
+    const result = await renameWorkspaceEntry(root, "src/", "lib");
+    expect(result).toEqual({ ok: true });
+    expect((await fs.stat(path.join(root, "lib"))).isDirectory()).toBe(true);
+  });
+
+  it("refuses to overwrite an existing file", async () => {
+    // 这是最关键的一条：实测 fs.rename 在本机（Windows）会静默覆盖同名文件，
+    // 不加检查就会把已有内容无声吃掉。注意重命名不移动位置，所以冲突必须
+    // 发生在**同一个目录**内：src/b.ts -> src/c.ts 而 src/c.ts 已存在。
+    await fs.writeFile(path.join(root, "src", "c.ts"), "content-c");
+    const result = await renameWorkspaceEntry(root, "src/b.ts", "c.ts");
+    expect(result).toEqual({
+      ok: false,
+      message: expect.stringContaining("已存在同名文件"),
+    });
+    // 两个文件都必须原封不动
+    expect(await fs.readFile(path.join(root, "src", "c.ts"), "utf8")).toBe(
+      "content-c",
+    );
+    expect(await fs.readFile(path.join(root, "src", "b.ts"), "utf8")).toBe(
+      "content-b",
+    );
+  });
+
+  it("does not treat a same-name file in another directory as a collision", async () => {
+    // 重命名只改名字、不移动位置：src/deep/a.ts -> src/deep/a2.ts
+    // 不该被 src/a2.ts（不存在）或别处的同名文件影响
+    const result = await renameWorkspaceEntry(root, "src/deep/a.ts", "b.ts");
+    expect(result).toEqual({ ok: true });
+    expect(
+      await fs.readFile(path.join(root, "src", "deep", "b.ts"), "utf8"),
+    ).toBe("content-a");
+    // 原来的 src/b.ts 不受影响
+    expect(await fs.readFile(path.join(root, "src", "b.ts"), "utf8")).toBe(
+      "content-b",
+    );
+  });
+
+  it("refuses to overwrite an existing directory", async () => {
+    await fs.mkdir(path.join(root, "other"));
+    const result = await renameWorkspaceEntry(root, "other", "src");
+    expect(result).toEqual({
+      ok: false,
+      message: expect.stringContaining("已存在同名目录"),
+    });
+    expect((await fs.stat(path.join(root, "other"))).isDirectory()).toBe(true);
+  });
+
+  it("treats an unchanged name as a successful no-op", async () => {
+    const result = await renameWorkspaceEntry(root, "src/deep/a.ts", "a.ts");
+    expect(result).toEqual({ ok: true });
+    expect(
+      await fs.readFile(path.join(root, "src", "deep", "a.ts"), "utf8"),
+    ).toBe("content-a");
+  });
+
+  it("rejects an invalid new name", async () => {
+    for (const name of ["", "   ", "a/b.ts", "nul", "a."]) {
+      const result = await renameWorkspaceEntry(root, "src/deep/a.ts", name);
+      expect(result.ok, JSON.stringify(name)).toBe(false);
+    }
+    // 原文件必须还在
+    expect(
+      await fs.readFile(path.join(root, "src", "deep", "a.ts"), "utf8"),
+    ).toBe("content-a");
+  });
+
+  it("refuses to rename the workspace root", async () => {
+    const result = await renameWorkspaceEntry(root, "", "newname");
+    expect(result).toEqual({
+      ok: false,
+      message: expect.stringContaining("根目录"),
+    });
+  });
+
+  it("refuses to rename .git", async () => {
+    const result = await renameWorkspaceEntry(root, ".git", "git-backup");
+    expect(result).toEqual({
+      ok: false,
+      message: expect.stringContaining(".git"),
+    });
+    expect((await fs.stat(path.join(root, ".git"))).isDirectory()).toBe(true);
+  });
+
+  it("rejects paths escaping the workspace", async () => {
+    const result = await renameWorkspaceEntry(root, "../outside", "x");
+    expect(result.ok).toBe(false);
+  });
+
+  it("reports a missing source instead of throwing", async () => {
+    const result = await renameWorkspaceEntry(root, "nope.ts", "x.ts");
+    expect(result.ok).toBe(false);
+  });
+
+  it("trims whitespace from the new name", async () => {
+    const result = await renameWorkspaceEntry(root, "src/deep/a.ts", "  spaced.ts ");
+    expect(result).toEqual({ ok: true });
+    expect(
+      (await fs.stat(path.join(root, "src", "deep", "spaced.ts"))).isFile(),
+    ).toBe(true);
   });
 });

@@ -5,6 +5,7 @@ import {
   FilePlus,
   Folder,
   FolderPlus,
+  Pencil,
   Trash2,
 } from "lucide-react";
 import {
@@ -22,6 +23,7 @@ import {
   type GitDecorations,
 } from "./git-decorations";
 import { useFileOperations, directoryKeyOf } from "./file-operations";
+import { baseNameOf, renameSelectionRange } from "./workspace-path";
 import { useFilesStore } from "./store";
 
 export type WorkspaceTreeNodeT = {
@@ -100,6 +102,8 @@ interface TreeActions {
   ) => void;
   /** 提交新建；返回 false 表示失败（保留输入，便于改名重试）。 */
   create: (parent: string, name: string, kind: "file" | "dir") => Promise<boolean>;
+  /** 提交重命名；返回 false 表示失败（保留输入）。 */
+  rename: (path: string, newName: string) => Promise<boolean>;
 }
 
 const TreeActionsContext = createContext<TreeActions | null>(null);
@@ -111,57 +115,81 @@ function useTreeActions(): TreeActions {
 }
 
 /**
- * 行内命名输入。
+ * 行内名称输入，新建与重命名共用。
  *
  * 自己持有草稿文本（不进 store），避免每敲一个字符就让整棵树重渲染。
  * Enter 提交、Esc 取消、失焦时若非空则提交（与 VS Code / Cursor 一致）。
  */
-function DraftRow(props: {
+function InlineNameInput(props: {
   depth: number;
-  parent: string;
-  kind: "file" | "dir";
+  entryKind: "file" | "dir";
+  /** 新建时为空；重命名时为原名，用于预填。 */
+  initialName?: string;
+  mode: "create" | "rename";
+  parent?: string;
+  path?: string;
 }) {
   const actions = useTreeActions();
   const cancelDraft = useFilesStore((state) => state.cancelDraft);
-  const [text, setText] = useState("");
+  const cancelRename = useFilesStore((state) => state.cancelRename);
+  const [text, setText] = useState(props.initialName ?? "");
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+    const input = inputRef.current;
+    if (!input) return;
+    input.focus();
+    // 重命名时按 VS Code 的惯例只选中主名、留下扩展名
+    if (props.mode === "rename" && props.initialName !== undefined) {
+      const [start, end] = renameSelectionRange(props.initialName, props.entryKind);
+      input.setSelectionRange(start, end);
+    }
+  }, [props.entryKind, props.initialName, props.mode]);
+
+  function cancel() {
+    if (props.mode === "create") cancelDraft();
+    else cancelRename();
+  }
 
   async function commit() {
     if (busy) return;
     const name = text.trim();
-    if (!name) {
-      cancelDraft();
+    // 名称没变就当作取消，不必往返一次 IPC（main 里也会识别为 no-op）
+    if (!name || name === props.initialName) {
+      cancel();
       return;
     }
     setBusy(true);
-    const ok = await actions.create(props.parent, name, props.kind);
+    const ok =
+      props.mode === "create"
+        ? await actions.create(props.parent ?? "", name, props.entryKind)
+        : await actions.rename(props.path ?? "", name);
     setBusy(false);
     // 失败时不动：store 里已经写了错误信息，输入框保留原文本供改名重试
-    if (ok) cancelDraft();
+    if (ok) cancel();
   }
 
+  const isDir = props.entryKind === "dir";
   return (
     <div
       className="ptree-row ptree-draft"
       style={{ paddingLeft: `${8 + props.depth * 14}px` }}
     >
-      {props.kind === "dir" ? (
-        <Folder className="ptree-icon" />
-      ) : (
-        <FileIcon className="ptree-icon" />
-      )}
+      {isDir ? <Folder className="ptree-icon" /> : <FileIcon className="ptree-icon" />}
       <input
         ref={inputRef}
         className="ptree-draft-input"
         value={text}
         disabled={busy}
-        aria-label={props.kind === "dir" ? "新建文件夹名称" : "新建文件名"}
-        placeholder={props.kind === "dir" ? "文件夹名称" : "文件名，含扩展名"}
+        aria-label={
+          props.mode === "rename"
+            ? "新名称"
+            : isDir
+              ? "新建文件夹名称"
+              : "新建文件名"
+        }
+        placeholder={isDir ? "文件夹名称" : "文件名，含扩展名"}
         spellCheck={false}
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => {
@@ -170,7 +198,7 @@ function DraftRow(props: {
             void commit();
           } else if (event.key === "Escape") {
             event.preventDefault();
-            cancelDraft();
+            cancel();
           }
         }}
         onBlur={() => void commit()}
@@ -196,7 +224,8 @@ export function WorkspaceTreeList(props: {
   const beginDelete = useFilesStore((state) => state.beginDelete);
   const expandDirectory = useFilesStore((state) => state.expandDirectory);
   const draft = useFilesStore((state) => state.draft);
-  const { createEntry } = useFileOperations(props.root);
+  const renaming = useFilesStore((state) => state.renaming);
+  const { createEntry, renameEntry, startRename } = useFileOperations(props.root);
 
   /**
    * 开始新建之前先展开目标目录。
@@ -217,6 +246,7 @@ export function WorkspaceTreeList(props: {
       setMenu({ path, kind, x: event.clientX, y: event.clientY });
     },
     create: createEntry,
+    rename: renameEntry,
   };
 
   return (
@@ -224,7 +254,12 @@ export function WorkspaceTreeList(props: {
       <div className={props.compact ? "ptree ptree-compact" : "ptree"}>
         {/* 在工作区根目录新建时没有"根目录行"来承载输入框，这里补一行 */}
         {draft !== null && draft.parent === "" ? (
-          <DraftRow depth={0} parent="" kind={draft.kind} />
+          <InlineNameInput
+            depth={0}
+            mode="create"
+            parent=""
+            entryKind={draft.kind}
+          />
         ) : null}
         {props.nodes.map((node) => (
           <TreeItem
@@ -256,6 +291,10 @@ export function WorkspaceTreeList(props: {
             );
             setMenu(null);
           }}
+          onRename={() => {
+            startRename(menu.path);
+            setMenu(null);
+          }}
           onDelete={() => {
             beginDelete(menu.path);
             setMenu(null);
@@ -271,6 +310,7 @@ function TreeContextMenu(props: {
   onClose: () => void;
   onNewFile: () => void;
   onNewFolder: () => void;
+  onRename: () => void;
   onDelete: () => void;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -319,6 +359,10 @@ function TreeContextMenu(props: {
         <FolderPlus size={13} />
         新建文件夹
       </button>
+      <button type="button" role="menuitem" onClick={props.onRename}>
+        <Pencil size={13} />
+        重命名
+      </button>
       <div className="ptree-menu-sep" />
       <button
         type="button"
@@ -351,9 +395,11 @@ function TreeItem(props: {
   const toggleDirectory = useFilesStore((state) => state.toggleDirectory);
   const requestOpenFile = useFilesStore((state) => state.requestOpenFile);
   const draft = useFilesStore((state) => state.draft);
+  const renaming = useFilesStore((state) => state.renaming);
   const actions = useTreeActions();
   // 只有本目录是草稿的目标父目录时才渲染输入行
   const isDraftParent = draft !== null && draft.parent === entry.path;
+  const isRenaming = renaming === entry.path;
   const isSelected = entry.path === selectedPath;
   const dirState = isDir ? decorations?.dirs.get(entry.path) : undefined;
   const fileState = isDir ? undefined : decorations?.files.get(entry.path);
@@ -361,26 +407,42 @@ function TreeItem(props: {
   if (isDir) {
     return (
       <div className="ptree-node" role="treeitem" aria-expanded={open}>
-        <button
-          className="ptree-row"
-          type="button"
-          style={{ paddingLeft: `${8 + depth * 14}px` }}
-          onClick={() => toggleDirectory(directoryKey)}
-          onContextMenu={(event) => actions.openMenu(event, entry.path, "dir")}
-          title={entry.path}
-        >
-          <ChevronRight
-            className={`ptree-chevron${open ? " is-expanded" : ""}`}
+        {/* 目录改名时原地换成输入行，与文件行为一致 */}
+        {isRenaming ? (
+          <InlineNameInput
+            depth={depth}
+            mode="rename"
+            path={entry.path}
+            entryKind="dir"
+            initialName={baseNameOf(entry.path)}
           />
-          <Folder className="ptree-icon" />
-          <span className="ptree-name">{entry.name}</span>
-          {dirState ? <DirectoryStatus state={dirState} /> : null}
-        </button>
+        ) : (
+          <button
+            className="ptree-row"
+            type="button"
+            style={{ paddingLeft: `${8 + depth * 14}px` }}
+            onClick={() => toggleDirectory(directoryKey)}
+            onContextMenu={(event) => actions.openMenu(event, entry.path, "dir")}
+            title={entry.path}
+          >
+            <ChevronRight
+              className={`ptree-chevron${open ? " is-expanded" : ""}`}
+            />
+            <Folder className="ptree-icon" />
+            <span className="ptree-name">{entry.name}</span>
+            {dirState ? <DirectoryStatus state={dirState} /> : null}
+          </button>
+        )}
         {open ? (
           <div className="ptree-children">
             {/* 新建在空目录里也必须看得见，所以输入行要排在"空目录"提示之前 */}
             {isDraftParent ? (
-              <DraftRow depth={depth + 1} parent={entry.path} kind={draft.kind} />
+              <InlineNameInput
+                depth={depth + 1}
+                mode="create"
+                parent={entry.path}
+                entryKind={draft.kind}
+              />
             ) : null}
             {children.length === 0 && !isDraftParent ? (
               <div className="ptree-message">空目录。</div>
@@ -402,6 +464,18 @@ function TreeItem(props: {
           </div>
         ) : null}
       </div>
+    );
+  }
+
+  if (isRenaming) {
+    return (
+      <InlineNameInput
+        depth={depth}
+        mode="rename"
+        path={entry.path}
+        entryKind="file"
+        initialName={baseNameOf(entry.path)}
+      />
     );
   }
 
