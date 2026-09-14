@@ -50,6 +50,7 @@ import type {
   WorkspaceTreeResult,
   WorkspaceFileContent,
   WorkspaceWriteResult,
+  WorkspaceMutationResult,
   DiffFileContents,
 } from "@pi-ling/contracts";
 import { CodexRuntimeAdapter } from "@pi-ling/codex-runtime";
@@ -96,7 +97,13 @@ import { listPiAiModels } from "./llm-model-registry.js";
 import { SessionStore } from "./session-store/session-store.js";
 import { SessionSupervisor } from "./session-supervisor.js";
 import { TerminalSupervisor } from "./terminal-supervisor.js";
-import { buildWorkspaceTree, readFileContent, writeFileContent } from "./workspace-fs.js";
+import {
+  buildWorkspaceTree,
+  createWorkspaceEntry,
+  deleteWorkspaceEntry,
+  readFileContent,
+  writeFileContent,
+} from "./workspace-fs.js";
 import { importFilesToWorkspaceRoot } from "./workspace-upload.js";
 import {
   ensureRuntimeConfig,
@@ -135,6 +142,8 @@ const WORKSPACE_TREE_CHANNEL = "workspace:tree";
 const WORKSPACE_READ_FILE_CHANNEL = "workspace:read-file";
 const WORKSPACE_WRITE_FILE_CHANNEL = "workspace:write-file";
 const WORKSPACE_DIFF_CONTENTS_CHANNEL = "workspace:diff-contents";
+const WORKSPACE_CREATE_ENTRY_CHANNEL = "workspace:create-entry";
+const WORKSPACE_DELETE_ENTRY_CHANNEL = "workspace:delete-entry";
 const SESSIONS_LIST_CHANNEL = "sessions:list";
 const SESSIONS_CREATE_CHANNEL = "sessions:create";
 const SESSIONS_SWITCH_CHANNEL = "sessions:switch";
@@ -810,6 +819,38 @@ ipcMain.handle(
       throw new Error("Invalid file content");
     }
     return writeFileContent(resolvedRoot, subpath.trim(), content);
+  },
+);
+
+ipcMain.handle(
+  WORKSPACE_CREATE_ENTRY_CHANNEL,
+  async (
+    event,
+    root: unknown,
+    parent: unknown,
+    name: unknown,
+    kind: unknown,
+  ): Promise<WorkspaceMutationResult> => {
+    const resolvedRoot = parseWorkspaceRoot(root);
+    if (typeof parent !== "string") throw new Error("Invalid parent path");
+    if (typeof name !== "string") throw new Error("Invalid entry name");
+    if (kind !== "file" && kind !== "dir") throw new Error("Invalid entry kind");
+    return createWorkspaceEntry(resolvedRoot, parent, name, kind);
+  },
+);
+
+ipcMain.handle(
+  WORKSPACE_DELETE_ENTRY_CHANNEL,
+  async (
+    event,
+    root: unknown,
+    subpath: unknown,
+  ): Promise<WorkspaceMutationResult> => {
+    const resolvedRoot = parseWorkspaceRoot(root);
+    if (typeof subpath !== "string" || !subpath.trim()) {
+      throw new Error("Invalid entry path");
+    }
+    return deleteWorkspaceEntry(resolvedRoot, subpath);
   },
 );
 

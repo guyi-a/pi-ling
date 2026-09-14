@@ -1,6 +1,8 @@
 import type { WorkspaceTreeNode as WorkspaceTreeEntry } from "@pi-ling/contracts";
+import { FilePlus, FolderPlus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
+import { baseNameOf, useFileOperations } from "./file-operations";
 import { useGitDecorations } from "./use-git-decorations";
 import { buildTree, WorkspaceTreeList } from "./workspace-tree";
 import {
@@ -116,6 +118,100 @@ export function useWorkspaceTree(root: string) {
   };
 }
 
+/** 顶部工具栏：在根目录新建。 */
+function TreeToolbar(props: { root: string }) {
+  const beginDraft = useFilesStore((state) => state.beginDraft);
+  return (
+    <div className="files-tree-actions">
+      <button
+        type="button"
+        className="files-tree-action"
+        title="新建文件"
+        aria-label="在工作区根目录新建文件"
+        onClick={() => beginDraft("", "file")}
+      >
+        <FilePlus size={13} />
+      </button>
+      <button
+        type="button"
+        className="files-tree-action"
+        title="新建文件夹"
+        aria-label="在工作区根目录新建文件夹"
+        onClick={() => beginDraft("", "dir")}
+      >
+        <FolderPlus size={13} />
+      </button>
+    </div>
+  );
+}
+
+/**
+ * 删除确认条。
+ *
+ * 删除不可撤销，所以不做"点了就删"。用顶部提示条而不是模态框：
+ * 与「未保存改动」的拦截条保持一致，且不会遮挡文件树。
+ */
+function DeleteConfirmBar(props: { root: string }) {
+  const pendingDelete = useFilesStore((state) => state.pendingDelete);
+  const cancelDelete = useFilesStore((state) => state.cancelDelete);
+  const { deleteEntry } = useFileOperations(props.root);
+  const [busy, setBusy] = useState(false);
+
+  if (!pendingDelete) return null;
+  const isDir = pendingDelete.endsWith("/");
+  const name = baseNameOf(pendingDelete);
+
+  return (
+    <div className="files-op-bar" role="alert">
+      <span className="files-op-text" title={pendingDelete}>
+        删除{isDir ? "文件夹" : "文件"} <strong>{name}</strong>
+        {isDir ? " 及其全部内容" : ""}？
+      </span>
+      <div className="files-op-actions">
+        <button
+          type="button"
+          className="files-op-danger"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            void deleteEntry(pendingDelete).finally(() => {
+              setBusy(false);
+              cancelDelete();
+            });
+          }}
+        >
+          删除
+        </button>
+        <button type="button" className="files-op-cancel" onClick={cancelDelete}>
+          取消
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function TreeErrorBar() {
+  const treeError = useFilesStore((state) => state.treeError);
+  const setTreeError = useFilesStore((state) => state.setTreeError);
+  if (!treeError) return null;
+  return (
+    <div className="files-op-bar is-error" role="alert">
+      <span className="files-op-text" title={treeError}>
+        {treeError}
+      </span>
+      <div className="files-op-actions">
+        <button
+          type="button"
+          className="files-op-cancel"
+          onClick={() => setTreeError(null)}
+        >
+          关闭
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function WorkspaceTree(props: { root: string }) {
   const { roots, loading, rootName, truncated, error } = useWorkspaceTree(
     props.root,
@@ -135,7 +231,10 @@ export function WorkspaceTree(props: { root: string }) {
         <span className="files-tree-root-label" title={rootName}>
           {rootName}
         </span>
+        <TreeToolbar root={props.root} />
       </div>
+      <DeleteConfirmBar root={props.root} />
+      <TreeErrorBar />
       {roots.length === 0 ? (
         <div className="files-tree-message">空目录。</div>
       ) : (

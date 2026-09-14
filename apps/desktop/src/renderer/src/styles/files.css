@@ -64,9 +64,174 @@
 
 .files-tree-root-label {
   min-width: 0;
+  flex: 1 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 根目录工具栏：在根目录新建文件 / 文件夹 */
+.files-tree-actions {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.files-tree-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  color: var(--muted-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+}
+
+.files-tree-action:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+/* ---------- 新建 / 删除的操作条 ---------- */
+
+.files-op-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--warning-tint);
+}
+
+.files-op-bar.is-error {
+  background: var(--danger-tint);
+}
+
+.files-op-text {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--text-soft);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.files-op-bar.is-error .files-op-text {
+  color: var(--danger);
+}
+
+.files-op-text strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.files-op-actions {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.files-op-actions button {
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.files-op-actions button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.files-op-danger {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 32%, transparent) !important;
+}
+
+.files-op-danger:hover:not(:disabled) {
+  background: var(--danger-tint);
+}
+
+.files-op-cancel {
+  color: var(--muted);
+}
+
+.files-op-cancel:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+/* ---------- 行内命名输入 ---------- */
+
+.ptree-draft {
+  cursor: default;
+}
+
+.ptree-draft-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 1px 4px;
+  color: var(--text);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg);
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.ptree-draft-input:focus {
+  outline: none;
+}
+
+/* ---------- 右键菜单 ---------- */
+
+.ptree-menu {
+  position: fixed;
+  z-index: 40;
+  min-width: 152px;
+  padding: 3px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--menu-bg);
+  box-shadow: 0 8px 26px var(--shadow);
+}
+
+.ptree-menu button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  color: var(--text-soft);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+}
+
+.ptree-menu button:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.ptree-menu button.is-danger:hover {
+  color: var(--danger);
+  background: var(--danger-tint);
+}
+
+.ptree-menu-sep {
+  height: 1px;
+  margin: 3px 4px;
+  background: var(--border);
 }
 
 .files-tree-message {

@@ -1,9 +1,10 @@
-import { readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type {
   WorkspaceFileContent,
   WorkspaceFileKind,
+  WorkspaceMutationResult,
   WorkspaceTreeNode,
   WorkspaceTreeResult,
   WorkspaceWriteResult,
@@ -349,6 +350,126 @@ export async function readTextForDiff(
 
 /** diff 双侧内容的大小上限；超过则不做高亮渲染，回退 patch。 */
 export const MAX_DIFF_TEXT_BYTES = 2 * 1024 * 1024;
+
+/**
+ * 校验单段名称是否可用作文件/目录名。
+ *
+ * 除了空值与路径分隔符，还要挡住 Windows 的保留字符与保留设备名 ——
+ * 在 Windows 上建一个叫 `nul` 的文件会静默失败或以诡异方式成功。
+ */
+function validateEntryName(name: string): string | undefined {
+  const trimmed = name.trim();
+  if (!trimmed) return "名称不能为空";
+  if (trimmed === "." || trimmed === "..") return "名称无效";
+  if (/[/\\]/.test(trimmed)) return "名称不能包含路径分隔符";
+  // eslint-disable-next-line no-control-regex
+  if (/[<>:"|?*\u0000-\u001f]/.test(trimmed)) return "名称包含非法字符";
+  if (/^(con|prn|aux|nul|com\d|lpt\d)$/i.test(trimmed)) {
+    return "名称是系统保留名";
+  }
+  // 尾部句点必须拒绝：Windows 创建文件时会静默去掉它，导致"建了却找不到"
+  if (trimmed.endsWith(".")) return "名称不能以点结尾";
+  return undefined;
+}
+
+/** 把失败原因统一成 `{ ok: false }`，调用方是 UI，不需要异常。 */
+function fail(error: unknown): WorkspaceMutationResult {
+  return {
+    ok: false,
+    message: error instanceof Error ? error.message : String(error),
+  };
+}
+
+/**
+ * 在工作区内新建文件或目录。
+ *
+ * `parent` 是相对工作区的目录路径（可带可不带结尾 "/"），`name` 是单段名称。
+ * 已存在同名项时返回失败而非覆盖 —— 走 `wx` / 非递归 `mkdir` 的原子语义，
+ * 避免"先查后写"之间的竞态把用户已有文件清空。
+ */
+export async function createWorkspaceEntry(
+  root: string,
+  parent: string,
+  name: string,
+  kind: "file" | "dir",
+): Promise<WorkspaceMutationResult> {
+  const nameError = validateEntryName(name);
+  if (nameError) return { ok: false, message: nameError };
+  const trimmedName = name.trim();
+
+  const parentSubpath = parent.trim().replace(/\/+$/, "");
+  let parentDir: string;
+  let target: string;
+  try {
+    parentDir =
+      parentSubpath === ""
+        ? path.resolve(root)
+        : resolveWorkspacePath(root, parentSubpath);
+    target = path.join(parentDir, trimmedName);
+    // 复用同一套越界校验：确保拼出来的目标仍在工作区内
+    resolveWorkspacePath(root, path.relative(path.resolve(root), target));
+  } catch (error) {
+    return fail(error);
+  }
+
+  try {
+    const stats = await stat(parentDir);
+    if (!stats.isDirectory()) return { ok: false, message: "父路径不是目录" };
+  } catch {
+    return { ok: false, message: "父目录不存在" };
+  }
+
+  const isDir = kind === "dir";
+  try {
+    if (isDir) {
+      // 非递归 mkdir：目录已存在时会抛 EEXIST，正好当作"重名"处理
+      await mkdir(target);
+    } else {
+      // wx：已存在则失败，绝不覆盖
+      await writeFile(target, "", { encoding: "utf8", flag: "wx" });
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+      return { ok: false, message: `已存在同名${isDir ? "目录" : "文件"}` };
+    }
+    return fail(error);
+  }
+  return { ok: true };
+}
+
+/**
+ * 删除工作区内的文件或目录（目录递归）。
+ *
+ * 两道保护：拒绝删除工作区根目录，拒绝删除顶层 `.git`。两者都不可恢复
+ * （`.git` 没了等于丢掉整个仓库历史），宁可让用户去终端手动做。
+ */
+export async function deleteWorkspaceEntry(
+  root: string,
+  subpath: string,
+): Promise<WorkspaceMutationResult> {
+  const trimmed = subpath.trim().replace(/\/+$/, "");
+  if (!trimmed) return { ok: false, message: "不能删除工作区根目录" };
+  if (trimmed === ".git" || trimmed.startsWith(".git/")) {
+    return { ok: false, message: "拒绝删除 .git 目录" };
+  }
+
+  let target: string;
+  try {
+    target = resolveWorkspacePath(root, trimmed);
+  } catch (error) {
+    return fail(error);
+  }
+  if (target === path.resolve(root)) {
+    return { ok: false, message: "不能删除工作区根目录" };
+  }
+
+  try {
+    await rm(target, { recursive: true, force: true });
+  } catch (error) {
+    return fail(error);
+  }
+  return { ok: true };
+}
 
 const MIME_BY_EXT: Record<string, string> = {
   ".pdf": "application/pdf",

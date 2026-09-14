@@ -16,6 +16,8 @@ export const IPC_CHANNELS = {
   workspaceReadFile: "workspace:read-file",
   workspaceWriteFile: "workspace:write-file",
   workspaceDiffContents: "workspace:diff-contents",
+  workspaceCreateEntry: "workspace:create-entry",
+  workspaceDeleteEntry: "workspace:delete-entry",
   sessionsList: "sessions:list",
   sessionsCreate: "sessions:create",
   sessionsSwitch: "sessions:switch",
@@ -498,6 +500,11 @@ export type WorkspaceWriteResult =
   | { ok: true; size: number }
   | { ok: false; message: string };
 
+/** 新建 / 删除这类结构性操作的结果。 */
+export type WorkspaceMutationResult =
+  | { ok: true }
+  | { ok: false; message: string };
+
 /**
  * diff 审阅用的双侧内容。
  *
@@ -945,6 +952,27 @@ export interface DesktopApi {
     subpath: string,
     content: string,
   ): Promise<WorkspaceWriteResult>;
+  /**
+   * 在工作区内新建文件或目录（Files 面板的右键菜单）。
+   *
+   * `parent` 是相对路径（目录以 "/" 结尾），`name` 是单段名称；
+   * 已存在同名项时返回失败而不是覆盖。
+   */
+  createEntry(
+    root: string,
+    parent: string,
+    name: string,
+    kind: "file" | "dir",
+  ): Promise<WorkspaceMutationResult>;
+  /**
+   * 删除工作区内的文件或目录（目录递归删除）。
+   *
+   * 拒绝删除工作区根目录与 `.git`，避免误操作毁掉仓库。
+   */
+  deleteEntry(
+    root: string,
+    subpath: string,
+  ): Promise<WorkspaceMutationResult>;
   /**
    * 取 diff 的双侧内容，供 MergeView 做语法高亮渲染。
    * 二进制 / 敏感 / 超大文件返回 undefined，调用方回退到 patch 渲染。

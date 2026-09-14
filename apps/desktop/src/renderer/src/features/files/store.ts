@@ -25,6 +25,15 @@ interface FilesState {
   pendingPath: string | null;
   /** 被拦下的「关闭预览」请求。 */
   pendingClose: boolean;
+  /**
+   * 正在新建的条目（Files 树的行内命名输入）。
+   * `parent` 是目标父目录路径（工作区根用 ""），树据此决定在哪个层级渲染输入行。
+   */
+  draft: { parent: string; kind: "file" | "dir" } | null;
+  /** 正在等待确认删除的路径（目录以 "/" 结尾）。 */
+  pendingDelete: string | null;
+  /** 文件操作的失败原因，展示在树顶部。 */
+  treeError: string | null;
 
   openFile: (path: string, line?: number) => void;
   /**
@@ -41,9 +50,16 @@ interface FilesState {
   cancelPending: () => void;
   resetForRoot: () => void;
   toggleDirectory: (key: string) => void;
+  /** 幂等展开：新建后要把父目录展开才看得见新条目。 */
+  expandDirectory: (key: string) => void;
   toggleSwitcher: () => void;
   closeSwitcher: () => void;
   refreshTree: () => void;
+  beginDraft: (parent: string, kind: "file" | "dir") => void;
+  cancelDraft: () => void;
+  beginDelete: (path: string) => void;
+  cancelDelete: () => void;
+  setTreeError: (message: string | null) => void;
 }
 
 const REFRESH_THROTTLE_MS = 600;
@@ -67,6 +83,9 @@ export const useFilesStore = create<FilesState>()(
       dirty: false,
       pendingPath: null,
       pendingClose: false,
+      draft: null,
+      pendingDelete: null,
+      treeError: null,
 
       openFile: (path, line) => {
         activateFilesTab?.();
@@ -77,6 +96,8 @@ export const useFilesStore = create<FilesState>()(
           dirty: false,
           pendingPath: null,
           pendingClose: false,
+          draft: null,
+          pendingDelete: null,
         });
       },
 
@@ -135,6 +156,9 @@ export const useFilesStore = create<FilesState>()(
           dirty: false,
           pendingPath: null,
           pendingClose: false,
+          draft: null,
+          pendingDelete: null,
+          treeError: null,
           filesVersion: state.filesVersion + 1,
           treeEpoch: state.treeEpoch + 1,
         })),
@@ -149,6 +173,25 @@ export const useFilesStore = create<FilesState>()(
           }
           return { expandedDirectories };
         }),
+
+      expandDirectory: (key) =>
+        set((state) =>
+          state.expandedDirectories[key]
+            ? state
+            : { expandedDirectories: { ...state.expandedDirectories, [key]: true } },
+        ),
+
+      beginDraft: (parent, kind) =>
+        set({ draft: { parent, kind }, pendingDelete: null, treeError: null }),
+
+      cancelDraft: () => set({ draft: null }),
+
+      beginDelete: (path) =>
+        set({ pendingDelete: path, draft: null, treeError: null }),
+
+      cancelDelete: () => set({ pendingDelete: null }),
+
+      setTreeError: (message) => set({ treeError: message }),
 
       toggleSwitcher: () =>
         set((state) => ({ switcherOpen: !state.switcherOpen })),

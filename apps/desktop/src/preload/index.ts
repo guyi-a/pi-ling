@@ -51,6 +51,8 @@ const WORKSPACE_TREE_CHANNEL = "workspace:tree";
 const WORKSPACE_READ_FILE_CHANNEL = "workspace:read-file";
 const WORKSPACE_WRITE_FILE_CHANNEL = "workspace:write-file";
 const WORKSPACE_DIFF_CONTENTS_CHANNEL = "workspace:diff-contents";
+const WORKSPACE_CREATE_ENTRY_CHANNEL = "workspace:create-entry";
+const WORKSPACE_DELETE_ENTRY_CHANNEL = "workspace:delete-entry";
 const SESSIONS_LIST_CHANNEL = "sessions:list";
 const SESSIONS_CREATE_CHANNEL = "sessions:create";
 const SESSIONS_SWITCH_CHANNEL = "sessions:switch";
@@ -128,6 +130,15 @@ const desktopApi: DesktopApi = {
     ipcRenderer.invoke(WORKSPACE_READ_FILE_CHANNEL, root, subpath),
   writeFile: (root: string, subpath: string, content: string) =>
     ipcRenderer.invoke(WORKSPACE_WRITE_FILE_CHANNEL, root, subpath, content),
+  createEntry: (
+    root: string,
+    parent: string,
+    name: string,
+    kind: "file" | "dir",
+  ) =>
+    ipcRenderer.invoke(WORKSPACE_CREATE_ENTRY_CHANNEL, root, parent, name, kind),
+  deleteEntry: (root: string, subpath: string) =>
+    ipcRenderer.invoke(WORKSPACE_DELETE_ENTRY_CHANNEL, root, subpath),
   getDiffFileContents: (path: string, source?: ChangesSource) =>
     ipcRenderer.invoke(WORKSPACE_DIFF_CONTENTS_CHANNEL, path, source),
   getTimelineSnapshot: (sessionId?: string) =>
