@@ -10,7 +10,7 @@ import type {
   WorkspaceWriteResult,
 } from "@pi-ling/contracts";
 
-const MAX_TREE_ENTRIES = 20_000;
+const MAX_TREE_ENTRIES = 50_000;
 const MAX_FILE_BYTES = 512 * 1024;
 const BINARY_SNIFF_LEN = 512;
 
@@ -52,11 +52,39 @@ function shouldPruneWorkspaceTreeDir(name: string): boolean {
   }
 }
 
-function shouldSkipHiddenEntry(name: string, isDir: boolean): boolean {
-  if (!name.startsWith(".")) return false;
-  if (isDir) return true;
-  if (name === ".env" || name.startsWith(".env.")) return false;
-  return true;
+/*
+ * 点开头的条目现在是**显示**的（.env / .gitignore / .github / .vscode 这些都该看见）。
+ * 但下面三类必须继续排除，否则它们会占满条目上限、把真正的源码挤出去 ——
+ * 以前这些是靠「跳过所有点开头目录」顺带排除的，所以现在要显式列出来。
+ */
+
+/** 版本库内部结构：成千上万个对象文件，永远不会有人去读。 */
+const PRUNED_VCS_DIRECTORIES: ReadonlySet<string> = new Set([
+  ".git",
+  ".svn",
+  ".hg",
+  ".bzr",
+]);
+
+/**
+ * 已下载的第三方源码缓存，性质等同于 `vendor/`（已在剪枝列表里），不是本仓库源码。
+ *
+ * 本仓库的 `.dsh-source` 目前是一个**目录联接**，已被上面的符号链接检查挡掉；
+ * 这条保留是防御性的 —— 万一它变成真实目录，那就是 7 万个文件，
+ * 只它一个就能吃掉整个条目上限。
+ */
+const PRUNED_VENDOR_DOT_DIRECTORIES: ReadonlySet<string> = new Set([
+  ".dsh-source",
+]);
+
+/** 系统生成的元数据文件，没有任何阅读价值。 */
+const PRUNED_META_FILES: ReadonlySet<string> = new Set([".DS_Store"]);
+
+function shouldPruneDotDirectory(name: string): boolean {
+  return (
+    PRUNED_VCS_DIRECTORIES.has(name) ||
+    PRUNED_VENDOR_DOT_DIRECTORIES.has(name)
+  );
 }
 
 function classifyFileName(name: string): WorkspaceFileKind {
@@ -131,14 +159,21 @@ export async function buildWorkspaceTree(
     for (const dirent of dirents) {
       if (truncated) return;
       const name = dirent.name;
+      if (PRUNED_META_FILES.has(name)) continue;
+      /*
+       * 跳过符号链接 / 目录联接（junction）。
+       *
+       * 两个原因：
+       * 1. `dirent.isDirectory()` 对链接返回 false，于是它会被当成**文件**加进树 ——
+       *    点开却报 "Not a file"，是个明显的坏条目。
+       * 2. 即使能识别出它指向目录，也不该递归：链接可能成环，或指向工作区之外
+       *    （本仓库的 `.dsh-source` 就是指向 `E:\deepseek-harness-*` 的 junction），
+       *    而文件树同时也是 Agent 访问文件的入口，越界不受欢迎。
+       */
+      if (dirent.isSymbolicLink()) continue;
       const isDir = dirent.isDirectory();
-      if (shouldSkipHiddenEntry(name, isDir)) {
-        if (isDir) continue;
-        continue;
-      }
-      if (isDir && shouldPruneWorkspaceTreeDir(name)) {
-        continue;
-      }
+      if (isDir && shouldPruneWorkspaceTreeDir(name)) continue;
+      if (isDir && shouldPruneDotDirectory(name)) continue;
       const abs = path.join(dir, name);
       const relative = toPosix(path.relative(base, abs));
       const entry: WorkspaceTreeNode = {
