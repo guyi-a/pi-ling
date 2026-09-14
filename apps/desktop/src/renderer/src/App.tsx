@@ -371,14 +371,15 @@ export function App() {
       );
       return;
     }
-    setChangesLoading(true);
-    setChangesFiles([]);
-    void window.piLing
-      .getChanges(resolved)
-      .then(setChangesFiles)
-      .finally(() => {
-        setChangesLoading(false);
-      });
+    /*
+     * 后台刷新：**保留现有内容**，不清空、不进 loading 遮罩。
+     *
+     * 这个函数由 agent 事件（run_end / changes / 影响文件的 tool_end）防抖触发，
+     * 输出期间会反复调用。若在这里清空列表，整个面板会闪成「正在加载变更…」，
+     * 而且所有 FileSection 会卸载重挂载、把每个文件的 diff 重新取一遍 ——
+     * 观感就是持续闪烁。实测：清空方案在 t=60ms 时 sections=0、loading=1。
+     */
+    void window.piLing.getChanges(resolved).then(setChangesFiles);
   }, [reviewRunId, syncLastAgentTurnChanges, timeline.items]);
 
   const debouncedRefreshChangesRef = useRef<(() => void) | null>(null);
@@ -394,19 +395,23 @@ export function App() {
     })();
   }
 
+  /*
+   * ① 来源切换：清空并重取。
+   *
+   * 这是**用户主动操作**（点 Source 下拉），短暂 loading 可以接受，而且清空是
+   * 语义正确的 —— 上一个来源的文件不该留在屏幕上。
+   *
+   * 依赖里**只能有 changesSource**。原先把 timeline.items / lastTurnChanges /
+   * reviewRunId 也放进来了，但这一分支根本不用它们 —— 结果是 agent 输出期间
+   * 每个流事件都会重跑本 effect，把面板闪成空白（这是「发消息就闪一下」的根因）。
+   * last-agent-turn 的同步见下面的 ②。
+   */
   useEffect(() => {
-    if (changesSource === "last-agent-turn") {
-      syncLastAgentTurnChanges(
-        reviewRunId
-          ? changesFilesByRunId(timeline.items, reviewRunId)
-          : lastTurnChanges,
-      );
-      return;
-    }
+    if (changesSource === "last-agent-turn") return;
     let cancelled = false;
+    setChangesLoading(true);
+    setChangesFiles([]);
     const timer = window.setTimeout(() => {
-      setChangesLoading(true);
-      setChangesFiles([]);
       void window.piLing
         .getChanges(changesSource)
         .then((files) => {
@@ -420,7 +425,26 @@ export function App() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [changesSource, lastTurnChanges, reviewRunId, syncLastAgentTurnChanges, timeline.items]);
+  }, [changesSource]);
+
+  /*
+   * ② last-agent-turn：数据由 timeline 推导，所以这里**必须**跟着 items 变。
+   * 提前 return 保证其它来源不会因此被牵连重取。
+   */
+  useEffect(() => {
+    if (changesSource !== "last-agent-turn") return;
+    syncLastAgentTurnChanges(
+      reviewRunId
+        ? changesFilesByRunId(timeline.items, reviewRunId)
+        : lastTurnChanges,
+    );
+  }, [
+    changesSource,
+    lastTurnChanges,
+    reviewRunId,
+    syncLastAgentTurnChanges,
+    timeline.items,
+  ]);
 
   const displayedChangesFiles = useMemo(() => {
     if (changesSource !== "last-agent-turn") return changesFiles;

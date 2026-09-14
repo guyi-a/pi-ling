@@ -33,6 +33,14 @@ export function ChangesView(props: {
   const collapseByDefault = files.length > AUTO_COLLAPSE_FILE_COUNT;
   const [layout, setLayout] = useState<DiffLayout>("split");
   const canUseMergeView = Boolean(getDiffContents);
+  /*
+   * 只有「还没有任何内容可展示」时才用 loading 遮住面板。
+   *
+   * 后台刷新（agent 事件防抖触发）期间必须保留旧内容：一旦用 `loading` 无条件
+   * 遮罩，面板会闪成「正在加载变更…」，且所有 FileSection 卸载重挂载、把每个
+   * 文件的 diff 重新取一遍。实测清空方案在 t=60ms 时 sections=0、loading=1。
+   */
+  const showLoadingState = Boolean(loading) && files.length === 0;
 
   return (
     <aside className="changes-panel" aria-label="Changes">
@@ -65,7 +73,7 @@ export function ChangesView(props: {
         ) : null}
       </div>
 
-      {loading ? (
+      {showLoadingState ? (
         <div className="changes-empty">
           <span className="changes-empty-mark">{currentDef.label.slice(0, 1)}</span>
           <strong>{currentDef.label}</strong>
@@ -118,13 +126,20 @@ function FileSection(props: {
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const skipDiff = file.sensitive || file.binary || file.tooLarge;
 
+  /*
+   * 只在**换文件**时清空已加载的 diff。
+   *
+   * 原先依赖里还有 `defaultCollapsed`，而它是「文件数 > 6」推导出来的 —— agent
+   * 输出期间文件数在阈值附近波动时，所有 FileSection 会被反复清空重载。
+   * 折叠状态属于「默认值」，只应在挂载时生效（key=file.path 变化会重挂载），
+   * 不该在用户已经展开查看时把它收起来。
+   */
   useEffect(() => {
-    setCollapsed(defaultCollapsed);
     setDiff(undefined);
     setContents(undefined);
     setError(null);
     setShouldLoad(false);
-  }, [defaultCollapsed, file.path]);
+  }, [file.path]);
 
   useEffect(() => {
     if (collapsed || skipDiff) {
