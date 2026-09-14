@@ -980,6 +980,7 @@ export function App() {
                   onLoadDiff={loadDiff}
                   onLoadDiffContents={loadDiffContents}
                   filesRoot={workspaceRoot}
+                  filesSessionId={timeline.sessionId ?? undefined}
                   terminalRoot={workspaceRoot}
                   traceSessionId={timeline.sessionId}
                   traceEvents={traceEvents}

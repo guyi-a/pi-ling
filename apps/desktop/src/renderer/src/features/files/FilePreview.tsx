@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { WorkspaceFileContent } from "@pi-ling/contracts";
 
-import { CodeEditor, type CodeEditorHandle } from "./CodeEditor";
+import { AddToChatButton } from "../chat/AddToChatButton";
+import { SelectionToolbar } from "../chat/SelectionToolbar";
+import { useComposerContextStore } from "../chat/composer-context-store";
+import { capSnippetText, formatFileSource } from "../chat/selection-context";
+import { CodeEditor, type CodeEditorHandle, type EditorSelection } from "./CodeEditor";
 import { pickFileView, resolveFileViews, type FileViewMode } from "./file-views";
 import { FileSwitcherOverlay } from "./FileSwitcherOverlay";
 import { DocxPreview } from "./renderers/DocxPreview";
@@ -97,7 +101,7 @@ function ViewToggle(props: {
   );
 }
 
-export function FilePreview(props: { root: string; path: string }) {
+export function FilePreview(props: { root: string; path: string; sessionId?: string }) {
   const closePreview = useFilesStore((state) => state.closePreview);
   const requestClosePreview = useFilesStore(
     (state) => state.requestClosePreview,
@@ -118,6 +122,18 @@ export function FilePreview(props: { root: string; path: string }) {
   const pathButtonRef = useRef<HTMLButtonElement>(null);
   const loadedPathRef = useRef<string | null>(null);
   const editorRef = useRef<CodeEditorHandle | null>(null);
+  const previewRef = useRef<HTMLDivElement | null>(null);
+  // 元素本身进 state：选区工具栏的 effect 依赖它，容器就绪后才会绑上监听
+  const [previewEl, setPreviewEl] = useState<HTMLDivElement | null>(null);
+  const attachPreview = useCallback((node: HTMLDivElement | null) => {
+    previewRef.current = node;
+    setPreviewEl(node);
+  }, []);
+  const [editorSelection, setEditorSelection] = useState<EditorSelection | null>(
+    null,
+  );
+  const addSnippet = useComposerContextStore((state) => state.add);
+  const sessionId = props.sessionId ?? "draft";
   const inlineKind = detectInlineKind(props.path);
   const [file, setFile] = useState<WorkspaceFileContent | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -162,6 +178,27 @@ export function FilePreview(props: { root: string; path: string }) {
   }, [closePreview, inlineKind, props.path, props.root]);
 
   const name = basename(props.path);
+  // `file` 可能是 missing/error 变体（没有 path 字段），回退到 props.path
+  const sourcePath = file && "path" in file ? file.path : props.path;
+
+  // 换文件时清掉上一个文件残留的编辑器选区，否则按钮会留在原地
+  useEffect(() => {
+    setEditorSelection(null);
+  }, [props.path]);
+
+  /**
+   * 滚动时收起编辑器选区按钮。
+   *
+   * `coordsAtPos` 给的是**视口坐标**，滚动后锚点就失效了，按钮会停在错误的
+   * 位置。CodeMirror 的滚动不触发 state 更新，所以只能自己监听 scroll。
+   */
+  useEffect(() => {
+    const node = previewEl;
+    if (!node) return;
+    const onScroll = () => setEditorSelection(null);
+    node.addEventListener("scroll", onScroll, true);
+    return () => node.removeEventListener("scroll", onScroll, true);
+  }, [previewEl]);
 
   // 只有 text / markdown 才有视图切换；missing 与 error 没有 path 字段
   const views =
@@ -282,7 +319,7 @@ export function FilePreview(props: { root: string; path: string }) {
         ) : null}
       </div>
 
-      <div className="files-preview">
+      <div className="files-preview" ref={attachPreview}>
         {inlineKind === "pdf" ? (
           <PdfPreview root={props.root} path={props.path} />
         ) : null}
@@ -341,6 +378,7 @@ export function FilePreview(props: { root: string; path: string }) {
                   highlightLine={previewLine}
                   onChange={() => setDirty(true)}
                   onSave={() => void handleSave()}
+                  onSelectionChange={setEditorSelection}
                   handleRef={editorRef}
                 />
               </>
@@ -371,6 +409,42 @@ export function FilePreview(props: { root: string; path: string }) {
           </>
         ) : null}
       </div>
+
+      {/*
+        「加入对话」——两条路径的选区机制不同，所以两个入口：
+        - Markdown 预览走 DOM Selection（与对话记录同一套）
+        - 代码编辑器走 CodeMirror 自己的选区模型，由 onSelectionChange 上报
+        来源标签统一带上文件路径，编辑器还带行号区间 —— Agent 据此能直接
+        重读该文件的最新内容，比粘贴的文本副本更可靠。
+      */}
+      {props.sessionId ? (
+        <SelectionToolbar
+          container={previewEl}
+          sessionId={sessionId}
+          source={() => ({ kind: "file", label: sourcePath })}
+        />
+      ) : null}
+      {editorSelection && props.sessionId ? (
+        <AddToChatButton
+          anchor={editorSelection.anchor}
+          title={editorSelection.text.slice(0, 200)}
+          onAdd={() => {
+            const capped = capSnippetText(editorSelection.text);
+            addSnippet(sessionId, {
+              text: capped.text,
+              source: {
+                kind: "file",
+                label: formatFileSource(
+                  sourcePath,
+                  editorSelection.startLine,
+                  editorSelection.endLine,
+                ),
+              },
+            });
+            setEditorSelection(null);
+          }}
+        />
+      ) : null}
 
       {saveError ? (
         <div className="files-preview-truncated">保存失败：{saveError}</div>

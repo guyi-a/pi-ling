@@ -379,6 +379,11 @@
 
 /* ---------- 选中文本「加入对话」 ---------- */
 
+/* 按钮宿主：按钮本身是 fixed 定位，宿主不能影响布局 */
+.add-to-chat-host {
+  display: contents;
+}
+
 /* 浮动按钮：fixed 定位，坐标由 placeToolbar() 算出。z-index 高于消息内容、
    低于右键菜单（40），避免盖住菜单。 */
 .selection-add-to-chat {

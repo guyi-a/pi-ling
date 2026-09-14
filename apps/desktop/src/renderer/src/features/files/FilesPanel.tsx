@@ -2,7 +2,7 @@ import { FilePreview } from "./FilePreview";
 import { useFilesStore } from "./store";
 import { WorkspaceTree } from "./WorkspaceTree";
 
-export function FilesPanel(props: { root?: string | undefined }) {
+export function FilesPanel(props: { root?: string | undefined; sessionId?: string }) {
   const previewPath = useFilesStore((state) => state.previewPath);
 
   if (!props.root) {
@@ -17,7 +17,11 @@ export function FilesPanel(props: { root?: string | undefined }) {
   return (
     <aside className="files-view" aria-label="Files">
       {previewPath ? (
-        <FilePreview root={props.root} path={previewPath} />
+        <FilePreview
+          root={props.root}
+          path={previewPath}
+          {...(props.sessionId ? { sessionId: props.sessionId } : {})}
+        />
       ) : (
         <WorkspaceTree root={props.root} />
       )}

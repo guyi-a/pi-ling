@@ -55,6 +55,40 @@ export interface CodeEditorHandle {
   focus(): void;
 }
 
+/** 编辑器的选区快照。`anchor` 是视口坐标，用于摆放浮动按钮。 */
+export interface EditorSelection {
+  text: string;
+  startLine: number;
+  endLine: number;
+  anchor: { left: number; top: number; right: number; bottom: number };
+}
+
+/**
+ * 读取当前选区。
+ *
+ * 用 `coordsAtPos` 而不是 DOM 的 `getBoundingClientRect`：CodeMirror 有虚拟滚动，
+ * 只有它自己知道某个文档位置对应屏幕上的哪个点。取选区**终点**的坐标作为锚点，
+ * 拖选到哪儿按钮就跟到哪儿。
+ */
+function computeEditorSelection(view: EditorView): EditorSelection | null {
+  const range = view.state.selection.main;
+  if (range.empty) return null;
+  const text = view.state.sliceDoc(range.from, range.to);
+  // 纯空白选区没有引用价值，静默忽略（例如整行 Tab 缩进）
+  if (!text.trim()) return null;
+
+  const start = view.coordsAtPos(range.from);
+  const end = view.coordsAtPos(range.to, 1) ?? start;
+  if (!start || !end) return null;
+
+  return {
+    text,
+    startLine: view.state.doc.lineAt(range.from).number,
+    endLine: view.state.doc.lineAt(range.to).number,
+    anchor: { left: end.left, top: end.top, right: end.right, bottom: end.bottom },
+  };
+}
+
 export function CodeEditor(props: {
   /** 文件路径，用于语言判定与「换文件时重建」。 */
   path: string;
@@ -65,6 +99,8 @@ export function CodeEditor(props: {
   highlightLine?: number | null;
   onChange?: (value: string) => void;
   onSave?: () => void;
+  /** 选区变化时回调；无有效选区（收起 / 全空白）时为 null。 */
+  onSelectionChange?: (selection: EditorSelection | null) => void;
   handleRef?: { current: CodeEditorHandle | null };
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -77,6 +113,8 @@ export function CodeEditor(props: {
   onChangeRef.current = props.onChange;
   const onSaveRef = useRef(props.onSave);
   onSaveRef.current = props.onSave;
+  const onSelectionRef = useRef(props.onSelectionChange);
+  onSelectionRef.current = props.onSelectionChange;
 
   useEffect(() => {
     const host = hostRef.current;
@@ -86,8 +124,12 @@ export function CodeEditor(props: {
     const languageCompartment = languageCompartmentRef.current;
 
     const updateListener = EditorView.updateListener.of((update) => {
-      if (!update.docChanged) return;
-      onChangeRef.current?.(update.state.doc.toString());
+      if (update.docChanged) {
+        onChangeRef.current?.(update.state.doc.toString());
+      }
+      if (update.selectionSet || update.docChanged) {
+        onSelectionRef.current?.(computeEditorSelection(update.view));
+      }
     });
 
     const saveKeymap = keymap.of([

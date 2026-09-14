@@ -44,7 +44,10 @@ import {
   toContextSnippets,
   useComposerContextStore,
 } from "./composer-context-store";
-import { composePromptWithContext } from "./selection-context";
+import {
+  chatSource,
+  composePromptWithContext,
+} from "./selection-context";
 import {
   saveImageFiles,
   toPromptAttachments,
@@ -157,6 +160,12 @@ export function ChatView(props: {
   const { entries: workspaceEntries } = useWorkspaceTree(workspaceRoot ?? "");
   const scrollRef = useRef<HTMLDivElement>(null);
   const messageAreaRef = useRef<HTMLDivElement>(null);
+  // 元素本身进 state，选区工具栏才能在容器就绪后绑上监听
+  const [messageAreaEl, setMessageAreaEl] = useState<HTMLDivElement | null>(null);
+  const attachMessageArea = useCallback((node: HTMLDivElement | null) => {
+    messageAreaRef.current = node;
+    setMessageAreaEl(node);
+  }, []);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const mention = useComposerFileMention({
     enabled: Boolean(workspaceRoot),
@@ -433,7 +442,7 @@ export function ChatView(props: {
   return (
     <section className="content" aria-label="会话">
       <div className="chat-column">
-      <div className="message-list-area" ref={messageAreaRef}>
+      <div className="message-list-area" ref={attachMessageArea}>
         <div
           className={`message-list${composerOverlay ? " has-composer-overlay" : ""}`}
           ref={scrollRef}
@@ -458,8 +467,9 @@ export function ChatView(props: {
           </button>
         ) : null}
         <SelectionToolbar
-          containerRef={messageAreaRef}
+          container={messageAreaEl}
           sessionId={attachmentSessionId}
+          source={chatSource}
           onAdded={() => textareaRef.current?.focus()}
         />
       </div>

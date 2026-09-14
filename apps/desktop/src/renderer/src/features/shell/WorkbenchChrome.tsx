@@ -153,6 +153,8 @@ export function WorkbenchPanel(props: {
     | ((path: string) => Promise<DiffFileContents | undefined>)
     | undefined;
   filesRoot?: string | undefined;
+  /** 会话 id：Files 面板的引用片段按会话隔离。 */
+  filesSessionId?: string | undefined;
   terminalRoot?: string | undefined;
   traceSessionId?: string | null;
   traceEvents?: TimelineEnvelope[];
@@ -269,7 +271,10 @@ export function WorkbenchPanel(props: {
       </header>
       <div className="workbench-body" role="tabpanel">
         {activeTab === "files" ? (
-          <FilesPanel {...(props.filesRoot ? { root: props.filesRoot } : {})} />
+          <FilesPanel
+            {...(props.filesRoot ? { root: props.filesRoot } : {})}
+            {...(props.filesSessionId ? { sessionId: props.filesSessionId } : {})}
+          />
         ) : renderChanges ? (
           <ChangesView
             source={props.changesSource!}
