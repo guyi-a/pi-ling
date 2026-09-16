@@ -8,3 +8,10 @@ onlyBuiltDependencies:
   - electron
   - esbuild
   - node-pty
+
+# @electron/rebuild 依赖 @electron/node-gyp，而它被解析成 GitHub 的 git tarball。
+# 本机没有 SSH known_hosts（`~/.ssh` 为空），pnpm 走 git 协议拉取会直接
+# `Host key verification failed`，导致任何 install 都失败。
+# 该包有等价发布版，覆盖到 npm 源即可绕开 git 协议。
+overrides:
+  "@electron/node-gyp": "10.2.0-electron.2"
