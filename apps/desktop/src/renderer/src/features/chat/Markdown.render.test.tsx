@@ -49,4 +49,34 @@ describe("Markdown render output", () => {
     expect(html).toContain("const a = 1");
     expect(html).toContain("const b = 2");
   });
+
+  it("routes a type=renderer fence to the inline renderer, not to a code block", () => {
+    const html = renderToStaticMarkup(
+      <Markdown>{'```html type="renderer"\n<svg><circle r="4"/></svg>\n```'}</Markdown>,
+    );
+    expect(html).toContain("inline-render");
+    // 关键：不能再落到代码块渲染路径上
+    expect(html).not.toContain("code-block-body");
+  });
+
+  it("keeps an ordinary html fence as a highlighted code block", () => {
+    // 这是本方案的核心保证：只有哨兵语言会走内联渲染，
+    // 普通 html 代码示例必须保持原有的语法高亮与容器。
+    const html = renderToStaticMarkup(
+      <Markdown>{"```html\n<div>示例</div>\n```"}</Markdown>,
+    );
+    expect(html).toContain("code-block-body");
+    expect(html).not.toContain("inline-render");
+  });
+
+  it("shows a placeholder instead of half-written markup while streaming", () => {
+    // 流式期间 HTML 不完整，直接渲染会崩，必须走占位
+    const html = renderToStaticMarkup(
+      <Markdown streaming>
+        {'```html type="renderer"\n<svg><circle r='}
+      </Markdown>,
+    );
+    expect(html).toContain("inline-render");
+    expect(html).toContain("图表生成中");
+  });
 });

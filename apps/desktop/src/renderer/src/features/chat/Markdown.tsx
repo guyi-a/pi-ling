@@ -1,5 +1,4 @@
 import { cjk } from "@streamdown/cjk";
-import { createCodePlugin } from "@streamdown/code";
 import { createMathPlugin } from "@streamdown/math";
 import { mermaid } from "@streamdown/mermaid";
 import { memo, useMemo } from "react";
@@ -8,9 +7,12 @@ import { Streamdown } from "streamdown";
 // KaTeX 样式与字体（约 1MB），随 renderer 一起打包
 import "katex/dist/katex.min.css";
 
+import { InlineRendererView } from "./InlineRendererView";
 import { MarkdownCodeBlock } from "./MarkdownCodeBlock";
+import { code } from "./code-highlighter";
 import { externalHrefFromClickTarget } from "./external-link";
 import { tagPlainCodeFenceOpenings } from "./normalize-plain-code-fences";
+import { RENDERER_LANGUAGE, tagRendererCodeFences } from "./renderer-block";
 
 /**
  * 走「纯文本渲染器」的语言。
@@ -41,25 +43,14 @@ const PLAIN_CODE_LANGUAGES = [
 const math = createMathPlugin({ singleDollarTextMath: true });
 
 /**
- * [浅色, 深色]。必须在这里配置，**不能**用 Streamdown 的 `shikiTheme` prop：
- * 内核取值顺序是 `plugin.getThemes() ?? props.shikiTheme`，插件的主题会覆盖
- * prop，传 prop 会被静默忽略。
+ * [浅色, 深色] 的 shiki 主题在共享模块 code-highlighter.ts 里配置
+ * （**不能**用 Streamdown 的 `shikiTheme` prop：内核取值顺序是
+ * `plugin.getThemes() ?? props.shikiTheme`，插件的主题会覆盖 prop，
+ * 传 prop 会被静默忽略）。
  *
- * 用 VS Code 的 `light-plus` / `dark-plus`，与 Cursor 一致。
- *
- * 之前用的是 One Dark Pro / One Light，理由是「它的关键字不是红色」——
- * 红色在本产品里是「错误」的语义色（失败的工具卡片、报错提示），代码块里
- * 满屏红字会和它抢注意力。Dark+ 的关键字是蓝色，同样没有这个问题，
- * 因此这个约束依然成立。
- *
- * 与 Files 面板的 CodeMirror 编辑器（features/files/editor-theme.ts）用的是
- * **同一套色值**（那边是从这两个 shiki 主题里提取的），否则同一个文件在聊天里
- * 引用和在编辑器里打开会长得不一样。
+ * 抽出去是为了让「查看源码」也能复用**同一个** Shiki 实例与同一份主题 ——
+ * 多建一个插件会把语言加载与缓存做两遍。
  */
-const code = createCodePlugin({
-  themes: ["light-plus", "dark-plus"],
-});
-
 export const Markdown = memo(function Markdown(props: {
   children: string;
   streaming?: boolean;
@@ -71,6 +62,12 @@ export const Markdown = memo(function Markdown(props: {
       mermaid,
       cjk,
       renderers: [
+        {
+          // 内联渲染：预处理已把 `type="renderer"` 的围栏改写成这个哨兵语言，
+          // 所以这里只会命中真正要渲染成图的块，普通 html / svg 代码块不受影响。
+          language: [RENDERER_LANGUAGE],
+          component: InlineRendererView,
+        },
         {
           language: [...PLAIN_CODE_LANGUAGES],
           component: MarkdownCodeBlock,
@@ -101,7 +98,7 @@ export const Markdown = memo(function Markdown(props: {
         /* 关掉内置的「Open external link?」确认弹窗：点击直接交给系统浏览器 */
         linkSafety={{ enabled: false }}
       >
-        {tagPlainCodeFenceOpenings(props.children)}
+        {tagPlainCodeFenceOpenings(tagRendererCodeFences(props.children))}
       </Streamdown>
     </div>
   );

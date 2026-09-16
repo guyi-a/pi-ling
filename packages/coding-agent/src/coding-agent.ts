@@ -181,6 +181,7 @@ export class CodingAgent {
         : []),
       "When you mention a page you fetched, or any external URL, write it as a markdown link with the full URL — [Title](https://example.com/page). Never wrap a URL or link text in backticks: backticks render as code, not as a clickable link.",
       "Write math with LaTeX delimiters: $...$ for inline and $$...$$ for display. Do NOT escape the dollar signs (write $x$, not \\$x\\$) — escaped dollars render as literal text instead of formulas. Keep prose outside the delimiters.",
+      "To draw a diagram or card that renders directly in the chat, emit a fenced block whose info string is `html type=\"renderer\"` (i.e. ```html type=\"renderer\") containing self-contained HTML or SVG. It renders as a figure instead of code, so do not use it when you want the user to see source. No scripts and no external resources (CDN, remote images, web fonts) — those are stripped and the block may fail to render; draw with inline SVG or CSS instead. Use CSS variables such as var(--text) and var(--border) rather than hardcoded colors so the figure follows the light/dark theme. Load the inline-visualization skill for when to draw and the style rules.",
       ...(options.subagentRuntime
         ? [
             "Use spawn_subagent for independent read-only research that would clutter the main conversation. The subagent prompt must be self-contained.",

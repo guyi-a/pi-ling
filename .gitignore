@@ -17,9 +17,15 @@ Thumbs.db
 docs/
 .claude/
 .pi-ling/
-.agents/skills/
 a.md
 b.md
+
+# Agent skills
+# pi-ling's own skills are versioned under `.agents/skills`.
+# These two are synced from a private checkout by `pnpm skills:sync`, so they
+# stay local: they are bound to one author's browser profile and tooling.
+.agents/skills/browser-bridge/
+.agents/skills/browser-use/
 
 # Desktop packaging outputs
 apps/desktop/release-*/
