@@ -1245,6 +1245,247 @@ html[data-theme="light"] .markdown [data-streamdown="code-block-body"] code > sp
   display: none;
 }
 
+/* ---------- 内联渲染（模型直接画出来的图 / 卡片） ---------- */
+
+.inline-render {
+  position: relative;
+  max-width: 100%;
+  margin: 0.75em 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  /*
+   * 用一个「卡片面」而不是 --code-bg：这里放的是图，不是代码。
+   * 深浅两个主题下都有明确的面，模型即使不写背景也能读成一张图。
+   */
+  background: var(--surface-1);
+  overflow: hidden;
+}
+
+/* shadow host：内容由组件注入 shadow root，这里只管布局 */
+.inline-render-host {
+  display: block;
+  max-width: 100%;
+}
+
+/*
+ * 切到「查看源码」时组件会给 host 加 `hidden`，但**必须在这里显式再写一次**：
+ * `hidden` 的隐藏效果来自 UA 样式表的 `[hidden] { display: none }`，
+ * 而上面那条作者样式表的 `display: block` 会把它**覆盖掉** —— 于是图和源码
+ * 会同时显示（踩过的坑）。
+ *
+ * 选择器特异性 0,2,0 > 0,1,0，所以这条能稳定压过上面那条。
+ */
+.inline-render-host[hidden] {
+  display: none;
+}
+
+.inline-render-actions {
+  position: absolute;
+  z-index: 2;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.inline-render:hover .inline-render-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.inline-render-action {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface-1) 88%, transparent);
+  cursor: pointer;
+}
+
+.inline-render-action:hover {
+  color: var(--text);
+  background: var(--surface-3);
+}
+
+/* 源码模式 / 流式占位 / 渲染失败时的原始内容 */
+.inline-render-source {
+  max-width: 100%;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.inline-render-source pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/*
+ * 源码视图自己的代码元素：清掉 `.markdown code` 的行内代码样式
+ * （内边距 + 底色 + 圆角），否则整段代码会被当成一个「行内代码」上色，
+ * 与外层容器叠成两层框。
+ */
+.inline-render-source pre code {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  border-radius: 0;
+  font-size: inherit;
+  white-space: inherit;
+}
+
+/* 高亮结果：每行一个块级元素，行内是若干 token */
+.inline-render-line {
+  display: block;
+  min-height: 1lh;
+}
+
+/*
+ * token 的着色沿用应用里代码块的同一套约定：
+ * 浅色来自 Shiki 的第一个主题，深色来自第二个，运行时用主题属性切换。
+ *
+ * 变量名没有沿用 Streamdown 的 `--sdm-c` / `--shiki-dark` —— 那两个是它的
+ * Tailwind 类消费的，这里是自己渲染的 DOM，用独立命名避免将来被别处的规则
+ * 意外命中。
+ */
+.inline-render-token {
+  color: var(--token-dark, var(--token-light, inherit));
+}
+
+html[data-theme="light"] .inline-render-token {
+  color: var(--token-light, inherit);
+}
+
+.inline-render-note {
+  margin-bottom: 8px;
+  color: var(--muted-2);
+  font-family: "Segoe UI Variable", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  font-size: 12px;
+}
+
+/* ---------- 图表全屏查看 ---------- */
+
+.figure-overlay {
+  position: fixed;
+  /* 高于输入区菜单（1000/1001），全屏时不该被任何浮层盖住 */
+  z-index: 1100;
+  /*
+   * 顶部让出标题栏。
+   *
+   * 踩过的坑：应用用的是 `titleBarStyle: "hidden"` + `titleBarOverlay`
+   * （见 src/main/index.ts），Windows 的原生窗口按钮（最小化/最大化/关闭）
+   * 是**绘制在网页内容之上**的，而自绘标题栏高 `--titlebar-height: 30px`。
+   * 遮罩原先写 `inset: 0` 会盖住这一条，于是它自己的操作栏正好钻到那三个
+   * 原生按钮底下，看起来像叠在一起。
+   */
+  inset: var(--titlebar-height, 30px) 0 0 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: color-mix(in srgb, #000 48%, transparent);
+}
+
+.figure-overlay-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(1400px, 100%);
+  height: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+  box-shadow: 0 18px 48px var(--shadow);
+  overflow: hidden;
+}
+
+.figure-overlay-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.figure-overlay-zoom {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.figure-overlay-button {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  cursor: pointer;
+}
+
+.figure-overlay-button:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-3);
+}
+
+.figure-overlay-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* 百分比用等宽数字，否则 100% → 75% 时宽度跳动 */
+.figure-overlay-percent {
+  min-width: 46px;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.figure-overlay-reset {
+  height: 24px;
+  margin-left: 4px;
+  padding: 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  cursor: pointer;
+}
+
+.figure-overlay-reset:hover {
+  color: var(--text);
+  background: var(--surface-3);
+}
+
+/*
+ * 图形区：滚动容器。缩放到 >100% 时内容溢出，滚动条出现在这里
+ * （`.wrap` 上的 zoom 参与布局，所以滚动范围是对的）。
+ */
+.figure-overlay-stage {
+  overflow: auto;
+  padding: 18px;
+  background: var(--editor-bg);
+}
+
+.figure-overlay-figure {
+  width: 100%;
+}
+
 .markdown blockquote {
   padding-left: 12px;
   color: var(--muted);

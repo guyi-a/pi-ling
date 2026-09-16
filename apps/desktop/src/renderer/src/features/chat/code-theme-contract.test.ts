@@ -38,6 +38,7 @@ function stripComments(source: string): string {
 }
 
 const MARKDOWN_TSX = readSource("./Markdown.tsx");
+const CODE_HIGHLIGHTER_TS = readSource("./code-highlighter.ts");
 const EDITOR_THEME_TS = readSource("../files/editor-theme.ts");
 const CODE_EDITOR_TSX = readSource("../files/CodeEditor.tsx");
 const MERGE_DIFF_VIEW_TSX = readSource("../diff/MergeDiffView.tsx");
@@ -54,9 +55,31 @@ const LIGHT_THEME = "light-plus";
 
 describe("code highlighting theme contract", () => {
   it("configures both shiki themes on the streamdown code plugin", () => {
-    expect(MARKDOWN_TSX).toMatch(/createCodePlugin\(\{/);
-    expect(MARKDOWN_TSX).toContain(LIGHT_THEME);
-    expect(MARKDOWN_TSX).toContain(DARK_THEME);
+    // 插件的定义已抽到 code-highlighter.ts（让「查看源码」也能复用同一个实例）
+    expect(CODE_HIGHLIGHTER_TS).toMatch(/createCodePlugin\(\{/);
+    expect(CODE_HIGHLIGHTER_TS).toContain(LIGHT_THEME);
+    expect(CODE_HIGHLIGHTER_TS).toContain(DARK_THEME);
+  });
+
+  it("keeps exactly one shiki plugin instance", () => {
+    /*
+     * createCodePlugin 内部会建 Shiki highlighter 并按需异步加载语言包。
+     * 多建一个就把语言加载与缓存做两遍（包体里已有上百个语言 chunk），
+     * 内存和首屏都白付一份。所以只允许 code-highlighter.ts 建实例。
+     */
+    expect(MARKDOWN_TSX).not.toMatch(/createCodePlugin/);
+    expect(MARKDOWN_TSX).toContain('from "./code-highlighter"');
+    const sources = [
+      ["Markdown.tsx", MARKDOWN_TSX],
+      ["code-highlighter.ts", CODE_HIGHLIGHTER_TS],
+      ["InlineRendererView.tsx", readSource("./InlineRendererView.tsx")],
+      ["SourceView.tsx", readSource("./SourceView.tsx")],
+      ["InlineFigureOverlay.tsx", readSource("./InlineFigureOverlay.tsx")],
+    ] as const;
+    const callSites = sources.filter(([, source]) =>
+      /createCodePlugin\(/.test(source),
+    );
+    expect(callSites.map(([name]) => name)).toEqual(["code-highlighter.ts"]);
   });
 
   it("does not rely on the shikiTheme prop, which the plugin overrides", () => {
@@ -248,6 +271,7 @@ describe("code highlighting theme contract", () => {
     expect(EDITOR_THEME_TS).toMatch(/keyword:\s*"#569cd6"/);
     for (const [name, source] of [
       ["Markdown.tsx", MARKDOWN_TSX],
+      ["code-highlighter.ts", CODE_HIGHLIGHTER_TS],
       ["editor-theme.ts", EDITOR_THEME_TS],
     ] as const) {
       expect(source, name).not.toContain("github-light");
