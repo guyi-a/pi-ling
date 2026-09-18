@@ -98,6 +98,8 @@ cd pi-ling
 pnpm install
 ```
 
+`pnpm install` 会执行 `electron-rebuild -f -w node-pty`。
+
 ### 配置模型
 
 复制 `.env.example` 为 `.env`，至少填一个 Provider 的 Key：
